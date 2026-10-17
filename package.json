@@ -1,0 +1,19 @@
+{
+  "name": "streamora",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@streamora/web",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:api": "npm run dev --workspace=@streamora/api",
+    "dev:realtime": "npm run dev --workspace=@streamora/realtime"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10"
+  }
+}
