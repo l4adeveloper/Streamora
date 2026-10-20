@@ -3,17 +3,46 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/*",
+    "apps/web",
+    "backend",
+    "backend/realtime",
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=@streamora/web",
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "setup:env": "node scripts/setup-env.mjs",
+    "staging:setup": "node scripts/setup-staging.mjs",
+    "staging:up": "docker compose --env-file infra/docker/staging/.env -f infra/docker/staging/compose.yml up -d --build --wait --wait-timeout 180",
+    "staging:down": "docker compose --env-file infra/docker/staging/.env -f infra/docker/staging/compose.yml down",
+    "staging:smoke": "node backend/scripts/staging-smoke.cjs",
+    "dev": "npm run build:contracts && npm run dev --workspace=@streamora/web",
+    "build": "npm run build:contracts && npm run build --workspaces --if-present",
+    "build:contracts": "npm run build --workspace=@streamora/contracts",
+    "typecheck": "npm run build:contracts && npm run typecheck --workspaces --if-present",
     "dev:api": "npm run dev --workspace=@streamora/api",
+    "test:backend": "npm run test --workspace=@streamora/api",
+    "test:database": "npm run test:integration --workspace=@streamora/api",
+    "test:browser": "npm run test:browser --workspace=@streamora/api",
+    "test:frontend": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/frontend/*.test.cjs",
+    "test:t01": "npm run typecheck && npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/*.test.cjs backend/test/integration/*.test.cjs backend/test/browser/*.test.cjs backend/test/frontend/*.test.cjs",
+    "docs:api": "npm run docs:api --workspace=@streamora/api",
+    "docs:api:check": "npm run docs:api:check --workspace=@streamora/api",
+    "demo:auth": "node backend/scripts/demo-auth.cjs",
+    "db:generate": "npm run db:generate --workspace=@streamora/api",
+    "db:validate": "npm run db:validate --workspace=@streamora/api",
+    "db:migrate": "npm run db:migrate --workspace=@streamora/api",
+    "db:status": "npm run db:status --workspace=@streamora/api",
+    "db:check": "npm run db:check --workspace=@streamora/api",
     "dev:realtime": "npm run dev --workspace=@streamora/realtime"
   },
+  "engines": {
+    "node": ">=22.16.0",
+    "npm": ">=10"
+  },
   "devDependencies": {
+    "@nestjs/swagger": "11.4.7",
     "prettier": "^3.9.10"
+  },
+  "overrides": {
+    "js-yaml": "5.4.2"
   }
 }
