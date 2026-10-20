@@ -17,10 +17,10 @@ cấp trong workspace, không đưa vào commit T01.
 
 - Backend ở `backend/`; AuthModule/UsersModule, migration, guard/contracts, frontend
   auth/tài khoản và nền tảng UI từ các mục trước được bàn giao cùng nhau.
-- Swagger development: http://127.0.0.1:4000/api/v1/docs sau khi khởi động lại API.
+- Swagger development: http://127.0.0.1:3000/api/v1/docs sau khi chạy lại API/frontend.
   Sáu operation T01-01…06; JSON ở /api/v1/docs-json và bản export
-  `backend/docs/openapi.json`. Docs mặc định tắt ở production. GET/PATCH thử Bearer
-  trên Swagger; POST auth qua frontend hoặc script demo để giữ kiểm tra Origin.
+  `backend/docs/openapi.json`. Docs mặc định tắt ở production. Cả sáu API có Try it
+  out qua proxy frontend; POST auth giữ kiểm tra Origin và cookie HttpOnly thực.
 - Có lệnh docs:api, docs:api:check và demo:auth; tài liệu setup, tích hợp, demo,
   staging và nội dung PR đã được viết. Không lưu credentials vào spec hoặc Git.
 - HTTPS staging **local**: https://localhost:8443; Compose project riêng
@@ -31,9 +31,9 @@ cấp trong workspace, không đưa vào commit T01.
 
 ## Bằng chứng kiểm tra
 
-- `npm run test:t01`: exit 0; **83/83** pass, fail/cancelled/skipped/todo đều 0,
-  thời gian khoảng 145 giây. Gồm 18 unit/config, 30 API/database, 7 browser và
-  28 frontend/session. Typecheck mọi workspace đạt; Next production build và
+- `npm run test:t01`: exit 0; **84/84** pass, fail/cancelled/skipped/todo đều 0,
+  thời gian khoảng 170 giây. Gồm 18 unit/config, 30 API/database, 7 browser và
+  29 frontend/session. Typecheck mọi workspace đạt; Next production build và
   PostgreSQL thật dùng môi trường tạm được dọn sau test.
 - `node backend/scripts/export-openapi.cjs --check`: OpenAPI khớp source.
 - `npm ci --dry-run --ignore-scripts --no-audit --no-fund`: lockfile hợp lệ.
@@ -49,8 +49,9 @@ cấp trong workspace, không đưa vào commit T01.
   cookie Secure HttpOnly và Swagger production 404.
 - Đã commit/push lên nhánh codex/t01-auth-handoff và mở
   [draft PR #1](https://github.com/l4adeveloper/Streamora/pull/1) vào main.
-  Commit triển khai chức năng/Docker: `910f918`; commit báo cáo sau đó chỉ cập nhật
-  minh chứng bàn giao. Chưa có reviewer phê duyệt, chưa merge.
+  Minh chứng Docker/HTTPS local ở trên ứng với phần triển khai `910f918`.
+  Bổ sung Try it out Auth qua proxy frontend có kiểm thử Next production riêng và
+  được cập nhật cùng PR. Chưa có reviewer phê duyệt, chưa merge.
 
 Log/ảnh local trong `.preview/`, không đưa vào Git. Các file .env thật, TLS key,
 generated Prisma, node_modules, dist/.next và database đều không được commit.

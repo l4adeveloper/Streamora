@@ -85,11 +85,12 @@ test("Swagger renders six operations, tries a real Bearer GET and clears authori
     });
     const post = page.locator(".opblock-post").first();
     await post.locator(".opblock-summary").click();
+    await post.getByRole("button", { name: "Try it out", exact: true }).waitFor();
     assert.equal(
       await post
         .getByRole("button", { name: "Try it out", exact: true })
         .count(),
-      0,
+      1,
     );
     await page
       .getByRole("button", { name: "Authorize", exact: true })

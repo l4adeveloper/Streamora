@@ -16,7 +16,8 @@ tảng dùng chung để các thành viên tích hợp xác thực, lỗi và tr
 - Frontend khôi phục phiên, refresh/retry tối đa một lần, phối hợp nhiều tab và bỏ
   kết quả/request từ danh tính cũ. Token ở bộ nhớ; marker công khai đồng bộ tab.
 - Khung trang/form/toast/loading/error dùng chung. Swagger/OpenAPI cho sáu API,
-  export/check đặc tả không cần database, cùng script demo HTTP.
+  export/check đặc tả không cần database, cùng script demo HTTP. Swagger qua proxy
+  frontend hỗ trợ Try it out cả Auth và Users, giữ kiểm tra Origin và cookie thật.
 
 ## Validation
 
@@ -28,7 +29,8 @@ npm run docs:api:check
 Nghiệm thu dùng database/port/browser context riêng, Next.js production build và
 cookie HTTP/HTTPS thật. Có case email trùng đồng thời, rotation/reuse, logout chen
 refresh, JWT giả/hết hạn, tài khoản khóa, mất mạng, nhiều tab, đổi user và log an toàn.
-83/83 kiểm thử đạt ngày 20/10/2026, không fail/cancel/skip/todo.
+84/84 kiểm thử đạt ngày 20/10/2026, không fail/cancel/skip/todo. Có kiểm thử Swagger
+qua Next proxy Execute đủ sáu API, cookie HttpOnly xoay/xóa và Origin sai bị chặn.
 Swagger được kiểm tra với Bearer thật, schema khớp response và docs tắt ở production.
 Script demo HTTP được kiểm thử trên API/database tạm.
 

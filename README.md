@@ -15,7 +15,8 @@ npm run dev
 Mở http://127.0.0.1:3000. Các trang trải nghiệm chạy độc lập với dữ liệu mẫu.
 Đăng ký, đăng nhập và tài khoản dùng API/PostgreSQL thật; xem [hướng dẫn frontend](apps/web/README.md).
 Đồng đội bắt đầu từ [hướng dẫn bàn giao T01](backend/docs/t01-handoff.md).
-Swagger API local: `http://127.0.0.1:4000/api/v1/docs`.
+Swagger local có Try it out Auth/Users: `http://127.0.0.1:3000/api/v1/docs`
+(cần chạy cả frontend và API).
 
 | Đường dẫn    | Nội dung                                                      |
 | ------------ | ------------------------------------------------------------- |
