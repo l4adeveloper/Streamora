@@ -152,6 +152,8 @@ Nội dung PR tại [t01-pr.md](t01-pr.md). Chọn nhánh codex/t01-auth-handoff
 theo default branch của repository vì workbook chưa ghi nhánh đích. Trạng thái/URL
 PR được cập nhật trong [báo cáo bàn giao](t01-delivery-report.md). Đính kèm kết quả
 nghiệm thu và bổ sung minh chứng staging chung khi nhóm deploy.
+PR #1 bàn giao T01 đã được merge trên GitHub; phần sửa Try it out Auth nằm trong
+draft PR #2, nội dung review được cập nhật theo phạm vi bản sửa này.
 
 Reviewer cần xác nhận: backend đúng thư mục; migration chạy trên DB trống; DTO
 không nhận trường nâng quyền; Argon2id và refresh hash; transaction rotation/reuse;

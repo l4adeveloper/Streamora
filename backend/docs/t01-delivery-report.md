@@ -48,10 +48,12 @@ cấp trong workspace, không đưa vào commit T01.
   gồm đăng ký/login/sửa hồ sơ Unicode/reload/rotation/logout hai tab, guard/Origin,
   cookie Secure HttpOnly và Swagger production 404.
 - Đã commit/push lên nhánh codex/t01-auth-handoff và mở
-  [draft PR #1](https://github.com/l4adeveloper/Streamora/pull/1) vào main.
+  [PR #1](https://github.com/l4adeveloper/Streamora/pull/1) vào main.
+  GitHub hiện xác nhận PR này đã merge, merge commit c052b90.
   Minh chứng Docker/HTTPS local ở trên ứng với phần triển khai `910f918`.
   Bổ sung Try it out Auth qua proxy frontend có kiểm thử Next production riêng và
-  được cập nhật cùng PR. Chưa có reviewer phê duyệt, chưa merge.
+  nằm trong [draft PR #2](https://github.com/l4adeveloper/Streamora/pull/2), chờ review,
+  chưa merge. Image HTTPS local trước đó chưa rebuild; staging vẫn tắt Swagger.
 
 Log/ảnh local trong `.preview/`, không đưa vào Git. Các file .env thật, TLS key,
 generated Prisma, node_modules, dist/.next và database đều không được commit.
@@ -60,8 +62,8 @@ trong nghiệm thu; smoke staging chỉ tạo user ngẫu nhiên trong database 
 
 ## Phần còn lại của nhóm
 
-Review draft PR, tích hợp các API nghiệp vụ với guard, triển khai commit lên
+Review draft PR #2 sửa Swagger, tích hợp các API nghiệp vụ với guard, triển khai commit lên
 staging chung có domain/TLS thật và bổ sung minh chứng vào quy trình T19/T20.
-Chỉ cập nhật T01 thành Hoàn thành sau khi đủ điều kiện workbook. PR giữ draft và
+Chỉ cập nhật T01 thành Hoàn thành sau khi đủ điều kiện workbook. PR #2 giữ draft,
 không merge tự động. Hướng dẫn chạy: [t01-handoff.md](t01-handoff.md) và
 [t01-staging.md](t01-staging.md).
