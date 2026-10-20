@@ -1,0 +1,50 @@
+{
+  "name": "@streamora/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm run build && node dist/main.js",
+    "build": "npm run build --workspace=@streamora/contracts && npm run db:generate && tsc",
+    "start": "node dist/main.js",
+    "typecheck": "npm run build --workspace=@streamora/contracts && npm run db:generate && tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.cjs",
+    "test:integration": "npm run build && node --test --test-concurrency=1 test/integration/*.test.cjs",
+    "test:browser": "npm run build && node --test --test-concurrency=1 test/browser/*.test.cjs",
+    "docs:api": "npm run build && node scripts/export-openapi.cjs",
+    "docs:api:check": "npm run build && node scripts/export-openapi.cjs --check",
+    "db:generate": "prisma generate",
+    "db:validate": "prisma validate",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:status": "prisma migrate status",
+    "db:check": "npm run build && node scripts/check-database.cjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/swagger": "11.4.7",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "@streamora/contracts": "0.1.0",
+    "argon2": "0.45.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "cookie-parser": "1.4.7",
+    "jsonwebtoken": "9.0.3",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "1.4.10",
+    "@types/express": "5.0.6",
+    "@types/jsonwebtoken": "9.0.10",
+    "@types/node": "^22.0.0",
+    "@types/pg": "8.23.1",
+    "pg": "8.23.1",
+    "playwright": "1.62.1",
+    "prisma": "7.10.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,73 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum GlobalRole {
+  USER
+  ADMIN
+
+  @@map("global_role")
+}
+
+enum SessionRevocationReason {
+  LOGOUT
+  REFRESH_REUSED
+  USER_DISABLED
+
+  @@map("session_revocation_reason")
+}
+
+model User {
+  id           String        @id @default(uuid()) @db.Uuid
+  email        String        @unique @db.VarChar(254)
+  passwordHash String        @map("password_hash") @db.Text
+  fullName     String        @map("full_name") @db.VarChar(100)
+  globalRole   GlobalRole    @default(USER) @map("global_role")
+  disabledAt   DateTime?     @map("disabled_at") @db.Timestamptz(3)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sessions     AuthSession[]
+
+  @@map("users")
+}
+
+// A session is also the refresh-token family. Its id stays stable during rotation
+// and becomes the access token's sid. Revoking it invalidates the whole family.
+model AuthSession {
+  id               String                   @id @default(uuid()) @db.Uuid
+  userId           String                   @map("user_id") @db.Uuid
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt        DateTime                 @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt       DateTime?                @map("last_used_at") @db.Timestamptz(3)
+  revokedAt        DateTime?                @map("revoked_at") @db.Timestamptz(3)
+  revocationReason SessionRevocationReason? @map("revocation_reason")
+  user             User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens    AuthRefreshToken[]
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+// Retain consumed hashes until the family expires so an old token is detectable.
+// There is no raw refresh token column.
+model AuthRefreshToken {
+  id         String      @id @default(uuid()) @db.Uuid
+  sessionId  String      @map("session_id") @db.Uuid
+  tokenHash  String      @unique @map("token_hash") @db.Char(64)
+  generation Int         @default(0)
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt  DateTime    @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime?   @map("consumed_at") @db.Timestamptz(3)
+  session    AuthSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, generation])
+  @@index([expiresAt])
+  @@map("auth_refresh_tokens")
+}

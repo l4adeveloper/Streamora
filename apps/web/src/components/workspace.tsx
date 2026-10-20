@@ -41,11 +41,12 @@ import {
   BarChart3,
   Upload,
   Circle,
-  CheckCircle2,
   ExternalLink,
 } from "lucide-react";
 
 import { Brand, Avatar, IconButton } from "./ui";
+import { AccountLink, SessionIdentity } from "./shell/account-link";
+import { useToast } from "./common/toast-provider";
 
 import { LivePlayer } from "./live-player";
 import {
@@ -65,12 +66,12 @@ export function Workspace({
   view: View;
   channel?: string;
 }) {
+  const { notify } = useToast();
   const [panel, setPanel] = useState(true);
   const [panelTab, setPanelTab] = useState<"chat" | "members">(
     view === "chat" ? "members" : "chat",
   );
   const [modal, setModal] = useState<string | null>(null);
-  const [toast, setToast] = useState("");
   const [group, setGroup] = useState("Hệ thống phân tán");
   const [newGroup, setNewGroup] = useState("");
   const [messages, setMessages] = useState(initialMessages);
@@ -115,7 +116,6 @@ export function Workspace({
   const micStream = useRef<MediaStream | null>(null);
   const localVideo = useRef<HTMLVideoElement>(null);
   const screenVideo = useRef<HTMLVideoElement>(null);
-  const notify = (message: string) => setToast(message);
   useEffect(() => {
     try {
       const stored = localStorage.getItem(chatStorageKey);
@@ -137,11 +137,6 @@ export function Workspace({
       if (matchMedia("(max-width: 900px)").matches) setPanel(false);
     } catch {}
   }, [channel, chatStorageKey]);
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(""), 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
   useEffect(() => {
     if (!modal) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -441,14 +436,7 @@ export function Workspace({
           <IconButton label="Hướng dẫn" onClick={() => setModal("help")}>
             <CircleHelp size={21} />
           </IconButton>
-          <button
-            className="profile-avatar"
-            title="Tùy chỉnh cá nhân"
-            onClick={() => setModal("settings")}
-          >
-            BA
-            <span />
-          </button>
+          <AccountLink variant="avatar" />
         </div>
       </aside>
       <aside className="channel-sidebar">
@@ -597,13 +585,7 @@ export function Workspace({
           </button>
         </div>
         <div className="sidebar-user">
-          <Avatar initials="BA" small />
-          <div>
-            <b>Bảo Anh</b>
-            <small>
-              <span className="status-dot" /> Đang hoạt động
-            </small>
-          </div>
+          <SessionIdentity />
           <IconButton
             label={mic ? "Tắt micro" : "Bật micro"}
             active={mic}
@@ -1316,15 +1298,6 @@ export function Workspace({
           )}
         </div>
       </div>
-      {toast && (
-        <div className="toast" role="status">
-          <CheckCircle2 size={18} />
-          {toast}
-          <button onClick={() => setToast("")} aria-label="Đóng thông báo">
-            <X size={14} />
-          </button>
-        </div>
-      )}
       {modal && (
         <div className="modal-backdrop" onClick={() => setModal(null)}>
           <section

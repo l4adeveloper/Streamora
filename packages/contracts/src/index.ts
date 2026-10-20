@@ -1,3 +1,6 @@
+export * from "./auth";
+export * from "./api";
+
 export type CommunityRole = "owner" | "teacher" | "member";
 export type ChannelType = "text" | "voice" | "live";
 export interface Community {
