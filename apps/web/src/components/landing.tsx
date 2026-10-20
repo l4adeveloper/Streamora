@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { Brand } from "./ui";
+import { AccountLink } from "./shell/account-link";
 import { Presentation } from "./presentation";
 export function Landing() {
   return (
@@ -28,10 +29,9 @@ export function Landing() {
           <a href="#trai-nghiem">Trải nghiệm</a>
           <a href="#khong-gian">Không gian học tập</a>
           <Link href="/meet">Tham gia cuộc họp</Link>
+          <AccountLink />
         </div>
-        <Link className="button secondary" href="/workspace">
-          Mở không gian <ArrowUpRight />
-        </Link>
+        <AccountLink variant="button" />
       </nav>
       <section className="hero">
         <div className="hero-orbit" />

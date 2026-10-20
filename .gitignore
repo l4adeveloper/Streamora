@@ -2,7 +2,11 @@ node_modules/
 .next/
 dist/
 .env
-.env.local
+.env.*
+!.env.example
+!.env.*.example
 *.tsbuildinfo
 coverage/
 .preview/
+backend/src/generated/prisma/
+infra/docker/staging/tls/
