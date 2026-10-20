@@ -13,14 +13,15 @@ npm run dev
 
 Mở http://127.0.0.1:3000. Giao diện chạy độc lập, không yêu cầu database hoặc khóa dịch vụ.
 
-| Đường dẫn    | Nội dung                                                      |
-| ------------ | ------------------------------------------------------------- |
-| `/`          | Landing giới thiệu và bản xem trước không gian                |
-| `/workspace` | Lớp trực tiếp, trình phát DVR minh họa, chat và thành viên    |
-| `/meet`      | Tạo phòng hoặc tham gia bằng mã/liên kết                      |
-| `/rooms/:id` | Phòng họp, camera/micro/chia sẻ màn hình trên thiết bị cục bộ |
-| `/community` | Kênh chat, lưu lịch sử trên trình duyệt                       |
-| `/files`     | Thư viện tìm kiếm, lọc và mô phỏng tải lên/tạm dừng/tiếp tục  |
+| Đường dẫn    | Nội dung                                                                                                       |
+| ------------ | -------------------------------------------------------------------------------------------------------------- |
+| `/`          | Landing giới thiệu và bản xem trước không gian                                                                 |
+| `/workspace` | Lớp trực tiếp, trình phát DVR minh họa, chat và thành viên                                                     |
+| `/meet`      | Trang cuộc họp độc lập kiểu Google Meet: tạo ngay, lấy liên kết dùng sau, nhập mã/liên kết và cuộc họp gần đây |
+| `/meet/:id`  | Phòng chờ kiểm tra thiết bị và phòng họp độc lập, không dùng sidebar cộng đồng                                 |
+| `/rooms/:id` | Phòng họp, camera/micro/chia sẻ màn hình trên thiết bị cục bộ                                                  |
+| `/community` | Kênh chat, lưu lịch sử trên trình duyệt                                                                        |
+| `/files`     | Thư viện tìm kiếm, lọc và mô phỏng tải lên/tạm dừng/tiếp tục                                                   |
 
 ## Cấu trúc
 
@@ -70,6 +71,7 @@ docker compose --env-file .env -f infra/docker/compose.yml --profile media up -d
 ## Phạm vi đã triển khai
 
 - Điều hướng giữa các trang, mời bằng liên kết, tạo/tham gia phòng mẫu, tìm metadata tài liệu và tin nhắn.
+- Luồng cuộc họp độc lập: `/meet` → `/meet/:id`. Tạo ngay vào phòng họp; liên kết dùng sau và mã tham gia mở phòng chờ. Cuộc họp gần đây lưu tối đa 5 mục trên trình duyệt. Camera, micro, chia sẻ màn hình, giơ tay và bảng tin nhắn cục bộ có trong giao diện họp độc lập. `/rooms/:id` tiếp tục là phòng trong cộng đồng.
 - Chat được lưu riêng theo kênh; kênh mới và metadata thư viện lưu trong `localStorage` trên thiết bị. Thao tác cộng đồng/quản lý thành viên/bình chọn là trạng thái mẫu.
 - Thanh tua kéo được, play/pause, đuổi theo mốc trực tiếp, chọn tốc độ/chất lượng và toàn màn hình là mô phỏng giao diện, chưa phát video HLS thực.
 - Camera/micro/chia sẻ màn hình dùng `getUserMedia`/`getDisplayMedia` thật sau khi cho phép, có dừng track khi rời trang. Chưa truyền media giữa người dùng.
