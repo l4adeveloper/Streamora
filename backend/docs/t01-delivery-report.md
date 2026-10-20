@@ -47,7 +47,10 @@ cấp trong workspace, không đưa vào commit T01.
 - `npm run staging:smoke`: exit 0; **11/11 bước đạt** trên Edge qua nginx HTTPS,
   gồm đăng ký/login/sửa hồ sơ Unicode/reload/rotation/logout hai tab, guard/Origin,
   cookie Secure HttpOnly và Swagger production 404.
-- PR: ghi URL sau khi tạo draft; chưa có reviewer phê duyệt/merge.
+- Đã commit/push lên nhánh codex/t01-auth-handoff và mở
+  [draft PR #1](https://github.com/l4adeveloper/Streamora/pull/1) vào main.
+  Commit triển khai chức năng/Docker: `910f918`; commit báo cáo sau đó chỉ cập nhật
+  minh chứng bàn giao. Chưa có reviewer phê duyệt, chưa merge.
 
 Log/ảnh local trong `.preview/`, không đưa vào Git. Các file .env thật, TLS key,
 generated Prisma, node_modules, dist/.next và database đều không được commit.

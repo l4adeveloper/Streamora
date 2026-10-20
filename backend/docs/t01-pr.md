@@ -49,5 +49,7 @@ riêng để demo production tại https://localhost:8443, database/secrets/volu
 - Kết quả local: xem `backend/docs/t01-acceptance.md`.
 - Nhánh: codex/t01-auth-handoff → main (default branch; workbook chưa chốt nhánh).
 - Reviewer và staging chung: chờ nhóm; PR giữ draft, chưa tự merge.
-- URL PR, kết quả Docker/HTTPS local: xem backend/docs/t01-delivery-report.md.
+- Draft PR: https://github.com/l4adeveloper/Streamora/pull/1.
+- Docker production build/migration/health đạt; smoke HTTPS local 11/11 bước đạt
+  trên Edge. Chi tiết: backend/docs/t01-delivery-report.md.
 - Kịch bản demo và điểm tích hợp: `backend/docs/t01-handoff.md`.
