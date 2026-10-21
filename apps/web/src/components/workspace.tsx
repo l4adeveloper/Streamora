@@ -464,6 +464,9 @@ export function Workspace({
             <Link href="/" className="channel">
               <LayoutGrid size={18} /> Trang chủ <ArrowUpRight />
             </Link>
+            <Link href="/groups" className="channel">
+              <Users size={18} /> Nhóm học tập <ArrowUpRight />
+            </Link>
             <button
               className="channel"
               onClick={() => {

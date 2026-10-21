@@ -24,14 +24,17 @@
     "test:browser": "npm run test:browser --workspace=@streamora/api",
     "test:frontend": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/frontend/*.test.cjs",
     "test:t01": "npm run typecheck && npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/*.test.cjs backend/test/integration/*.test.cjs backend/test/browser/*.test.cjs backend/test/frontend/*.test.cjs",
+    "test:t02": "node --test backend/test/groups.test.cjs",
     "docs:api": "npm run docs:api --workspace=@streamora/api",
     "docs:api:check": "npm run docs:api:check --workspace=@streamora/api",
     "demo:auth": "node backend/scripts/demo-auth.cjs",
+    "demo:groups": "node backend/scripts/demo-groups.cjs",
     "db:generate": "npm run db:generate --workspace=@streamora/api",
     "db:validate": "npm run db:validate --workspace=@streamora/api",
     "db:migrate": "npm run db:migrate --workspace=@streamora/api",
     "db:status": "npm run db:status --workspace=@streamora/api",
     "db:check": "npm run db:check --workspace=@streamora/api",
+    "db:seed": "node backend/scripts/seed-demo-users.cjs",
     "dev:realtime": "npm run dev --workspace=@streamora/realtime"
   },
   "engines": {

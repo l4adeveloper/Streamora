@@ -71,3 +71,43 @@ model AuthRefreshToken {
   @@index([expiresAt])
   @@map("auth_refresh_tokens")
 }
+
+// ─── T02: Groups ──────────────────────────────────────────────────────────────
+
+enum GroupMemberRole {
+  OWNER
+  HOST
+  VIEWER
+
+  @@map("group_member_role")
+}
+
+// Soft-delete: deletedAt non-null means the group is archived.
+// Active sessions block delete (checked at application layer by T04).
+model Group {
+  id          String        @id @default(uuid()) @db.Uuid
+  name        String        @db.VarChar(100)
+  description String?       @db.VarChar(500)
+  ownerId     String        @map("owner_id") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime?     @map("deleted_at") @db.Timestamptz(3)
+  members     GroupMember[]
+
+  @@index([ownerId])
+  @@index([deletedAt])
+  @@map("groups")
+}
+
+// One membership record per user/group pair; role may change over time.
+model GroupMember {
+  userId   String          @map("user_id") @db.Uuid
+  groupId  String          @map("group_id") @db.Uuid
+  role     GroupMemberRole @default(VIEWER)
+  joinedAt DateTime        @default(now()) @map("joined_at") @db.Timestamptz(3)
+  group    Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@index([groupId, role])
+  @@map("group_members")
+}
