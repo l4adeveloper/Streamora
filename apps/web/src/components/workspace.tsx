@@ -2,20 +2,20 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowLeft,
   ArrowRight,
   Bell,
-  BookOpen,
   Check,
   ChevronDown,
   ChevronRight,
   CircleHelp,
   Clock3,
-  Code2,
   Copy,
   FileText,
   Folder,
   Hash,
   LayoutGrid,
+  LoaderCircle,
   Link2,
   Menu,
   MessageCircle,
@@ -26,8 +26,8 @@ import {
   Play,
   Plus,
   Radio,
+  RefreshCw,
   Search,
-  Send,
   Settings2,
   ShieldCheck,
   Users,
@@ -45,7 +45,8 @@ import {
 } from "lucide-react";
 
 import { Brand, Avatar, IconButton } from "./ui";
-import { AccountLink, SessionIdentity } from "./shell/account-link";
+import { SessionIdentity } from "./shell/account-link";
+import { ThemeToggle } from "./shell/theme-toggle";
 import { useToast } from "./common/toast-provider";
 import { useAuth } from "./auth/auth-provider";
 import { LoadingState, RequestError } from "./common/feedback";
@@ -54,6 +55,7 @@ import { useWorkspaceGroup } from "@/lib/memberships/use-workspace-group";
 import { useGroupPermissions } from "@/lib/memberships/use-group-permissions";
 
 import { LivePlayer } from "./live-player";
+import { WorkspaceChat } from "./workspace-chat";
 import {
   initialMessages,
   initialFiles,
@@ -63,6 +65,21 @@ import {
 import type { View, ChatMessage } from "./demo-data";
 function ArrowUpRight() {
   return <ExternalLink size={15} />;
+}
+function groupInitials(name: string) {
+  const words = name.trim().split(/\s+/);
+  if (words.length === 1) {
+    const letters = Array.from(words[0]);
+    return letters
+      .slice(0, letters.length <= 4 ? 4 : 2)
+      .join("")
+      .toUpperCase();
+  }
+  return words
+    .slice(0, 2)
+    .map((word) => Array.from(word)[0])
+    .join("")
+    .toUpperCase();
 }
 export function Workspace({
   view,
@@ -82,8 +99,18 @@ export function Workspace({
     view === "chat" ? "members" : "chat",
   );
   const [modal, setModal] = useState<string | null>(null);
-  const [group, setGroup] = useState("Hệ thống phân tán");
-  const [newGroup, setNewGroup] = useState("");
+  const selectedGroup = workspaceGroup.groups.find(
+    (item) => item.id === workspaceGroup.groupId,
+  );
+  const group =
+    selectedGroup?.name ??
+    (user
+      ? workspaceGroup.loading
+        ? "Đang tải nhóm…"
+        : workspaceGroup.error
+          ? "Chưa tải được nhóm"
+          : "Chưa có nhóm học tập"
+      : "Không gian trải nghiệm");
   const [messages, setMessages] = useState(initialMessages);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
@@ -115,7 +142,6 @@ export function Workspace({
     paused: boolean;
   } | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
-  const chatBottom = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [customChannels, setCustomChannels] = useState<string[]>([]);
   const [activeRoomName, setActiveRoomName] = useState("Phòng học nhóm");
@@ -126,16 +152,13 @@ export function Workspace({
   const localVideo = useRef<HTMLVideoElement>(null);
   const screenVideo = useRef<HTMLVideoElement>(null);
   useEffect(() => {
-    if (new URLSearchParams(location.search).get("tab") === "members") {
-      setMembersView(true);
-      setPanel(false);
-    }
-  }, []);
+    const showMembers =
+      new URLSearchParams(location.search).get("tab") === "members";
+    setMembersView(showMembers);
+    if (showMembers) setPanel(false);
+    setMobileNav(false);
+  }, [view, channel]);
   useEffect(() => {
-    const selected = workspaceGroup.groups.find(
-      (item) => item.id === workspaceGroup.groupId,
-    );
-    if (selected) setGroup(selected.name);
     setModal(null);
     setRecording(false);
     setPoll(false);
@@ -200,7 +223,12 @@ export function Workspace({
       ).filter((element) => !element.hasAttribute("disabled"));
     focusable()[0]?.focus();
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setModal(null);
+      if (event.key === "Escape") {
+        const pickerOpen =
+          CSS.supports("selector(select:open)") &&
+          document.querySelector("select:open");
+        if (!pickerOpen) setModal(null);
+      }
       if (event.key !== "Tab") return;
       const elements = focusable();
       const first = elements[0];
@@ -219,12 +247,6 @@ export function Workspace({
       previous?.focus();
     };
   }, [modal]);
-  useEffect(() => {
-    chatBottom.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-    });
-  }, [messages]);
   useEffect(
     () => () => {
       [cameraStream, screenStream, micStream].forEach((ref) =>
@@ -375,6 +397,27 @@ export function Workspace({
           : view === "chat"
             ? channel
             : activeRoomName;
+  const currentSection = membersView
+    ? "Thành viên"
+    : view === "chat"
+      ? channel.replaceAll("-", " ")
+      : view === "files" && filter === "Bản ghi"
+        ? "Bản ghi bài giảng"
+        : view === "meet"
+          ? "Tạo cuộc họp"
+          : title;
+  function navigateWorkspace(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    setMembersView(false);
+    setMobileNav(false);
+  }
   const filteredFiles = files.filter(
     (file) =>
       file.name
@@ -382,118 +425,85 @@ export function Workspace({
         .includes(fileQuery.toLocaleLowerCase("vi")) &&
       (filter === "Tất cả" || file.kind === filter),
   );
-  const chatUI = (
-    <>
-      <div className="chat-info">
-        <ShieldCheck size={14} />
-        <span>Cuộc trò chuyện được lưu trong cộng đồng</span>
-      </div>
-      <div className="chat-date">
-        <span />
-        Hôm nay, 17 tháng 10
-        <span />
-      </div>
-      <div className="messages">
-        {messages.map((message, index) => (
-          <div className="message" key={index}>
-            <Avatar initials={message.initials} color={message.color} small />
-            <div>
-              <div className="message-meta">
-                <b>{message.name}</b>
-                {message.host && <span className="host-label">Giảng viên</span>}
-                <time>{message.time}</time>
-              </div>
-              <p>{message.text}</p>
-              {index === 4 && (
-                <button
-                  className="reaction"
-                  onClick={() => notify("Đã gửi lời cảm ơn đến Linh Nguyễn.")}
-                >
-                  💜 3
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-        <div ref={chatBottom} />
-      </div>
-      <form className="chat-form" onSubmit={sendMessage}>
-        <div>
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Gửi lời nhắn đến mọi người…"
-            aria-label="Tin nhắn"
-          />
-          <button
-            type="submit"
-            aria-label="Gửi tin nhắn"
-            disabled={!draft.trim()}
-          >
-            <Send size={17} />
-          </button>
-        </div>
-        <small>
-          <span className="status-dot" /> Cùng nhau tạo nên một không gian tích
-          cực.
-        </small>
-      </form>
-    </>
-  );
+  const chatProps = {
+    messages,
+    draft,
+    onDraftChange: setDraft,
+    onSubmit: sendMessage,
+    onReaction: () => notify("Đã gửi lời cảm ơn đến Linh Nguyễn."),
+  };
   return (
     <div className={`app-shell ${mobileNav ? "nav-open" : ""}`}>
-      <aside className="community-rail">
-        <Brand small />
+      <aside className="community-rail" aria-label="Không gian và nhóm học tập">
+        <Brand small href="/groups" label="Streamora, nhóm học tập" />
         <div className="rail-divider" />
-        <button
-          className="community-icon selected"
-          title={group}
-          onClick={() => setMobileNav(!mobileNav)}
-        >
-          HT
-          <span />
-        </button>
-        <button
-          className="community-icon book"
-          title="Cộng đồng thiết kế"
-          onClick={() => {
-            setGroup("Cộng đồng thiết kế");
-            notify("Đã chuyển sang cộng đồng thiết kế mẫu.");
-          }}
-        >
-          <BookOpen size={23} />
-        </button>
-        <button
-          className="community-icon code"
-          title="Câu lạc bộ lập trình"
-          onClick={() => {
-            setGroup("Câu lạc bộ lập trình");
-            notify("Đã chuyển sang câu lạc bộ lập trình mẫu.");
-          }}
-        >
-          <Code2 size={25} />
-        </button>
-        {group !== "Hệ thống phân tán" && (
-          <button
-            className="community-icon"
-            title={group}
-            onClick={() => notify(`Bạn đang ở ${group}.`)}
+        <nav className="workspace-groups" aria-label="Nhóm học tập của bạn">
+          {workspaceGroup.loading && (
+            <span className="rail-loading" role="status">
+              <LoaderCircle
+                size={20}
+                className="ui-spinner"
+                aria-hidden="true"
+              />
+              <span className="sr-only">Đang tải nhóm học tập…</span>
+            </span>
+          )}
+          {workspaceGroup.groups.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`community-icon ${item.id === workspaceGroup.groupId ? "selected" : ""}`}
+              title={item.name}
+              aria-label={`Mở nhóm ${item.name}`}
+              aria-current={
+                item.id === workspaceGroup.groupId ? "true" : undefined
+              }
+              onClick={() => {
+                workspaceGroup.selectGroup(item.id);
+                if (matchMedia("(max-width: 650px)").matches)
+                  setMobileNav(true);
+              }}
+            >
+              {groupInitials(item.name)}
+            </button>
+          ))}
+          {Boolean(workspaceGroup.error) && (
+            <button
+              type="button"
+              className="community-icon"
+              title="Chưa tải được nhóm. Thử lại"
+              aria-label="Thử tải lại nhóm học tập"
+              onClick={workspaceGroup.reload}
+            >
+              <RefreshCw size={18} />
+            </button>
+          )}
+          {user &&
+            !workspaceGroup.loading &&
+            !workspaceGroup.error &&
+            workspaceGroup.groups.length === 0 && (
+              <Link
+                className="community-icon"
+                href="/groups"
+                title="Bạn chưa tham gia nhóm nào"
+                aria-label="Xem nhóm học tập"
+              >
+                <Users size={20} />
+              </Link>
+            )}
+          <Link
+            className="add-community"
+            href="/groups"
+            title="Thêm nhóm học tập"
+            aria-label="Thêm nhóm học tập"
           >
-            {group.slice(0, 2).toUpperCase()}
-          </button>
-        )}
-        <button
-          className="add-community"
-          title="Tạo cộng đồng"
-          onClick={() => setModal("community")}
-        >
-          <Plus size={22} />
-        </button>
+            <Plus size={22} />
+          </Link>
+        </nav>
         <div className="rail-bottom">
           <IconButton label="Hướng dẫn" onClick={() => setModal("help")}>
             <CircleHelp size={21} />
           </IconButton>
-          <AccountLink variant="avatar" />
         </div>
       </aside>
       <aside className="channel-sidebar">
@@ -514,41 +524,12 @@ export function Workspace({
           <Search size={15} /> Tìm trong không gian <kbd>⌘ K</kbd>
         </button>
         <div className="sidebar-scroll">
-          {user && (
-            <label className="workspace-group-picker">
-              Nhóm hiện tại
-              <select
-                aria-label="Chọn nhóm học tập"
-                value={workspaceGroup.groupId ?? ""}
-                disabled={workspaceGroup.loading}
-                onChange={(event) =>
-                  workspaceGroup.selectGroup(event.target.value)
-                }
-              >
-                {!workspaceGroup.groupId && (
-                  <option value="">
-                    {workspaceGroup.loading
-                      ? "Đang tải nhóm…"
-                      : "Chưa có nhóm học tập"}
-                  </option>
-                )}
-                {workspaceGroup.groups.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           <div className="channel-section">
             <div className="section-label">
-              <ChevronDown size={12} /> TỔNG QUAN
+              <ChevronDown size={12} /> Tổng quan
             </div>
-            <Link href="/" className="channel">
+            <Link href="/" className="channel" onClick={navigateWorkspace}>
               <LayoutGrid size={18} /> Trang chủ <ArrowUpRight />
-            </Link>
-            <Link href="/groups" className="channel">
-              <Users size={18} /> Nhóm học tập <ArrowUpRight />
             </Link>
             <button
               className={`channel ${membersView ? "selected" : ""}`}
@@ -564,14 +545,15 @@ export function Workspace({
           </div>
           <div className="channel-section">
             <div className="section-label">
-              <ChevronDown size={12} /> KÊNH TRÒ CHUYỆN{" "}
+              <ChevronDown size={12} /> Kênh trò chuyện{" "}
               <button title="Thêm kênh" onClick={() => setModal("channel")}>
                 <Plus size={14} />
               </button>
             </div>
             <Link
               href="/community"
-              className={`channel ${view === "chat" ? "selected" : ""}`}
+              onClick={navigateWorkspace}
+              className={`channel ${!membersView && view === "chat" && channel === "trò-chuyện-chung" ? "selected" : ""}`}
             >
               <Hash size={19} /> trò-chuyện-chung{" "}
               <span className="unread-dot" />
@@ -597,7 +579,8 @@ export function Workspace({
               <Link
                 key={name}
                 href={`/community/${encodeURIComponent(name)}`}
-                className={`channel ${view === "chat" && channel === name ? "selected" : ""}`}
+                onClick={navigateWorkspace}
+                className={`channel ${!membersView && view === "chat" && channel === name ? "selected" : ""}`}
               >
                 <Hash size={19} />
                 {name}
@@ -606,14 +589,19 @@ export function Workspace({
           </div>
           <div className="channel-section">
             <div className="section-label">
-              <ChevronDown size={12} /> PHÒNG HỌC{" "}
-              <Link href="/meet" aria-label="Tạo phòng học">
+              <ChevronDown size={12} /> Phòng học{" "}
+              <Link
+                href="/meet"
+                aria-label="Tạo phòng học"
+                onClick={navigateWorkspace}
+              >
                 <Plus size={14} />
               </Link>
             </div>
             <Link
               href="/workspace"
-              className={`channel live-channel ${view === "live" ? "selected" : ""}`}
+              onClick={navigateWorkspace}
+              className={`channel live-channel ${!membersView && view === "live" ? "selected" : ""}`}
             >
               <Radio size={19} /> Lớp học trực tiếp{" "}
               <span className="live-dot" />
@@ -628,66 +616,72 @@ export function Workspace({
             </div>
             <Link
               href="/rooms/nhom-01"
-              className={`channel ${view === "room" ? "selected" : ""}`}
+              onClick={navigateWorkspace}
+              className={`channel ${!membersView && view === "room" ? "selected" : ""}`}
             >
               <Volume2 size={19} /> Phòng học nhóm <small>4</small>
             </Link>
             <Link
               href="/meet"
-              className={`channel ${view === "meet" ? "selected" : ""}`}
+              onClick={navigateWorkspace}
+              className={`channel ${!membersView && view === "meet" ? "selected" : ""}`}
             >
               <Video size={19} /> Tạo cuộc họp <Plus size={14} />
             </Link>
           </div>
           <div className="channel-section">
             <div className="section-label">
-              <ChevronDown size={12} /> THƯ VIỆN
+              <ChevronDown size={12} /> Thư viện
             </div>
             <Link
               href="/files"
-              onClick={() => setFilter("Tất cả")}
-              className={`channel ${view === "files" ? "selected" : ""}`}
+              onClick={(event) => {
+                navigateWorkspace(event);
+                setFilter("Tất cả");
+              }}
+              className={`channel ${!membersView && view === "files" && filter !== "Bản ghi" ? "selected" : ""}`}
             >
               <Folder size={18} /> Tài liệu chung <small>{files.length}</small>
             </Link>
             <Link
               href="/files?type=recordings"
-              onClick={() => setFilter("Bản ghi")}
-              className="channel"
+              onClick={(event) => {
+                navigateWorkspace(event);
+                setFilter("Bản ghi");
+              }}
+              className={`channel ${!membersView && view === "files" && filter === "Bản ghi" ? "selected" : ""}`}
             >
               <Video size={18} /> Bản ghi bài giảng
             </Link>
           </div>
         </div>
-        <div className="invite-card">
-          <div className="invite-art">
-            <Users size={21} />
-            <span>✦</span>
-            <span>+</span>
-          </div>
-          <b>Học cùng nhau, tốt hơn.</b>
-          <p>Mời bạn bè vào không gian của bạn.</p>
-          <button onClick={() => setModal("invite")}>
-            <Plus size={14} /> Mời thành viên
-          </button>
-        </div>
-        <div className="sidebar-user">
-          <SessionIdentity />
-          <IconButton
-            label={mic ? "Tắt micro" : "Bật micro"}
-            active={mic}
-            onClick={() => toggleMedia("mic")}
-          >
-            {mic ? <Mic size={16} /> : <MicOff size={16} />}
-          </IconButton>
-          <IconButton label="Cài đặt" onClick={() => setModal("settings")}>
-            <Settings2 size={16} />
-          </IconButton>
-        </div>
       </aside>
+      <div className="sidebar-user workspace-identity">
+        <Link
+          className="workspace-account"
+          href={user ? "/account" : "/login"}
+          title={user ? `Tài khoản của ${user.fullName}` : "Đăng nhập"}
+          aria-label={user ? `Tài khoản của ${user.fullName}` : "Đăng nhập"}
+        >
+          <SessionIdentity />
+        </Link>
+        <IconButton
+          label={mic ? "Tắt micro" : "Bật micro"}
+          active={mic}
+          onClick={() => toggleMedia("mic")}
+        >
+          {mic ? <Mic size={16} /> : <MicOff size={16} />}
+        </IconButton>
+        <IconButton label="Cài đặt" onClick={() => setModal("settings")}>
+          <Settings2 size={16} />
+        </IconButton>
+      </div>
       <div className="workspace">
         <header className="workspace-topbar">
-          <div className="breadcrumbs">
+          <nav
+            className="breadcrumbs"
+            aria-label="Đường dẫn không gian học tập"
+          >
             <button
               className="mobile-menu"
               aria-label="Mở danh sách kênh"
@@ -695,15 +689,14 @@ export function Workspace({
             >
               <Menu size={20} />
             </button>
-            <span>{group}</span>
+            <span title={group}>{group}</span>
             <ChevronRight size={14} />
-            <b>{membersView ? "Thành viên" : "Phòng học"}</b>
-          </div>
+            <h1 aria-current="page" title={currentSection}>
+              {currentSection}
+            </h1>
+          </nav>
           <div className="topbar-actions">
-            <span className="connection">
-              <span className="status-dot" />{" "}
-              {membersView ? "Thành viên nhóm" : "Không gian mẫu"}
-            </span>
+            <ThemeToggle />
             <IconButton label="Tìm kiếm" onClick={() => setModal("search")}>
               <Search size={18} />
             </IconButton>
@@ -715,59 +708,26 @@ export function Workspace({
               <i />
             </IconButton>
             <div className="vertical-divider" />
-            <Avatar initials="BA" small />
-          </div>
-        </header>
-        <div className="workspace-heading">
-          <div>
-            <div className="heading-title">
-              {membersView ? (
-                <Users size={23} />
-              ) : view === "live" ? (
-                <Radio size={23} />
-              ) : view === "files" ? (
-                <Folder size={23} />
-              ) : view === "chat" ? (
-                <Hash size={24} />
-              ) : (
-                <Video size={24} />
-              )}
-              <h1>{membersView ? "Thành viên" : title}</h1>
-              {view === "live" && !membersView && (
-                <span className="live-badge">
-                  <span /> ĐANG PHÁT
-                </span>
-              )}
-            </div>
-            <p>
-              {membersView
-                ? "Danh sách thành viên và vai trò trong nhóm học tập."
-                : view === "live"
-                  ? "Buổi 05: Kiến trúc hệ thống phân tán"
-                  : view === "meet"
-                    ? "Một đường liên kết. Mọi người cùng có mặt."
-                    : view === "files"
-                      ? "Kiến thức được lưu lại. Sẵn sàng để khám phá."
-                      : view === "chat"
-                        ? "Những ý tưởng hay bắt đầu từ một cuộc trò chuyện."
-                        : "Cùng trao đổi, cùng giải quyết vấn đề."}
-            </p>
-          </div>
-          <div className="heading-actions">
             {membersView && (
               <button
-                className="button secondary compact"
+                className="button secondary workspace-back"
+                aria-label="Quay lại không gian"
+                title="Quay lại không gian"
                 onClick={() => setMembersView(false)}
               >
-                Quay lại không gian
+                <ArrowLeft size={18} />
+                <span>Quay lại không gian</span>
               </button>
             )}
             {!membersView && (
               <button
-                className="button secondary compact"
+                className="button secondary workspace-invite"
+                aria-label="Mời tham gia"
+                title="Mời tham gia"
                 onClick={() => setModal("invite")}
               >
-                <Link2 size={15} /> Mời tham gia
+                <Link2 size={18} />
+                <span>Mời tham gia</span>
               </button>
             )}
             {!membersView && (
@@ -776,11 +736,11 @@ export function Workspace({
                 active={panel}
                 onClick={() => setPanel(!panel)}
               >
-                <Users size={19} />
+                <Users size={18} />
               </IconButton>
             )}
           </div>
-        </div>
+        </header>
         <div className="workspace-body">
           <main
             className={`main-content view-${view} ${membersView ? "membership-main" : ""}`}
@@ -816,6 +776,7 @@ export function Workspace({
                   groupId={workspaceGroup.groupId}
                   permissions={permissions}
                   revision={groupAccess.revision}
+                  allowManagement
                 />
               ) : null
             ) : workspaceGroup.groupId && !permissions ? (
@@ -1175,9 +1136,9 @@ export function Workspace({
                     )}
                     <div className="file-table">
                       <div className="file-table-heading">
-                        <span>TÊN TÀI LIỆU</span>
-                        <span>DUNG LƯỢNG</span>
-                        <span>ĐƯỢC THÊM</span>
+                        <span>Tên tài liệu</span>
+                        <span>Dung lượng</span>
+                        <span>Được thêm</span>
                         <span />
                       </div>
                       {filteredFiles.map((file, index) => (
@@ -1225,24 +1186,28 @@ export function Workspace({
                 )}
                 {view === "chat" && (
                   <div className="community-chat">
-                    <div className="chat-welcome">
-                      <div className="card-icon">
-                        <Hash size={30} />
-                      </div>
-                      <h2>Mỗi kết nối bắt đầu bằng lời chào.</h2>
-                      <p>
-                        Chào mừng đến với <b>#{title}</b> của {group}.<br />
-                        Cùng đặt câu hỏi, chia sẻ kiến thức và giúp nhau tiến
-                        bộ.
-                      </p>
-                      <button
-                        className="button secondary compact"
-                        onClick={() => setModal("invite")}
-                      >
-                        <Users size={15} /> Mời bạn bè
-                      </button>
-                    </div>
-                    {chatUI}
+                    <WorkspaceChat
+                      {...chatProps}
+                      welcome={
+                        <div className="chat-welcome">
+                          <div className="card-icon">
+                            <Hash size={30} />
+                          </div>
+                          <h2>Mỗi kết nối bắt đầu bằng lời chào.</h2>
+                          <p>
+                            Chào mừng đến với <b>#{title}</b> của {group}.<br />
+                            Cùng đặt câu hỏi, chia sẻ kiến thức và giúp nhau
+                            tiến bộ.
+                          </p>
+                          <button
+                            className="button secondary compact"
+                            onClick={() => setModal("invite")}
+                          >
+                            <Users size={15} /> Mời bạn bè
+                          </button>
+                        </div>
+                      }
+                    />
                   </div>
                 )}
                 {view === "room" && (
@@ -1425,7 +1390,7 @@ export function Workspace({
                 </IconButton>
               </div>
               {panelTab === "chat" ? (
-                chatUI
+                <WorkspaceChat {...chatProps} />
               ) : !user ? (
                 <div className="membership-empty">
                   <p>Đăng nhập để xem thành viên.</p>
@@ -1494,37 +1459,6 @@ export function Workspace({
                   <Copy size={16} /> Sao chép liên kết mời
                 </button>
               </>
-            )}
-            {modal === "community" && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!newGroup.trim()) return;
-                  setGroup(newGroup.trim());
-                  setNewGroup("");
-                  setModal(null);
-                  notify("Đã tạo cộng đồng mẫu trong phiên hiện tại.");
-                }}
-              >
-                <div className="card-icon">
-                  <Users />
-                </div>
-                <h2>Không gian cho cộng đồng bạn.</h2>
-                <p>Một nơi để cùng học, cùng thảo luận và kết nối.</p>
-                <label htmlFor="group-name">Tên cộng đồng</label>
-                <input
-                  autoFocus
-                  required
-                  id="group-name"
-                  value={newGroup}
-                  onChange={(e) => setNewGroup(e.target.value)}
-                  placeholder="Ví dụ: Câu lạc bộ Công nghệ"
-                  maxLength={40}
-                />
-                <button className="button primary" type="submit">
-                  <Plus size={16} /> Tạo cộng đồng
-                </button>
-              </form>
             )}
             {modal === "poll" && (
               <form

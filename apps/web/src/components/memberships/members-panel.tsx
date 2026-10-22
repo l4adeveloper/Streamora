@@ -34,11 +34,14 @@ export function MembersPanel({
   groupId,
   permissions,
   revision = 0,
+  allowManagement = false,
 }: {
   groupId: string;
   permissions: GroupPermissions;
   revision?: number;
+  allowManagement?: boolean;
 }) {
+  const canManage = allowManagement && permissions.canManageMembers;
   const { notify } = useToast();
   const [members, setMembers] = useState<Membership[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -113,7 +116,7 @@ export function MembersPanel({
     work: () => Promise<unknown>,
     success: string,
   ) {
-    if (pending || !permissions.canManageMembers) return;
+    if (pending || !canManage) return;
     setPending(id);
     setActionError("");
     try {
@@ -147,7 +150,10 @@ export function MembersPanel({
     );
   }
   return (
-    <section className="membership-panel" aria-label="Quản lý thành viên">
+    <section
+      className="membership-panel"
+      aria-label={canManage ? "Quản lý thành viên" : "Danh sách thành viên"}
+    >
       <div className="membership-heading">
         <span className="membership-icon">
           <Users size={22} />
@@ -173,7 +179,7 @@ export function MembersPanel({
           }}
         />
       </label>
-      {permissions.canManageMembers && (
+      {canManage && (
         <form className="membership-add" onSubmit={submit}>
           <h3>
             <Plus size={16} /> Thêm thành viên
@@ -242,55 +248,55 @@ export function MembersPanel({
                     .toUpperCase()}
                 </span>
                 <div className="membership-person">
-                  <b>{member.fullName}</b>
-                  <small>{member.email}</small>
+                  <b title={member.fullName}>{member.fullName}</b>
+                  <small title={member.email}>{member.email}</small>
                   <span
                     className={`membership-role role-${member.role.toLowerCase()}`}
                   >
                     {member.role === "OWNER" && <Crown size={12} />}
                     {member.role === "OWNER"
-                      ? "Chủ nhóm · Owner"
+                      ? "Owner"
                       : member.role === "HOST"
                         ? "Host"
                         : "Viewer"}
                   </span>
+                  {canManage && member.role !== "OWNER" && (
+                    <div className="membership-controls">
+                      <select
+                        aria-label={`Vai trò của ${member.fullName}`}
+                        value={member.role}
+                        disabled={Boolean(pending)}
+                        onChange={(event) =>
+                          void act(
+                            member.userId,
+                            () =>
+                              changeMemberRole(
+                                groupId,
+                                member.userId,
+                                event.target.value as AssignableRole,
+                              ),
+                            `Đã đổi vai trò của ${member.fullName}.`,
+                          )
+                        }
+                      >
+                        <option value="VIEWER">Viewer</option>
+                        <option value="HOST">Host</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="membership-remove"
+                        aria-label={`Xóa ${member.fullName} khỏi nhóm`}
+                        disabled={Boolean(pending)}
+                        onClick={() => {
+                          setRemoving(member);
+                          setActionError("");
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  )}
                 </div>
-                {permissions.canManageMembers && member.role !== "OWNER" && (
-                  <div className="membership-controls">
-                    <select
-                      aria-label={`Vai trò của ${member.fullName}`}
-                      value={member.role}
-                      disabled={Boolean(pending)}
-                      onChange={(event) =>
-                        void act(
-                          member.userId,
-                          () =>
-                            changeMemberRole(
-                              groupId,
-                              member.userId,
-                              event.target.value as AssignableRole,
-                            ),
-                          `Đã đổi vai trò của ${member.fullName}.`,
-                        )
-                      }
-                    >
-                      <option value="VIEWER">Viewer</option>
-                      <option value="HOST">Host</option>
-                    </select>
-                    <button
-                      type="button"
-                      className="membership-remove"
-                      aria-label={`Xóa ${member.fullName} khỏi nhóm`}
-                      disabled={Boolean(pending)}
-                      onClick={() => {
-                        setRemoving(member);
-                        setActionError("");
-                      }}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                )}
               </article>
             ))}
           </div>
@@ -306,7 +312,7 @@ export function MembersPanel({
           )}
         </>
       )}
-      {removing && permissions.canManageMembers && (
+      {removing && canManage && (
         <div
           className="membership-confirm"
           role="alertdialog"
@@ -343,7 +349,7 @@ export function MembersPanel({
           </div>
         </div>
       )}
-      {!permissions.canManageMembers && (
+      {allowManagement && !permissions.canManageMembers && (
         <p className="membership-footnote">
           Chỉ chủ nhóm và quản trị viên được thêm, xóa hoặc đổi vai trò thành
           viên.

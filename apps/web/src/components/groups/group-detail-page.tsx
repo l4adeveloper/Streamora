@@ -212,9 +212,10 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
 
         <h2
           style={{
-            fontSize: "17px",
+            fontSize: "var(--type-section)",
+            lineHeight: "var(--line-section)",
             fontWeight: "600",
-            color: "#ede7f6",
+            color: "var(--text)",
             margin: "32px 0 16px",
           }}
         >

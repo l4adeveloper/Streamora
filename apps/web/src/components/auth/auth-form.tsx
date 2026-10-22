@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import {
   ArrowRight,
   Check,
@@ -27,7 +34,53 @@ import {
   SubmitButton,
 } from "@/components/common/feedback";
 
-export function AuthForm({ mode }: { mode: "login" | "register" }) {
+export type AuthMode = "login" | "register";
+
+function AuthModeAction({
+  mode,
+  onModeChange,
+  children,
+  className,
+  active,
+}: {
+  mode: AuthMode;
+  onModeChange?: (mode: AuthMode) => void;
+  children: ReactNode;
+  className?: string;
+  active?: boolean;
+}) {
+  if (onModeChange)
+    return (
+      <button
+        type="button"
+        className={className}
+        aria-pressed={active}
+        onClick={() => onModeChange(mode)}
+      >
+        {children}
+      </button>
+    );
+  return (
+    <Link
+      href={mode === "login" ? "/login" : "/register"}
+      className={className}
+      aria-current={active ? "page" : undefined}
+    >
+      {children}
+    </Link>
+  );
+}
+
+export function AuthForm({
+  mode,
+  embedded = false,
+  onModeChange,
+}: {
+  mode: AuthMode;
+  embedded?: boolean;
+  onModeChange?: (mode: AuthMode) => void;
+}) {
+  const Frame = embedded ? Fragment : AuthFrame;
   const registering = mode === "register";
   const router = useRouter();
   const auth = useAuth();
@@ -42,7 +95,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const form = useRef<HTMLFormElement>(null);
   const alert = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (auth.phase === "authenticated") router.replace("/account");
+    if (auth.phase === "authenticated") router.replace("/workspace");
   }, [auth.phase, router]);
   function edit(field: keyof FieldErrors, value: string) {
     ({ email: setEmail, password: setPassword, fullName: setFullName })[field](
@@ -79,7 +132,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       } else {
         await auth.login(credentials);
         setPassword("");
-        router.replace("/account");
+        router.replace("/workspace");
       }
     } catch (error) {
       const failure = asAuthError(error);
@@ -93,13 +146,13 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   }
   if (auth.phase === "authenticated")
     return (
-      <AuthFrame>
-        <LoadingState message="Đang mở tài khoản của bạn…" />
-      </AuthFrame>
+      <Frame>
+        <LoadingState message="Đang mở không gian học tập…" />
+      </Frame>
     );
   if (registered)
     return (
-      <AuthFrame>
+      <Frame>
         <div className="auth-form-content auth-registration-success">
           <span className="auth-success-mark">
             <CircleCheck size={30} />
@@ -107,17 +160,21 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           <span className="eyebrow">SẴN SÀNG KẾT NỐI</span>
           <h1>Tạo tài khoản thành công!</h1>
           <p>
-            Tài khoản của bạn đã sẵn sàng. Đăng nhập để xem và cập nhật hồ sơ cá
-            nhân.
+            Tài khoản của bạn đã sẵn sàng. Đăng nhập để vào không gian học tập
+            và kết nối với cộng đồng.
           </p>
-          <Link href="/login" className="button primary auth-submit">
+          <AuthModeAction
+            mode="login"
+            onModeChange={onModeChange}
+            className="button primary auth-submit"
+          >
             Đăng nhập ngay <ArrowRight size={17} />
-          </Link>
+          </AuthModeAction>
         </div>
-      </AuthFrame>
+      </Frame>
     );
   return (
-    <AuthFrame>
+    <Frame>
       <div className="auth-form-content">
         <span className="auth-section-label">
           <span /> TÀI KHOẢN STREAMORA
@@ -129,20 +186,22 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
             : "Đăng nhập để tiếp tục hành trình của bạn."}
         </p>
         <div className="auth-tabs" aria-label="Tài khoản">
-          <Link
-            href="/login"
+          <AuthModeAction
+            mode="login"
+            onModeChange={onModeChange}
             className={!registering ? "active" : ""}
-            aria-current={!registering ? "page" : undefined}
+            active={!registering}
           >
             Đăng nhập
-          </Link>
-          <Link
-            href="/register"
+          </AuthModeAction>
+          <AuthModeAction
+            mode="register"
+            onModeChange={onModeChange}
             className={registering ? "active" : ""}
-            aria-current={registering ? "page" : undefined}
+            active={registering}
           >
             Tạo tài khoản
-          </Link>
+          </AuthModeAction>
         </div>
         {auth.notice && !message && (
           <InlineNotice tone={auth.phase === "error" ? "error" : "info"}>
@@ -233,12 +292,15 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         </div>
         <p className="auth-switch">
           {registering ? "Đã có tài khoản?" : "Chưa có tài khoản?"}{" "}
-          <Link href={registering ? "/login" : "/register"}>
+          <AuthModeAction
+            mode={registering ? "login" : "register"}
+            onModeChange={onModeChange}
+          >
             {registering ? "Đăng nhập" : "Đăng ký ngay"}
             <ArrowRight size={13} />
-          </Link>
+          </AuthModeAction>
         </p>
       </div>
-    </AuthFrame>
+    </Frame>
   );
 }

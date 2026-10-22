@@ -1,0 +1,92 @@
+/* Small press travel, then a quick, damped return. No layout movement. */
+:is(
+  .button,
+  .icon-button,
+  .device-button,
+  .round-control,
+  .reaction,
+  .auth-tabs > button,
+  .file-filters > button,
+  .chat-form button,
+  .community-icon,
+  .add-community,
+  .form-password-toggle,
+  .membership-remove
+) {
+  transition:
+    background-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
+    scale 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+:is(
+    .button,
+    .icon-button,
+    .device-button,
+    .round-control,
+    .reaction,
+    .auth-tabs > button,
+    .file-filters > button,
+    .chat-form button,
+    .community-icon,
+    .add-community,
+    .form-password-toggle,
+    .membership-remove
+  ):active:not(:disabled):not([aria-disabled="true"]) {
+  scale: 0.97;
+  transition-duration: 80ms;
+}
+.interaction-feedback {
+  position: fixed;
+  z-index: 1000;
+  display: block;
+  overflow: hidden;
+  contain: strict;
+  pointer-events: none;
+}
+.interaction-feedback > span {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  background: currentColor;
+  pointer-events: none;
+}
+.entry-form-panel .auth-form-content {
+  animation: auth-content-arrive 180ms var(--ease-standard);
+}
+@keyframes auth-content-arrive {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    .button,
+    .icon-button,
+    .device-button,
+    .round-control,
+    .reaction,
+    .auth-tabs > button,
+    .file-filters > button,
+    .chat-form button,
+    .community-icon,
+    .add-community,
+    .form-password-toggle,
+    .membership-remove
+  ) {
+    transition: none !important;
+    scale: none !important;
+  }
+  .entry-form-panel .auth-form-content {
+    animation: none !important;
+  }
+  .interaction-feedback {
+    display: none;
+  }
+}

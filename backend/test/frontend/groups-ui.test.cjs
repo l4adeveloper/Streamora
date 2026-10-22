@@ -55,7 +55,7 @@ async function withGroups(run) {
     await page.getByLabel("Email", { exact: true }).fill(email);
     await page.getByLabel("Mật khẩu", { exact: true }).fill(PASSWORD);
     await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
-    await page.waitForURL("**/account");
+    await page.waitForURL("**/workspace");
     await page.goto(`${fixture.webOrigin}/groups`);
     await page.getByText("Chưa có nhóm học tập nào", { exact: true }).waitFor();
     await run(page, user);

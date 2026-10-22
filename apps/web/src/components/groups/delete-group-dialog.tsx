@@ -61,7 +61,7 @@ export function DeleteGroupDialog({
               display: "flex",
               alignItems: "center",
               gap: "8px",
-              color: "#f87171",
+              color: "var(--danger)",
             }}
           >
             <AlertTriangle size={20} /> Xóa nhóm học tập
@@ -80,9 +80,9 @@ export function DeleteGroupDialog({
 
         <p
           style={{
-            color: "#d2c8df",
-            fontSize: "13px",
-            lineHeight: "1.7",
+            color: "var(--text)",
+            fontSize: "var(--type-body)",
+            lineHeight: "var(--line-body)",
             margin: "0 0 16px",
           }}
         >
@@ -91,13 +91,13 @@ export function DeleteGroupDialog({
 
         <div
           style={{
-            background: "#2a151b",
-            border: "1px solid #5c202a",
+            background: "var(--danger-soft)",
+            border: "1px solid var(--danger-border)",
             borderRadius: "8px",
-            padding: "12px 14px",
-            fontSize: "12px",
-            color: "#fca5a5",
-            lineHeight: "1.6",
+            padding: "12px 16px",
+            fontSize: "var(--type-secondary)",
+            color: "var(--danger)",
+            lineHeight: "var(--line-secondary)",
             marginBottom: "20px",
           }}
         >
