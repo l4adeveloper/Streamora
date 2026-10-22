@@ -1,8 +1,8 @@
 const { createServer } = require("node:http");
 const { randomUUID, randomBytes } = require("node:crypto");
-const { cp, copyFile, mkdir, rm } = require("node:fs/promises");
+const { cp, copyFile, mkdir, rm, writeFile } = require("node:fs/promises");
 const { existsSync } = require("node:fs");
-const { join, resolve, dirname, basename } = require("node:path");
+const { join, resolve, dirname, basename, relative } = require("node:path");
 const { execFile, spawn } = require("node:child_process");
 const { promisify } = require("node:util");
 const { once } = require("node:events");
@@ -108,6 +108,16 @@ async function createFrontendFixture({
       "next-env.d.ts",
     ])
       await copyFile(join(source, file), join(webRoot, file));
+    // Bound the isolated build to one worker: parallel route mkdir calls can
+    // intermittently fail with EPERM on Windows. Keep the app config unchanged.
+    const sourceConfig = relative(
+      webRoot,
+      join(source, "next.config"),
+    ).replaceAll("\\", "/");
+    await writeFile(
+      join(webRoot, "next.config.ts"),
+      `import config from ${JSON.stringify(sourceConfig)};\nexport default { ...config, experimental: { ...config.experimental, cpus: 1 } };\n`,
+    );
     if (existsSync(join(source, "public")))
       await cp(join(source, "public"), join(webRoot, "public"), {
         recursive: true,

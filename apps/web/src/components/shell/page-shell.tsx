@@ -6,6 +6,7 @@ import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { Brand } from "@/components/ui";
 import { AccountLink } from "./account-link";
+import { ThemeToggle } from "./theme-toggle";
 
 export function SiteHeader() {
   const path = usePathname();
@@ -26,6 +27,7 @@ export function SiteHeader() {
           Không gian học tập
         </Link>
         <AccountLink />
+        <ThemeToggle />
       </nav>
     </header>
   );

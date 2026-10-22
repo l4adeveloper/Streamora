@@ -2,20 +2,20 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowLeft,
   ArrowRight,
   Bell,
-  BookOpen,
   Check,
   ChevronDown,
   ChevronRight,
   CircleHelp,
   Clock3,
-  Code2,
   Copy,
   FileText,
   Folder,
   Hash,
   LayoutGrid,
+  LoaderCircle,
   Link2,
   Menu,
   MessageCircle,
@@ -26,8 +26,8 @@ import {
   Play,
   Plus,
   Radio,
+  RefreshCw,
   Search,
-  Send,
   Settings2,
   ShieldCheck,
   Users,
@@ -45,10 +45,17 @@ import {
 } from "lucide-react";
 
 import { Brand, Avatar, IconButton } from "./ui";
-import { AccountLink, SessionIdentity } from "./shell/account-link";
+import { SessionIdentity } from "./shell/account-link";
+import { ThemeToggle } from "./shell/theme-toggle";
 import { useToast } from "./common/toast-provider";
+import { useAuth } from "./auth/auth-provider";
+import { LoadingState, RequestError } from "./common/feedback";
+import { MembersPanel, NoGroupSelected } from "./memberships/members-panel";
+import { useWorkspaceGroup } from "@/lib/memberships/use-workspace-group";
+import { useGroupPermissions } from "@/lib/memberships/use-group-permissions";
 
 import { LivePlayer } from "./live-player";
+import { WorkspaceChat } from "./workspace-chat";
 import {
   initialMessages,
   initialFiles,
@@ -59,6 +66,21 @@ import type { View, ChatMessage } from "./demo-data";
 function ArrowUpRight() {
   return <ExternalLink size={15} />;
 }
+function groupInitials(name: string) {
+  const words = name.trim().split(/\s+/);
+  if (words.length === 1) {
+    const letters = Array.from(words[0]);
+    return letters
+      .slice(0, letters.length <= 4 ? 4 : 2)
+      .join("")
+      .toUpperCase();
+  }
+  return words
+    .slice(0, 2)
+    .map((word) => Array.from(word)[0])
+    .join("")
+    .toUpperCase();
+}
 export function Workspace({
   view,
   channel = "trò-chuyện-chung",
@@ -67,18 +89,32 @@ export function Workspace({
   channel?: string;
 }) {
   const { notify } = useToast();
+  const { user } = useAuth();
+  const workspaceGroup = useWorkspaceGroup();
+  const groupAccess = useGroupPermissions(workspaceGroup.groupId);
+  const permissions = groupAccess.permissions;
+  const [membersView, setMembersView] = useState(false);
   const [panel, setPanel] = useState(true);
   const [panelTab, setPanelTab] = useState<"chat" | "members">(
     view === "chat" ? "members" : "chat",
   );
   const [modal, setModal] = useState<string | null>(null);
-  const [group, setGroup] = useState("Hệ thống phân tán");
-  const [newGroup, setNewGroup] = useState("");
+  const selectedGroup = workspaceGroup.groups.find(
+    (item) => item.id === workspaceGroup.groupId,
+  );
+  const group =
+    selectedGroup?.name ??
+    (user
+      ? workspaceGroup.loading
+        ? "Đang tải nhóm…"
+        : workspaceGroup.error
+          ? "Chưa tải được nhóm"
+          : "Chưa có nhóm học tập"
+      : "Không gian trải nghiệm");
   const [messages, setMessages] = useState(initialMessages);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
-  const [members, setMembers] = useState(membersInitial);
-  const [mutedMembers, setMutedMembers] = useState<string[]>([]);
+  const members = membersInitial;
   const [files, setFiles] = useState(initialFiles);
   const [fileQuery, setFileQuery] = useState("");
   const [filter, setFilter] = useState("Tất cả");
@@ -106,7 +142,6 @@ export function Workspace({
     paused: boolean;
   } | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
-  const chatBottom = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [customChannels, setCustomChannels] = useState<string[]>([]);
   const [activeRoomName, setActiveRoomName] = useState("Phòng học nhóm");
@@ -116,6 +151,45 @@ export function Workspace({
   const micStream = useRef<MediaStream | null>(null);
   const localVideo = useRef<HTMLVideoElement>(null);
   const screenVideo = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const showMembers =
+      new URLSearchParams(location.search).get("tab") === "members";
+    setMembersView(showMembers);
+    if (showMembers) setPanel(false);
+    setMobileNav(false);
+  }, [view, channel]);
+  useEffect(() => {
+    setModal(null);
+    setRecording(false);
+    setPoll(false);
+    setUpload(null);
+    [cameraStream, screenStream, micStream].forEach((ref) =>
+      ref.current?.getTracks().forEach((track) => track.stop()),
+    );
+    setCamera(false);
+    setMic(false);
+    setSharing(false);
+  }, [workspaceGroup.groupId]);
+  useEffect(() => {
+    if (!workspaceGroup.groupId || groupAccess.loading) return;
+    if (!permissions) {
+      [cameraStream, screenStream, micStream].forEach((ref) =>
+        ref.current?.getTracks().forEach((track) => track.stop()),
+      );
+      setCamera(false);
+      setMic(false);
+      setSharing(false);
+      setModal(null);
+      setRecording(false);
+      setUpload(null);
+    }
+    if (!permissions?.canHost) {
+      setPoll(false);
+      setRecording(false);
+      screenStream.current?.getTracks().forEach((track) => track.stop());
+      setSharing(false);
+    }
+  }, [workspaceGroup.groupId, permissions, groupAccess.loading]);
   useEffect(() => {
     try {
       const stored = localStorage.getItem(chatStorageKey);
@@ -149,7 +223,12 @@ export function Workspace({
       ).filter((element) => !element.hasAttribute("disabled"));
     focusable()[0]?.focus();
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setModal(null);
+      if (event.key === "Escape") {
+        const pickerOpen =
+          CSS.supports("selector(select:open)") &&
+          document.querySelector("select:open");
+        if (!pickerOpen) setModal(null);
+      }
       if (event.key !== "Tab") return;
       const elements = focusable();
       const first = elements[0];
@@ -168,12 +247,6 @@ export function Workspace({
       previous?.focus();
     };
   }, [modal]);
-  useEffect(() => {
-    chatBottom.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-    });
-  }, [messages]);
   useEffect(
     () => () => {
       [cameraStream, screenStream, micStream].forEach((ref) =>
@@ -219,6 +292,11 @@ export function Workspace({
     notify("Đã thêm mục tài liệu mẫu. Tệp chưa được tải lên máy chủ.");
   }, [upload?.progress]);
   async function toggleMedia(kind: "camera" | "mic" | "screen") {
+    if (
+      workspaceGroup.groupId &&
+      (!permissions || (kind === "screen" && !permissions.canHost))
+    )
+      return;
     const current = kind === "camera" ? camera : kind === "mic" ? mic : sharing;
     const ref =
       kind === "camera"
@@ -287,6 +365,7 @@ export function Workspace({
     }
   }
   function toggleRecording() {
+    if (workspaceGroup.groupId && !permissions?.canHost) return;
     if (recording) {
       const next = [
         {
@@ -318,6 +397,27 @@ export function Workspace({
           : view === "chat"
             ? channel
             : activeRoomName;
+  const currentSection = membersView
+    ? "Thành viên"
+    : view === "chat"
+      ? channel.replaceAll("-", " ")
+      : view === "files" && filter === "Bản ghi"
+        ? "Bản ghi bài giảng"
+        : view === "meet"
+          ? "Tạo cuộc họp"
+          : title;
+  function navigateWorkspace(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    setMembersView(false);
+    setMobileNav(false);
+  }
   const filteredFiles = files.filter(
     (file) =>
       file.name
@@ -325,118 +425,85 @@ export function Workspace({
         .includes(fileQuery.toLocaleLowerCase("vi")) &&
       (filter === "Tất cả" || file.kind === filter),
   );
-  const chatUI = (
-    <>
-      <div className="chat-info">
-        <ShieldCheck size={14} />
-        <span>Cuộc trò chuyện được lưu trong cộng đồng</span>
-      </div>
-      <div className="chat-date">
-        <span />
-        Hôm nay, 17 tháng 10
-        <span />
-      </div>
-      <div className="messages">
-        {messages.map((message, index) => (
-          <div className="message" key={index}>
-            <Avatar initials={message.initials} color={message.color} small />
-            <div>
-              <div className="message-meta">
-                <b>{message.name}</b>
-                {message.host && <span className="host-label">Giảng viên</span>}
-                <time>{message.time}</time>
-              </div>
-              <p>{message.text}</p>
-              {index === 4 && (
-                <button
-                  className="reaction"
-                  onClick={() => notify("Đã gửi lời cảm ơn đến Linh Nguyễn.")}
-                >
-                  💜 3
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-        <div ref={chatBottom} />
-      </div>
-      <form className="chat-form" onSubmit={sendMessage}>
-        <div>
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Gửi lời nhắn đến mọi người…"
-            aria-label="Tin nhắn"
-          />
-          <button
-            type="submit"
-            aria-label="Gửi tin nhắn"
-            disabled={!draft.trim()}
-          >
-            <Send size={17} />
-          </button>
-        </div>
-        <small>
-          <span className="status-dot" /> Cùng nhau tạo nên một không gian tích
-          cực.
-        </small>
-      </form>
-    </>
-  );
+  const chatProps = {
+    messages,
+    draft,
+    onDraftChange: setDraft,
+    onSubmit: sendMessage,
+    onReaction: () => notify("Đã gửi lời cảm ơn đến Linh Nguyễn."),
+  };
   return (
     <div className={`app-shell ${mobileNav ? "nav-open" : ""}`}>
-      <aside className="community-rail">
-        <Brand small />
+      <aside className="community-rail" aria-label="Không gian và nhóm học tập">
+        <Brand small href="/groups" label="Streamora, nhóm học tập" />
         <div className="rail-divider" />
-        <button
-          className="community-icon selected"
-          title={group}
-          onClick={() => setMobileNav(!mobileNav)}
-        >
-          HT
-          <span />
-        </button>
-        <button
-          className="community-icon book"
-          title="Cộng đồng thiết kế"
-          onClick={() => {
-            setGroup("Cộng đồng thiết kế");
-            notify("Đã chuyển sang cộng đồng thiết kế mẫu.");
-          }}
-        >
-          <BookOpen size={23} />
-        </button>
-        <button
-          className="community-icon code"
-          title="Câu lạc bộ lập trình"
-          onClick={() => {
-            setGroup("Câu lạc bộ lập trình");
-            notify("Đã chuyển sang câu lạc bộ lập trình mẫu.");
-          }}
-        >
-          <Code2 size={25} />
-        </button>
-        {group !== "Hệ thống phân tán" && (
-          <button
-            className="community-icon"
-            title={group}
-            onClick={() => notify(`Bạn đang ở ${group}.`)}
+        <nav className="workspace-groups" aria-label="Nhóm học tập của bạn">
+          {workspaceGroup.loading && (
+            <span className="rail-loading" role="status">
+              <LoaderCircle
+                size={20}
+                className="ui-spinner"
+                aria-hidden="true"
+              />
+              <span className="sr-only">Đang tải nhóm học tập…</span>
+            </span>
+          )}
+          {workspaceGroup.groups.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`community-icon ${item.id === workspaceGroup.groupId ? "selected" : ""}`}
+              title={item.name}
+              aria-label={`Mở nhóm ${item.name}`}
+              aria-current={
+                item.id === workspaceGroup.groupId ? "true" : undefined
+              }
+              onClick={() => {
+                workspaceGroup.selectGroup(item.id);
+                if (matchMedia("(max-width: 650px)").matches)
+                  setMobileNav(true);
+              }}
+            >
+              {groupInitials(item.name)}
+            </button>
+          ))}
+          {Boolean(workspaceGroup.error) && (
+            <button
+              type="button"
+              className="community-icon"
+              title="Chưa tải được nhóm. Thử lại"
+              aria-label="Thử tải lại nhóm học tập"
+              onClick={workspaceGroup.reload}
+            >
+              <RefreshCw size={18} />
+            </button>
+          )}
+          {user &&
+            !workspaceGroup.loading &&
+            !workspaceGroup.error &&
+            workspaceGroup.groups.length === 0 && (
+              <Link
+                className="community-icon"
+                href="/groups"
+                title="Bạn chưa tham gia nhóm nào"
+                aria-label="Xem nhóm học tập"
+              >
+                <Users size={20} />
+              </Link>
+            )}
+          <Link
+            className="add-community"
+            href="/groups"
+            title="Thêm nhóm học tập"
+            aria-label="Thêm nhóm học tập"
           >
-            {group.slice(0, 2).toUpperCase()}
-          </button>
-        )}
-        <button
-          className="add-community"
-          title="Tạo cộng đồng"
-          onClick={() => setModal("community")}
-        >
-          <Plus size={22} />
-        </button>
+            <Plus size={22} />
+          </Link>
+        </nav>
         <div className="rail-bottom">
           <IconButton label="Hướng dẫn" onClick={() => setModal("help")}>
             <CircleHelp size={21} />
           </IconButton>
-          <AccountLink variant="avatar" />
         </div>
       </aside>
       <aside className="channel-sidebar">
@@ -459,35 +526,34 @@ export function Workspace({
         <div className="sidebar-scroll">
           <div className="channel-section">
             <div className="section-label">
-              <ChevronDown size={12} /> TỔNG QUAN
+              <ChevronDown size={12} /> Tổng quan
             </div>
-            <Link href="/" className="channel">
+            <Link href="/" className="channel" onClick={navigateWorkspace}>
               <LayoutGrid size={18} /> Trang chủ <ArrowUpRight />
             </Link>
-            <Link href="/groups" className="channel">
-              <Users size={18} /> Nhóm học tập <ArrowUpRight />
-            </Link>
             <button
-              className="channel"
+              className={`channel ${membersView ? "selected" : ""}`}
               onClick={() => {
-                setPanel(true);
+                setMembersView(true);
+                setPanel(false);
                 setPanelTab("members");
+                setMobileNav(false);
               }}
             >
-              <Users size={18} /> Thành viên{" "}
-              <small>{members.length + 18}</small>
+              <Users size={18} /> Thành viên
             </button>
           </div>
           <div className="channel-section">
             <div className="section-label">
-              <ChevronDown size={12} /> KÊNH TRÒ CHUYỆN{" "}
+              <ChevronDown size={12} /> Kênh trò chuyện{" "}
               <button title="Thêm kênh" onClick={() => setModal("channel")}>
                 <Plus size={14} />
               </button>
             </div>
             <Link
               href="/community"
-              className={`channel ${view === "chat" ? "selected" : ""}`}
+              onClick={navigateWorkspace}
+              className={`channel ${!membersView && view === "chat" && channel === "trò-chuyện-chung" ? "selected" : ""}`}
             >
               <Hash size={19} /> trò-chuyện-chung{" "}
               <span className="unread-dot" />
@@ -513,7 +579,8 @@ export function Workspace({
               <Link
                 key={name}
                 href={`/community/${encodeURIComponent(name)}`}
-                className={`channel ${view === "chat" && channel === name ? "selected" : ""}`}
+                onClick={navigateWorkspace}
+                className={`channel ${!membersView && view === "chat" && channel === name ? "selected" : ""}`}
               >
                 <Hash size={19} />
                 {name}
@@ -522,14 +589,19 @@ export function Workspace({
           </div>
           <div className="channel-section">
             <div className="section-label">
-              <ChevronDown size={12} /> PHÒNG HỌC{" "}
-              <Link href="/meet" aria-label="Tạo phòng học">
+              <ChevronDown size={12} /> Phòng học{" "}
+              <Link
+                href="/meet"
+                aria-label="Tạo phòng học"
+                onClick={navigateWorkspace}
+              >
                 <Plus size={14} />
               </Link>
             </div>
             <Link
               href="/workspace"
-              className={`channel live-channel ${view === "live" ? "selected" : ""}`}
+              onClick={navigateWorkspace}
+              className={`channel live-channel ${!membersView && view === "live" ? "selected" : ""}`}
             >
               <Radio size={19} /> Lớp học trực tiếp{" "}
               <span className="live-dot" />
@@ -544,66 +616,72 @@ export function Workspace({
             </div>
             <Link
               href="/rooms/nhom-01"
-              className={`channel ${view === "room" ? "selected" : ""}`}
+              onClick={navigateWorkspace}
+              className={`channel ${!membersView && view === "room" ? "selected" : ""}`}
             >
               <Volume2 size={19} /> Phòng học nhóm <small>4</small>
             </Link>
             <Link
               href="/meet"
-              className={`channel ${view === "meet" ? "selected" : ""}`}
+              onClick={navigateWorkspace}
+              className={`channel ${!membersView && view === "meet" ? "selected" : ""}`}
             >
               <Video size={19} /> Tạo cuộc họp <Plus size={14} />
             </Link>
           </div>
           <div className="channel-section">
             <div className="section-label">
-              <ChevronDown size={12} /> THƯ VIỆN
+              <ChevronDown size={12} /> Thư viện
             </div>
             <Link
               href="/files"
-              onClick={() => setFilter("Tất cả")}
-              className={`channel ${view === "files" ? "selected" : ""}`}
+              onClick={(event) => {
+                navigateWorkspace(event);
+                setFilter("Tất cả");
+              }}
+              className={`channel ${!membersView && view === "files" && filter !== "Bản ghi" ? "selected" : ""}`}
             >
               <Folder size={18} /> Tài liệu chung <small>{files.length}</small>
             </Link>
             <Link
               href="/files?type=recordings"
-              onClick={() => setFilter("Bản ghi")}
-              className="channel"
+              onClick={(event) => {
+                navigateWorkspace(event);
+                setFilter("Bản ghi");
+              }}
+              className={`channel ${!membersView && view === "files" && filter === "Bản ghi" ? "selected" : ""}`}
             >
               <Video size={18} /> Bản ghi bài giảng
             </Link>
           </div>
         </div>
-        <div className="invite-card">
-          <div className="invite-art">
-            <Users size={21} />
-            <span>✦</span>
-            <span>+</span>
-          </div>
-          <b>Học cùng nhau, tốt hơn.</b>
-          <p>Mời bạn bè vào không gian của bạn.</p>
-          <button onClick={() => setModal("invite")}>
-            <Plus size={14} /> Mời thành viên
-          </button>
-        </div>
-        <div className="sidebar-user">
-          <SessionIdentity />
-          <IconButton
-            label={mic ? "Tắt micro" : "Bật micro"}
-            active={mic}
-            onClick={() => toggleMedia("mic")}
-          >
-            {mic ? <Mic size={16} /> : <MicOff size={16} />}
-          </IconButton>
-          <IconButton label="Cài đặt" onClick={() => setModal("settings")}>
-            <Settings2 size={16} />
-          </IconButton>
-        </div>
       </aside>
+      <div className="sidebar-user workspace-identity">
+        <Link
+          className="workspace-account"
+          href={user ? "/account" : "/login"}
+          title={user ? `Tài khoản của ${user.fullName}` : "Đăng nhập"}
+          aria-label={user ? `Tài khoản của ${user.fullName}` : "Đăng nhập"}
+        >
+          <SessionIdentity />
+        </Link>
+        <IconButton
+          label={mic ? "Tắt micro" : "Bật micro"}
+          active={mic}
+          onClick={() => toggleMedia("mic")}
+        >
+          {mic ? <Mic size={16} /> : <MicOff size={16} />}
+        </IconButton>
+        <IconButton label="Cài đặt" onClick={() => setModal("settings")}>
+          <Settings2 size={16} />
+        </IconButton>
+      </div>
       <div className="workspace">
         <header className="workspace-topbar">
-          <div className="breadcrumbs">
+          <nav
+            className="breadcrumbs"
+            aria-label="Đường dẫn không gian học tập"
+          >
             <button
               className="mobile-menu"
               aria-label="Mở danh sách kênh"
@@ -611,14 +689,14 @@ export function Workspace({
             >
               <Menu size={20} />
             </button>
-            <span>{group}</span>
+            <span title={group}>{group}</span>
             <ChevronRight size={14} />
-            <b>Phòng học</b>
-          </div>
+            <h1 aria-current="page" title={currentSection}>
+              {currentSection}
+            </h1>
+          </nav>
           <div className="topbar-actions">
-            <span className="connection">
-              <span className="status-dot" /> Không gian mẫu
-            </span>
+            <ThemeToggle />
             <IconButton label="Tìm kiếm" onClick={() => setModal("search")}>
               <Search size={18} />
             </IconButton>
@@ -630,577 +708,666 @@ export function Workspace({
               <i />
             </IconButton>
             <div className="vertical-divider" />
-            <Avatar initials="BA" small />
+            {membersView && (
+              <button
+                className="button secondary workspace-back"
+                aria-label="Quay lại không gian"
+                title="Quay lại không gian"
+                onClick={() => setMembersView(false)}
+              >
+                <ArrowLeft size={18} />
+                <span>Quay lại không gian</span>
+              </button>
+            )}
+            {!membersView && (
+              <button
+                className="button secondary workspace-invite"
+                aria-label="Mời tham gia"
+                title="Mời tham gia"
+                onClick={() => setModal("invite")}
+              >
+                <Link2 size={18} />
+                <span>Mời tham gia</span>
+              </button>
+            )}
+            {!membersView && (
+              <IconButton
+                label={panel ? "Đóng bảng bên" : "Mở trò chuyện và thành viên"}
+                active={panel}
+                onClick={() => setPanel(!panel)}
+              >
+                <Users size={18} />
+              </IconButton>
+            )}
           </div>
         </header>
-        <div className="workspace-heading">
-          <div>
-            <div className="heading-title">
-              {view === "live" ? (
-                <Radio size={23} />
-              ) : view === "files" ? (
-                <Folder size={23} />
-              ) : view === "chat" ? (
-                <Hash size={24} />
-              ) : (
-                <Video size={24} />
-              )}
-              <h1>{title}</h1>
-              {view === "live" && (
-                <span className="live-badge">
-                  <span /> ĐANG PHÁT
-                </span>
-              )}
-            </div>
-            <p>
-              {view === "live"
-                ? "Buổi 05: Kiến trúc hệ thống phân tán"
-                : view === "meet"
-                  ? "Một đường liên kết. Mọi người cùng có mặt."
-                  : view === "files"
-                    ? "Kiến thức được lưu lại. Sẵn sàng để khám phá."
-                    : view === "chat"
-                      ? "Những ý tưởng hay bắt đầu từ một cuộc trò chuyện."
-                      : "Cùng trao đổi, cùng giải quyết vấn đề."}
-            </p>
-          </div>
-          <div className="heading-actions">
-            <button
-              className="button secondary compact"
-              onClick={() => setModal("invite")}
-            >
-              <Link2 size={15} /> Mời tham gia
-            </button>
-            <IconButton
-              label={panel ? "Đóng bảng bên" : "Mở trò chuyện và thành viên"}
-              active={panel}
-              onClick={() => setPanel(!panel)}
-            >
-              <Users size={19} />
-            </IconButton>
-          </div>
-        </div>
         <div className="workspace-body">
-          <main className={`main-content view-${view}`}>
-            {view === "live" && (
-              <>
-                <div className="session-info">
-                  <div>
-                    <span className="presenter-mini">
-                      <img src={portrait} alt="" />
-                    </span>
-                    <b>Nguyễn Hoàng</b>
-                    <span className="presenter-badge">Giảng viên</span>
-                    <span className="session-separator">·</span>
-                    <MonitorUp size={14} />
-                    <span>Đang chia sẻ màn hình</span>
-                  </div>
-                  <span>
-                    <Users size={14} /> {members.length + 18} người tham gia
-                  </span>
-                </div>
-                <LivePlayer screenVideo={screenVideo} sharing={sharing} />
-                <div className="live-toolbar">
-                  <div className="toolbar-devices">
-                    <button
-                      className={`device-button ${mic ? "enabled" : ""}`}
-                      onClick={() => toggleMedia("mic")}
-                      title={mic ? "Tắt micro" : "Bật micro"}
-                    >
-                      {mic ? <Mic size={19} /> : <MicOff size={19} />}
-                      <ChevronDown size={12} />
-                    </button>
-                    <button
-                      className={`device-button ${camera ? "enabled" : ""}`}
-                      onClick={() => toggleMedia("camera")}
-                      title={camera ? "Tắt camera" : "Bật camera"}
-                    >
-                      {camera ? <Video size={19} /> : <VideoOff size={19} />}
-                      <ChevronDown size={12} />
-                    </button>
-                    <button
-                      className={`device-button ${hand ? "enabled" : ""}`}
-                      title="Giơ tay"
-                      onClick={() => {
-                        setHand(!hand);
-                        notify(hand ? "Đã hạ tay." : "Bạn đã giơ tay.");
-                      }}
-                    >
-                      <Hand size={19} />
-                    </button>
-                  </div>
-                  <div className="toolbar-options">
-                    <button
-                      className={recording ? "record-active" : ""}
-                      onClick={toggleRecording}
-                    >
-                      <Circle
-                        size={15}
-                        fill={recording ? "currentColor" : "none"}
-                      />{" "}
-                      {recording ? "Dừng ghi mẫu" : "Ghi hình"}
-                      {recording && <span className="live-dot" />}
-                    </button>
-                    <button onClick={() => setModal("poll")}>
-                      <BarChart3 size={16} /> Bình chọn
-                    </button>
-                    <button
-                      className={sharing ? "text-cyan" : ""}
-                      onClick={() => toggleMedia("screen")}
-                    >
-                      <MonitorUp size={16} />{" "}
-                      {sharing ? "Dừng chia sẻ" : "Chia sẻ"}
-                    </button>
-                  </div>
-                  <Link href="/meet" className="leave-button">
-                    <PhoneOff size={17} /> Rời phòng
+          <main
+            className={`main-content view-${view} ${membersView ? "membership-main" : ""}`}
+          >
+            {membersView ? (
+              !user ? (
+                <div className="membership-empty">
+                  <Users size={30} />
+                  <h2>Đăng nhập để xem thành viên</h2>
+                  <Link className="button primary" href="/login">
+                    Đăng nhập
                   </Link>
                 </div>
-                {camera && (
-                  <div className="local-camera-preview">
-                    <video ref={localVideo} autoPlay playsInline muted />
-                    <span>Camera của bạn · Chỉ hiển thị trên thiết bị này</span>
-                  </div>
-                )}
-                <div className="rewind-tip">
-                  <div className="tip-icon">
-                    <Clock3 size={21} />
-                  </div>
-                  <div>
-                    <b>Đến muộn cũng không bỏ lỡ.</b>
-                    <p>
-                      Kéo thanh thời gian để xem lại. Buổi học vẫn tiếp tục,
-                      theo nhịp của bạn.
-                    </p>
-                  </div>
-                  <span className="tip-tag">TUA LẠI TRỰC TIẾP</span>
-                </div>
-                <div className="session-bottom">
-                  <div className="section-heading">
-                    <h2>Trong buổi học này</h2>
-                    <span>BUỔI 05</span>
-                  </div>
-                  <div className="lesson-resource">
-                    <div className="file-symbol">
-                      <FileText size={23} />
-                    </div>
-                    <div>
-                      <b>Slide — Hệ thống phân tán.pdf</b>
-                      <small>Được chia sẻ bởi Nguyễn Hoàng · 12,4 MB</small>
-                    </div>
-                    <Link href="/files" className="resource-link">
-                      Xem tài liệu <ArrowRight size={15} />
-                    </Link>
-                  </div>
-                  <div className="demo-caption">
-                    <ShieldCheck size={12} /> Bản trải nghiệm · Nội dung, người
-                    tham gia và trình phát được mô phỏng.
-                  </div>
-                </div>
-              </>
-            )}
-            {view === "meet" && (
-              <div className="meet-page">
-                <div className="eyebrow">
-                  <span className="status-dot" /> SẴN SÀNG KẾT NỐI
-                </div>
-                <h2>
-                  Khoảng cách nhỏ lại.
-                  <br />
-                  <span>Ý tưởng lớn lên.</span>
-                </h2>
-                <p>
-                  Tạo một cuộc họp mới hoặc tham gia cùng nhóm của bạn.
-                  <br />
-                  Chỉ cần một đường liên kết để bắt đầu.
-                </p>
-                <div className="meet-create-card">
-                  <div className="card-icon">
-                    <Video size={24} />
-                  </div>
-                  <h3>Bắt đầu một điều thú vị</h3>
-                  <label htmlFor="room-name">Tên cuộc họp</label>
-                  <input
-                    id="room-name"
-                    value={roomName}
-                    onChange={(e) => setRoomName(e.target.value)}
-                    placeholder="Ví dụ: Nhóm học tập cuối tuần"
-                  />
-                  <button
-                    className="button primary"
-                    onClick={() => {
-                      const code = `phong-${Date.now().toString(36)}`;
-                      sessionStorage.setItem(
-                        code,
-                        roomName.trim() || "Cuộc họp mới",
-                      );
-                      location.href = `/rooms/${code}`;
-                    }}
-                  >
-                    <Plus size={18} /> Tạo cuộc họp mới
-                  </button>
-                  <div className="or-divider">
-                    <span /> hoặc tham gia bằng mã <span />
-                  </div>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const raw = roomCode.trim();
-                      const code = raw.includes("/rooms/")
-                        ? raw.split("/rooms/").pop()?.split(/[?#]/)[0]
-                        : raw;
-                      if (!code || !/^[a-zA-Z0-9_-]{3,80}$/.test(code)) {
-                        notify(
-                          "Nhập mã phòng hợp lệ, ít nhất 3 ký tự (chữ, số, gạch ngang).",
-                        );
-                        return;
-                      }
-                      location.href = `/rooms/${code}`;
-                    }}
-                  >
-                    <div className="input-icon">
-                      <Link2 size={17} />
-                      <input
-                        aria-label="Mã hoặc liên kết cuộc họp"
-                        placeholder="Nhập mã hoặc liên kết"
-                        value={roomCode}
-                        onChange={(e) => setRoomCode(e.target.value)}
-                      />
-                    </div>
-                    <button
-                      className="button secondary"
-                      disabled={!roomCode.trim()}
-                    >
-                      Tham gia <ArrowRight size={16} />
-                    </button>
-                  </form>
-                </div>
-                <div className="meet-decoration">
-                  <div className="orbit orbit-one" />
-                  <div className="orbit orbit-two" />
-                  <div className="meet-art-tile tile-one">
-                    <Avatar initials="MA" color="pink" />
-                    <span>Minh Anh</span>
-                    <Mic size={15} />
-                  </div>
-                  <div className="meet-art-tile tile-two">
-                    <Avatar initials="TP" color="blue" />
-                    <span>Tuấn Phạm</span>
-                    <MicOff size={15} />
-                  </div>
-                  <div className="meet-art-center">
-                    <Waves size={54} />
-                  </div>
-                  <span className="art-spark spark-one">✦</span>
-                  <span className="art-spark spark-two">✧</span>
-                  <div className="meet-art-label">
-                    <ShieldCheck size={17} /> Không gian cho mọi ý tưởng.
-                  </div>
-                </div>
-              </div>
-            )}
-            {view === "files" && (
-              <div className="files-page">
-                <div className="files-banner">
-                  <div className="file-banner-icon">
-                    <Folder size={33} />
-                  </div>
-                  <div>
-                    <span className="eyebrow">THƯ VIỆN CỘNG ĐỒNG</span>
-                    <h2>Mọi kiến thức, một nơi.</h2>
-                    <p>
-                      Tài liệu và bản ghi luôn ở đây để bạn tiếp tục khám phá.
-                    </p>
-                  </div>
-                  <button
-                    className="button primary"
-                    onClick={() => fileInput.current?.click()}
-                  >
-                    <Upload size={16} /> Thêm tài liệu
-                  </button>
-                </div>
-                <div className="file-controls">
-                  <div className="file-filters">
-                    {["Tất cả", "Tài liệu", "Bản ghi"].map((item) => (
-                      <button
-                        key={item}
-                        onClick={() => setFilter(item)}
-                        className={filter === item ? "selected" : ""}
-                      >
-                        {item}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="input-icon">
-                    <Search size={16} />
-                    <input
-                      placeholder="Tìm tên tài liệu…"
-                      aria-label="Tìm tên tài liệu"
-                      value={fileQuery}
-                      onChange={(e) => setFileQuery(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <input
-                  type="file"
-                  ref={fileInput}
-                  hidden
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file)
-                      setUpload({
-                        name: file.name,
-                        size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-                        progress: 0,
-                        paused: false,
-                      });
-                    e.target.value = "";
-                  }}
+              ) : workspaceGroup.loading ? (
+                <LoadingState message="Đang tải nhóm học tập…" />
+              ) : workspaceGroup.error ? (
+                <RequestError
+                  error={workspaceGroup.error}
+                  onRetry={workspaceGroup.reload}
                 />
-                {upload && (
-                  <div className="upload-progress">
-                    <Upload size={22} />
-                    <div>
-                      <b>{upload.name}</b>
-                      <small>
-                        {upload.paused
-                          ? "Đã tạm dừng · Có thể tiếp tục"
-                          : `Đang mô phỏng tải lên · ${upload.progress}%`}
-                      </small>
-                      <progress value={upload.progress} max="100" />
-                    </div>
-                    <button
-                      className="button secondary compact"
-                      onClick={() =>
-                        setUpload({ ...upload, paused: !upload.paused })
-                      }
-                    >
-                      {upload.paused ? <Play size={14} /> : <Pause size={14} />}{" "}
-                      {upload.paused ? "Tiếp tục" : "Tạm dừng"}
-                    </button>
-                    <IconButton
-                      label="Hủy tải lên"
-                      onClick={() => setUpload(null)}
-                    >
-                      <X size={16} />
-                    </IconButton>
-                  </div>
-                )}
-                <div className="file-table">
-                  <div className="file-table-heading">
-                    <span>TÊN TÀI LIỆU</span>
-                    <span>DUNG LƯỢNG</span>
-                    <span>ĐƯỢC THÊM</span>
-                    <span />
-                  </div>
-                  {filteredFiles.map((file, index) => (
-                    <button
-                      key={`${file.name}-${index}`}
-                      className="file-row"
-                      onClick={() => {
-                        setModal(`file:${file.name}`);
-                      }}
-                    >
+              ) : !workspaceGroup.groupId ? (
+                <NoGroupSelected />
+              ) : groupAccess.loading ? (
+                <LoadingState message="Đang kiểm tra quyền…" />
+              ) : groupAccess.error ? (
+                <RequestError
+                  error={groupAccess.error}
+                  onRetry={groupAccess.refresh}
+                />
+              ) : permissions ? (
+                <MembersPanel
+                  key={`${user.id}:${workspaceGroup.groupId}`}
+                  groupId={workspaceGroup.groupId}
+                  permissions={permissions}
+                  revision={groupAccess.revision}
+                  allowManagement
+                />
+              ) : null
+            ) : workspaceGroup.groupId && !permissions ? (
+              groupAccess.loading ? (
+                <LoadingState message="Đang kiểm tra quyền…" />
+              ) : (
+                <RequestError
+                  error={groupAccess.error}
+                  onRetry={groupAccess.refresh}
+                />
+              )
+            ) : (
+              <>
+                {view === "live" && (
+                  <>
+                    <div className="session-info">
+                      <div>
+                        <span className="presenter-mini">
+                          <img src={portrait} alt="" />
+                        </span>
+                        <b>Nguyễn Hoàng</b>
+                        <span className="presenter-badge">Giảng viên</span>
+                        <span className="session-separator">·</span>
+                        <MonitorUp size={14} />
+                        <span>Đang chia sẻ màn hình</span>
+                      </div>
                       <span>
-                        <span
-                          className={`file-symbol ${file.kind === "Bản ghi" ? "video-symbol" : ""}`}
-                        >
-                          {file.kind === "Bản ghi" ? (
-                            <Video size={22} />
-                          ) : (
-                            <FileText size={22} />
-                          )}
-                        </span>
-                        <span>
-                          <b>{file.name}</b>
-                          <small>{file.kind}</small>
-                        </span>
+                        <Users size={14} /> {members.length + 18} người tham gia
                       </span>
-                      <span>{file.size}</span>
-                      <span>{file.date}</span>
-                      <ChevronRight size={16} />
-                    </button>
-                  ))}
-                  {!filteredFiles.length && (
-                    <div className="empty-state">
-                      <Search size={30} />
-                      <h3>Chưa tìm thấy tài liệu</h3>
-                      <p>Thử một tên khác hoặc chọn bộ lọc khác.</p>
                     </div>
-                  )}
-                </div>
-                <div className="file-disclaimer">
-                  <ShieldCheck size={15} /> Thư viện mẫu lưu thông tin trên
-                  trình duyệt. Tải lên và tạm dừng được mô phỏng; nội dung tệp
-                  chưa được lưu.
-                </div>
-              </div>
-            )}
-            {view === "chat" && (
-              <div className="community-chat">
-                <div className="chat-welcome">
-                  <div className="card-icon">
-                    <Hash size={30} />
-                  </div>
-                  <h2>Mỗi kết nối bắt đầu bằng lời chào.</h2>
-                  <p>
-                    Chào mừng đến với <b>#{title}</b> của {group}.<br />
-                    Cùng đặt câu hỏi, chia sẻ kiến thức và giúp nhau tiến bộ.
-                  </p>
-                  <button
-                    className="button secondary compact"
-                    onClick={() => setModal("invite")}
-                  >
-                    <Users size={15} /> Mời bạn bè
-                  </button>
-                </div>
-                {chatUI}
-              </div>
-            )}
-            {view === "room" && (
-              <div className="room-page">
-                <div className="room-banner">
-                  <span className="status-dot" /> Phòng trải nghiệm · Thiết bị
-                  chỉ hiển thị cục bộ{" "}
-                  <span>
-                    <Clock3 size={14} /> Sẵn sàng bắt đầu
-                  </span>
-                </div>
-                <div className="meeting-grid">
-                  <div
-                    className={`participant-tile you ${mic ? "speaking" : ""}`}
-                  >
-                    {camera ? (
-                      <video ref={localVideo} autoPlay playsInline muted />
-                    ) : (
-                      <Avatar initials="BA" />
+                    <LivePlayer screenVideo={screenVideo} sharing={sharing} />
+                    <div className="live-toolbar">
+                      <div className="toolbar-devices">
+                        <button
+                          className={`device-button ${mic ? "enabled" : ""}`}
+                          onClick={() => toggleMedia("mic")}
+                          title={mic ? "Tắt micro" : "Bật micro"}
+                        >
+                          {mic ? <Mic size={19} /> : <MicOff size={19} />}
+                          <ChevronDown size={12} />
+                        </button>
+                        <button
+                          className={`device-button ${camera ? "enabled" : ""}`}
+                          onClick={() => toggleMedia("camera")}
+                          title={camera ? "Tắt camera" : "Bật camera"}
+                        >
+                          {camera ? (
+                            <Video size={19} />
+                          ) : (
+                            <VideoOff size={19} />
+                          )}
+                          <ChevronDown size={12} />
+                        </button>
+                        <button
+                          className={`device-button ${hand ? "enabled" : ""}`}
+                          title="Giơ tay"
+                          onClick={() => {
+                            setHand(!hand);
+                            notify(hand ? "Đã hạ tay." : "Bạn đã giơ tay.");
+                          }}
+                        >
+                          <Hand size={19} />
+                        </button>
+                      </div>
+                      <div className="toolbar-options">
+                        <button
+                          className={recording ? "record-active" : ""}
+                          disabled={
+                            Boolean(workspaceGroup.groupId) &&
+                            !permissions?.canHost
+                          }
+                          onClick={toggleRecording}
+                        >
+                          <Circle
+                            size={15}
+                            fill={recording ? "currentColor" : "none"}
+                          />{" "}
+                          {recording ? "Dừng ghi mẫu" : "Ghi hình"}
+                          {recording && <span className="live-dot" />}
+                        </button>
+                        <button
+                          disabled={
+                            Boolean(workspaceGroup.groupId) &&
+                            !permissions?.canHost
+                          }
+                          onClick={() => setModal("poll")}
+                        >
+                          <BarChart3 size={16} /> Bình chọn
+                        </button>
+                        <button
+                          className={sharing ? "text-cyan" : ""}
+                          disabled={
+                            Boolean(workspaceGroup.groupId) &&
+                            !permissions?.canHost
+                          }
+                          onClick={() => toggleMedia("screen")}
+                        >
+                          <MonitorUp size={16} />{" "}
+                          {sharing ? "Dừng chia sẻ" : "Chia sẻ"}
+                        </button>
+                      </div>
+                      <Link href="/meet" className="leave-button">
+                        <PhoneOff size={17} /> Rời phòng
+                      </Link>
+                    </div>
+                    {camera && (
+                      <div className="local-camera-preview">
+                        <video ref={localVideo} autoPlay playsInline muted />
+                        <span>
+                          Camera của bạn · Chỉ hiển thị trên thiết bị này
+                        </span>
+                      </div>
                     )}
-                    <div className="participant-label">
-                      Bạn <small>Người tổ chức</small>
-                      {mic ? <Mic size={15} /> : <MicOff size={15} />}
+                    <div className="rewind-tip">
+                      <div className="tip-icon">
+                        <Clock3 size={21} />
+                      </div>
+                      <div>
+                        <b>Đến muộn cũng không bỏ lỡ.</b>
+                        <p>
+                          Kéo thanh thời gian để xem lại. Buổi học vẫn tiếp tục,
+                          theo nhịp của bạn.
+                        </p>
+                      </div>
+                      <span className="tip-tag">TUA LẠI TRỰC TIẾP</span>
                     </div>
-                  </div>
-                  {members.slice(0, 3).map((name, index) => (
-                    <div className="participant-tile" key={name}>
-                      <Avatar
-                        initials={name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                        color={["blue", "pink", "green"][index]}
+                    <div className="session-bottom">
+                      <div className="section-heading">
+                        <h2>Trong buổi học này</h2>
+                        <span>BUỔI 05</span>
+                      </div>
+                      <div className="lesson-resource">
+                        <div className="file-symbol">
+                          <FileText size={23} />
+                        </div>
+                        <div>
+                          <b>Slide — Hệ thống phân tán.pdf</b>
+                          <small>Được chia sẻ bởi Nguyễn Hoàng · 12,4 MB</small>
+                        </div>
+                        <Link href="/files" className="resource-link">
+                          Xem tài liệu <ArrowRight size={15} />
+                        </Link>
+                      </div>
+                      <div className="demo-caption">
+                        <ShieldCheck size={12} /> Bản trải nghiệm · Nội dung,
+                        người tham gia và trình phát được mô phỏng.
+                      </div>
+                    </div>
+                  </>
+                )}
+                {view === "meet" && (
+                  <div className="meet-page">
+                    <div className="eyebrow">
+                      <span className="status-dot" /> SẴN SÀNG KẾT NỐI
+                    </div>
+                    <h2>
+                      Khoảng cách nhỏ lại.
+                      <br />
+                      <span>Ý tưởng lớn lên.</span>
+                    </h2>
+                    <p>
+                      Tạo một cuộc họp mới hoặc tham gia cùng nhóm của bạn.
+                      <br />
+                      Chỉ cần một đường liên kết để bắt đầu.
+                    </p>
+                    <div className="meet-create-card">
+                      <div className="card-icon">
+                        <Video size={24} />
+                      </div>
+                      <h3>Bắt đầu một điều thú vị</h3>
+                      <label htmlFor="room-name">Tên cuộc họp</label>
+                      <input
+                        id="room-name"
+                        value={roomName}
+                        onChange={(e) => setRoomName(e.target.value)}
+                        placeholder="Ví dụ: Nhóm học tập cuối tuần"
                       />
-                      <div className="participant-label">
-                        {name}
+                      <button
+                        className="button primary"
+                        disabled={
+                          Boolean(workspaceGroup.groupId) &&
+                          !permissions?.canHost
+                        }
+                        onClick={() => {
+                          const code = `phong-${Date.now().toString(36)}`;
+                          sessionStorage.setItem(
+                            code,
+                            roomName.trim() || "Cuộc họp mới",
+                          );
+                          location.href = `/rooms/${code}`;
+                        }}
+                      >
+                        <Plus size={18} /> Tạo cuộc họp mới
+                      </button>
+                      <div className="or-divider">
+                        <span /> hoặc tham gia bằng mã <span />
+                      </div>
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const raw = roomCode.trim();
+                          const code = raw.includes("/rooms/")
+                            ? raw.split("/rooms/").pop()?.split(/[?#]/)[0]
+                            : raw;
+                          if (!code || !/^[a-zA-Z0-9_-]{3,80}$/.test(code)) {
+                            notify(
+                              "Nhập mã phòng hợp lệ, ít nhất 3 ký tự (chữ, số, gạch ngang).",
+                            );
+                            return;
+                          }
+                          location.href = `/rooms/${code}`;
+                        }}
+                      >
+                        <div className="input-icon">
+                          <Link2 size={17} />
+                          <input
+                            aria-label="Mã hoặc liên kết cuộc họp"
+                            placeholder="Nhập mã hoặc liên kết"
+                            value={roomCode}
+                            onChange={(e) => setRoomCode(e.target.value)}
+                          />
+                        </div>
+                        <button
+                          className="button secondary"
+                          disabled={!roomCode.trim()}
+                        >
+                          Tham gia <ArrowRight size={16} />
+                        </button>
+                      </form>
+                    </div>
+                    <div className="meet-decoration">
+                      <div className="orbit orbit-one" />
+                      <div className="orbit orbit-two" />
+                      <div className="meet-art-tile tile-one">
+                        <Avatar initials="MA" color="pink" />
+                        <span>Minh Anh</span>
+                        <Mic size={15} />
+                      </div>
+                      <div className="meet-art-tile tile-two">
+                        <Avatar initials="TP" color="blue" />
+                        <span>Tuấn Phạm</span>
                         <MicOff size={15} />
                       </div>
-                      <span className="sample-label">Minh họa</span>
+                      <div className="meet-art-center">
+                        <Waves size={54} />
+                      </div>
+                      <span className="art-spark spark-one">✦</span>
+                      <span className="art-spark spark-two">✧</span>
+                      <div className="meet-art-label">
+                        <ShieldCheck size={17} /> Không gian cho mọi ý tưởng.
+                      </div>
                     </div>
-                  ))}
-                </div>
-                {sharing && (
-                  <div className="room-screen">
-                    <video ref={screenVideo} autoPlay playsInline muted />
-                    <span>Màn hình của bạn</span>
                   </div>
                 )}
-                <div className="room-device-bar">
-                  <button
-                    className={`round-control ${mic ? "" : "off"}`}
-                    onClick={() => toggleMedia("mic")}
-                    aria-label={mic ? "Tắt micro" : "Bật micro"}
-                  >
-                    {mic ? <Mic /> : <MicOff />}
-                  </button>
-                  <button
-                    className={`round-control ${camera ? "" : "off"}`}
-                    onClick={() => toggleMedia("camera")}
-                    aria-label={camera ? "Tắt camera" : "Bật camera"}
-                  >
-                    {camera ? <Video /> : <VideoOff />}
-                  </button>
-                  <button
-                    className={`round-control ${sharing ? "active" : ""}`}
-                    onClick={() => toggleMedia("screen")}
-                    aria-label="Chia sẻ màn hình"
-                  >
-                    <MonitorUp />
-                  </button>
-                  <button
-                    className={`round-control ${recording ? "record-active" : ""}`}
-                    onClick={toggleRecording}
-                    aria-label="Ghi hình mẫu"
-                  >
-                    <Circle size={21} />
-                  </button>
-                  <button
-                    className="round-control"
-                    onClick={() => setModal("poll")}
-                    aria-label="Tạo bình chọn"
-                  >
-                    <BarChart3 />
-                  </button>
-                  <button
-                    className={`round-control ${hand ? "active" : ""}`}
-                    onClick={() => setHand(!hand)}
-                    aria-label="Giơ tay"
-                  >
-                    <Hand />
-                  </button>
-                  <Link
-                    href="/meet"
-                    className="round-control hangup"
-                    aria-label="Rời cuộc họp"
-                  >
-                    <PhoneOff />
-                  </Link>
-                </div>
-                <div className="room-bottom">
-                  <span>
-                    <ShieldCheck size={14} /> Thiết bị của bạn chỉ được bật khi
-                    cho phép.
-                  </span>
-                  <button onClick={() => setModal("settings")}>
-                    <Settings2 size={14} /> Thiết lập chia sẻ
-                  </button>
-                </div>
-              </div>
-            )}
-            {poll && (
-              <div className="poll-card">
-                <div>
-                  <BarChart3 size={19} />
-                  <b>Bình chọn đang mở</b>
-                  <IconButton
-                    label="Đóng bình chọn"
-                    onClick={() => setPoll(false)}
-                  >
-                    <X size={16} />
-                  </IconButton>
-                </div>
-                <h3>{pollQuestion}</h3>
-                {pollOptions.map((option, index) => (
-                  <button
-                    key={index}
-                    className={vote === index ? "selected" : ""}
-                    onClick={() => setVote(index)}
-                  >
-                    <span>{option}</span>
-                    {vote === index ? (
-                      <Check size={17} />
-                    ) : (
-                      <Circle size={16} />
+                {view === "files" && (
+                  <div className="files-page">
+                    <div className="files-banner">
+                      <div className="file-banner-icon">
+                        <Folder size={33} />
+                      </div>
+                      <div>
+                        <span className="eyebrow">THƯ VIỆN CỘNG ĐỒNG</span>
+                        <h2>Mọi kiến thức, một nơi.</h2>
+                        <p>
+                          Tài liệu và bản ghi luôn ở đây để bạn tiếp tục khám
+                          phá.
+                        </p>
+                      </div>
+                      <button
+                        className="button primary"
+                        disabled={
+                          Boolean(workspaceGroup.groupId) &&
+                          !permissions?.canUpload
+                        }
+                        onClick={() => fileInput.current?.click()}
+                      >
+                        <Upload size={16} /> Thêm tài liệu
+                      </button>
+                    </div>
+                    <div className="file-controls">
+                      <div className="file-filters">
+                        {["Tất cả", "Tài liệu", "Bản ghi"]
+                          .filter(
+                            (item) =>
+                              item !== "Bản ghi" ||
+                              !workspaceGroup.groupId ||
+                              permissions?.canViewRecordings,
+                          )
+                          .map((item) => (
+                            <button
+                              key={item}
+                              onClick={() => setFilter(item)}
+                              className={filter === item ? "selected" : ""}
+                            >
+                              {item}
+                            </button>
+                          ))}
+                      </div>
+                      <div className="input-icon">
+                        <Search size={16} />
+                        <input
+                          placeholder="Tìm tên tài liệu…"
+                          aria-label="Tìm tên tài liệu"
+                          value={fileQuery}
+                          onChange={(e) => setFileQuery(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <input
+                      type="file"
+                      ref={fileInput}
+                      hidden
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file)
+                          setUpload({
+                            name: file.name,
+                            size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+                            progress: 0,
+                            paused: false,
+                          });
+                        e.target.value = "";
+                      }}
+                    />
+                    {upload && (
+                      <div className="upload-progress">
+                        <Upload size={22} />
+                        <div>
+                          <b>{upload.name}</b>
+                          <small>
+                            {upload.paused
+                              ? "Đã tạm dừng · Có thể tiếp tục"
+                              : `Đang mô phỏng tải lên · ${upload.progress}%`}
+                          </small>
+                          <progress value={upload.progress} max="100" />
+                        </div>
+                        <button
+                          className="button secondary compact"
+                          onClick={() =>
+                            setUpload({ ...upload, paused: !upload.paused })
+                          }
+                        >
+                          {upload.paused ? (
+                            <Play size={14} />
+                          ) : (
+                            <Pause size={14} />
+                          )}{" "}
+                          {upload.paused ? "Tiếp tục" : "Tạm dừng"}
+                        </button>
+                        <IconButton
+                          label="Hủy tải lên"
+                          onClick={() => setUpload(null)}
+                        >
+                          <X size={16} />
+                        </IconButton>
+                      </div>
                     )}
-                  </button>
-                ))}
-                <small>
-                  {vote !== null
-                    ? "Đã ghi nhận lựa chọn của bạn trong bản trải nghiệm."
-                    : "Chọn một câu trả lời · Bình chọn minh họa"}
-                </small>
-              </div>
+                    <div className="file-table">
+                      <div className="file-table-heading">
+                        <span>Tên tài liệu</span>
+                        <span>Dung lượng</span>
+                        <span>Được thêm</span>
+                        <span />
+                      </div>
+                      {filteredFiles.map((file, index) => (
+                        <button
+                          key={`${file.name}-${index}`}
+                          className="file-row"
+                          onClick={() => {
+                            setModal(`file:${file.name}`);
+                          }}
+                        >
+                          <span>
+                            <span
+                              className={`file-symbol ${file.kind === "Bản ghi" ? "video-symbol" : ""}`}
+                            >
+                              {file.kind === "Bản ghi" ? (
+                                <Video size={22} />
+                              ) : (
+                                <FileText size={22} />
+                              )}
+                            </span>
+                            <span>
+                              <b>{file.name}</b>
+                              <small>{file.kind}</small>
+                            </span>
+                          </span>
+                          <span>{file.size}</span>
+                          <span>{file.date}</span>
+                          <ChevronRight size={16} />
+                        </button>
+                      ))}
+                      {!filteredFiles.length && (
+                        <div className="empty-state">
+                          <Search size={30} />
+                          <h3>Chưa tìm thấy tài liệu</h3>
+                          <p>Thử một tên khác hoặc chọn bộ lọc khác.</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="file-disclaimer">
+                      <ShieldCheck size={15} /> Thư viện mẫu lưu thông tin trên
+                      trình duyệt. Tải lên và tạm dừng được mô phỏng; nội dung
+                      tệp chưa được lưu.
+                    </div>
+                  </div>
+                )}
+                {view === "chat" && (
+                  <div className="community-chat">
+                    <WorkspaceChat
+                      {...chatProps}
+                      welcome={
+                        <div className="chat-welcome">
+                          <div className="card-icon">
+                            <Hash size={30} />
+                          </div>
+                          <h2>Mỗi kết nối bắt đầu bằng lời chào.</h2>
+                          <p>
+                            Chào mừng đến với <b>#{title}</b> của {group}.<br />
+                            Cùng đặt câu hỏi, chia sẻ kiến thức và giúp nhau
+                            tiến bộ.
+                          </p>
+                          <button
+                            className="button secondary compact"
+                            onClick={() => setModal("invite")}
+                          >
+                            <Users size={15} /> Mời bạn bè
+                          </button>
+                        </div>
+                      }
+                    />
+                  </div>
+                )}
+                {view === "room" && (
+                  <div className="room-page">
+                    <div className="room-banner">
+                      <span className="status-dot" /> Phòng trải nghiệm · Thiết
+                      bị chỉ hiển thị cục bộ{" "}
+                      <span>
+                        <Clock3 size={14} /> Sẵn sàng bắt đầu
+                      </span>
+                    </div>
+                    <div className="meeting-grid">
+                      <div
+                        className={`participant-tile you ${mic ? "speaking" : ""}`}
+                      >
+                        {camera ? (
+                          <video ref={localVideo} autoPlay playsInline muted />
+                        ) : (
+                          <Avatar initials="BA" />
+                        )}
+                        <div className="participant-label">
+                          Bạn <small>Người tổ chức</small>
+                          {mic ? <Mic size={15} /> : <MicOff size={15} />}
+                        </div>
+                      </div>
+                      {members.slice(0, 3).map((name, index) => (
+                        <div className="participant-tile" key={name}>
+                          <Avatar
+                            initials={name
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")}
+                            color={["blue", "pink", "green"][index]}
+                          />
+                          <div className="participant-label">
+                            {name}
+                            <MicOff size={15} />
+                          </div>
+                          <span className="sample-label">Minh họa</span>
+                        </div>
+                      ))}
+                    </div>
+                    {sharing && (
+                      <div className="room-screen">
+                        <video ref={screenVideo} autoPlay playsInline muted />
+                        <span>Màn hình của bạn</span>
+                      </div>
+                    )}
+                    <div className="room-device-bar">
+                      <button
+                        className={`round-control ${mic ? "" : "off"}`}
+                        onClick={() => toggleMedia("mic")}
+                        aria-label={mic ? "Tắt micro" : "Bật micro"}
+                      >
+                        {mic ? <Mic /> : <MicOff />}
+                      </button>
+                      <button
+                        className={`round-control ${camera ? "" : "off"}`}
+                        onClick={() => toggleMedia("camera")}
+                        aria-label={camera ? "Tắt camera" : "Bật camera"}
+                      >
+                        {camera ? <Video /> : <VideoOff />}
+                      </button>
+                      <button
+                        className={`round-control ${sharing ? "active" : ""}`}
+                        disabled={
+                          Boolean(workspaceGroup.groupId) &&
+                          !permissions?.canHost
+                        }
+                        onClick={() => toggleMedia("screen")}
+                        aria-label="Chia sẻ màn hình"
+                      >
+                        <MonitorUp />
+                      </button>
+                      <button
+                        className={`round-control ${recording ? "record-active" : ""}`}
+                        disabled={
+                          Boolean(workspaceGroup.groupId) &&
+                          !permissions?.canHost
+                        }
+                        onClick={toggleRecording}
+                        aria-label="Ghi hình mẫu"
+                      >
+                        <Circle size={21} />
+                      </button>
+                      <button
+                        className="round-control"
+                        onClick={() => setModal("poll")}
+                        aria-label="Tạo bình chọn"
+                        disabled={
+                          Boolean(workspaceGroup.groupId) &&
+                          !permissions?.canHost
+                        }
+                      >
+                        <BarChart3 />
+                      </button>
+                      <button
+                        className={`round-control ${hand ? "active" : ""}`}
+                        onClick={() => setHand(!hand)}
+                        aria-label="Giơ tay"
+                      >
+                        <Hand />
+                      </button>
+                      <Link
+                        href="/meet"
+                        className="round-control hangup"
+                        aria-label="Rời cuộc họp"
+                      >
+                        <PhoneOff />
+                      </Link>
+                    </div>
+                    <div className="room-bottom">
+                      <span>
+                        <ShieldCheck size={14} /> Thiết bị của bạn chỉ được bật
+                        khi cho phép.
+                      </span>
+                      <button onClick={() => setModal("settings")}>
+                        <Settings2 size={14} /> Thiết lập chia sẻ
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {poll && (!workspaceGroup.groupId || permissions?.canHost) && (
+                  <div className="poll-card">
+                    <div>
+                      <BarChart3 size={19} />
+                      <b>Bình chọn đang mở</b>
+                      <IconButton
+                        label="Đóng bình chọn"
+                        onClick={() => setPoll(false)}
+                      >
+                        <X size={16} />
+                      </IconButton>
+                    </div>
+                    <h3>{pollQuestion}</h3>
+                    {pollOptions.map((option, index) => (
+                      <button
+                        key={index}
+                        className={vote === index ? "selected" : ""}
+                        onClick={() => setVote(index)}
+                      >
+                        <span>{option}</span>
+                        {vote === index ? (
+                          <Check size={17} />
+                        ) : (
+                          <Circle size={16} />
+                        )}
+                      </button>
+                    ))}
+                    <small>
+                      {vote !== null
+                        ? "Đã ghi nhận lựa chọn của bạn trong bản trải nghiệm."
+                        : "Chọn một câu trả lời · Bình chọn minh họa"}
+                    </small>
+                  </div>
+                )}
+              </>
             )}
           </main>
-          {panel && (
+          {panel && !membersView && (
             <aside className="right-panel">
               <div className="panel-tabs">
                 <button
@@ -1213,7 +1380,7 @@ export function Workspace({
                   className={panelTab === "members" ? "selected" : ""}
                   onClick={() => setPanelTab("members")}
                 >
-                  Thành viên <span>{members.length + 18}</span>
+                  Thành viên
                 </button>
                 <IconButton
                   label="Đóng bảng bên"
@@ -1223,76 +1390,38 @@ export function Workspace({
                 </IconButton>
               </div>
               {panelTab === "chat" ? (
-                chatUI
-              ) : (
-                <div className="members-list">
-                  <div className="member-heading">
-                    ĐANG TRONG PHÒNG — {members.length}
-                    <span className="status-dot" />
-                  </div>
-                  {members.map((name, index) => (
-                    <div className="member-row" key={name}>
-                      <Avatar
-                        initials={name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                        color={["violet", "pink", "blue", "green"][index % 4]}
-                        small
-                      />
-                      <div>
-                        <b>{name}</b>
-                        <small>
-                          {index === 0
-                            ? "Giảng viên"
-                            : mutedMembers.includes(name)
-                              ? "Đã tắt micro"
-                              : "Thành viên mẫu"}
-                        </small>
-                      </div>
-                      {index !== 0 && (
-                        <>
-                          <IconButton
-                            label={`Tắt micro ${name}`}
-                            onClick={() => {
-                              setMutedMembers((current) =>
-                                current.includes(name)
-                                  ? current.filter((n) => n !== name)
-                                  : [...current, name],
-                              );
-                            }}
-                          >
-                            {mutedMembers.includes(name) ? (
-                              <MicOff size={15} />
-                            ) : (
-                              <Mic size={15} />
-                            )}
-                          </IconButton>
-                          <IconButton
-                            label={`Mời ${name} ra khỏi phòng mẫu`}
-                            onClick={() => {
-                              setMembers(members.filter((n) => n !== name));
-                              notify(`Đã xóa ${name} khỏi phòng mẫu.`);
-                            }}
-                          >
-                            <X size={14} />
-                          </IconButton>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                  <p className="member-disclaimer">
-                    Danh sách và thao tác quản lý trong bản trải nghiệm được mô
-                    phỏng.
-                  </p>
-                  <button
-                    className="button secondary"
-                    onClick={() => setModal("invite")}
-                  >
-                    <Plus size={15} /> Mời thành viên
-                  </button>
+                <WorkspaceChat {...chatProps} />
+              ) : !user ? (
+                <div className="membership-empty">
+                  <p>Đăng nhập để xem thành viên.</p>
+                  <Link href="/login" className="button primary">
+                    Đăng nhập
+                  </Link>
                 </div>
-              )}
+              ) : workspaceGroup.loading ? (
+                <LoadingState message="Đang tải nhóm học tập…" />
+              ) : workspaceGroup.error ? (
+                <RequestError
+                  error={workspaceGroup.error}
+                  onRetry={workspaceGroup.reload}
+                />
+              ) : !workspaceGroup.groupId ? (
+                <NoGroupSelected />
+              ) : groupAccess.loading ? (
+                <LoadingState message="Đang kiểm tra quyền…" />
+              ) : groupAccess.error ? (
+                <RequestError
+                  error={groupAccess.error}
+                  onRetry={groupAccess.refresh}
+                />
+              ) : permissions ? (
+                <MembersPanel
+                  key={`${user.id}:${workspaceGroup.groupId}`}
+                  groupId={workspaceGroup.groupId}
+                  permissions={permissions}
+                  revision={groupAccess.revision}
+                />
+              ) : null}
               <div className="panel-footer">
                 <span className="status-dot" /> Mọi ý tưởng đều đáng được lắng
                 nghe.
@@ -1330,37 +1459,6 @@ export function Workspace({
                   <Copy size={16} /> Sao chép liên kết mời
                 </button>
               </>
-            )}
-            {modal === "community" && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!newGroup.trim()) return;
-                  setGroup(newGroup.trim());
-                  setNewGroup("");
-                  setModal(null);
-                  notify("Đã tạo cộng đồng mẫu trong phiên hiện tại.");
-                }}
-              >
-                <div className="card-icon">
-                  <Users />
-                </div>
-                <h2>Không gian cho cộng đồng bạn.</h2>
-                <p>Một nơi để cùng học, cùng thảo luận và kết nối.</p>
-                <label htmlFor="group-name">Tên cộng đồng</label>
-                <input
-                  autoFocus
-                  required
-                  id="group-name"
-                  value={newGroup}
-                  onChange={(e) => setNewGroup(e.target.value)}
-                  placeholder="Ví dụ: Câu lạc bộ Công nghệ"
-                  maxLength={40}
-                />
-                <button className="button primary" type="submit">
-                  <Plus size={16} /> Tạo cộng đồng
-                </button>
-              </form>
             )}
             {modal === "poll" && (
               <form
@@ -1541,7 +1639,8 @@ export function Workspace({
                 <p>
                   Camera, micro và chia sẻ màn hình sử dụng quyền thiết bị thật
                   và chỉ hiển thị cục bộ. Cuộc gọi nhiều người, ghi hình, lưu
-                  tệp và phân quyền đang ở chế độ minh họa.
+                  tệp đang ở chế độ minh họa. Mục Thành viên sử dụng tài khoản,
+                  nhóm và phân quyền thật.
                 </p>
                 <button
                   className="button primary"

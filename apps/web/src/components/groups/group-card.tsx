@@ -77,8 +77,10 @@ export function GroupCard({ group, onEdit, onDelete }: GroupCardProps) {
                   style={{
                     background: "none",
                     border: "none",
-                    color: "#9f86e3",
-                    fontSize: "11px",
+                    color: "var(--accent)",
+                    fontSize: "var(--type-secondary)",
+                    lineHeight: "var(--line-secondary)",
+                    minHeight: "32px",
                     cursor: "pointer",
                     padding: 0,
                   }}
@@ -93,8 +95,10 @@ export function GroupCard({ group, onEdit, onDelete }: GroupCardProps) {
                   style={{
                     background: "none",
                     border: "none",
-                    color: "#f87171",
-                    fontSize: "11px",
+                    color: "var(--danger)",
+                    fontSize: "var(--type-secondary)",
+                    lineHeight: "var(--line-secondary)",
+                    minHeight: "32px",
                     cursor: "pointer",
                     padding: 0,
                   }}

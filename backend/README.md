@@ -31,7 +31,9 @@ npm run dev:api
 API mẫu: `http://127.0.0.1:4000/api/v1/health`.
 `npm run dev:api` biên dịch rồi chạy; sau khi sửa TypeScript, dừng và chạy lại lệnh.
 Frontend chạy ở terminal riêng bằng `npm run dev`.
-Realtime mẫu chạy bằng `npm run dev:realtime`; mã nguồn nằm trong `backend/realtime/`.
+Realtime chạy bằng `npm run dev:realtime`; service trong `backend/realtime/` dùng lại
+gateway xác thực của API. Thành viên, guard, hook, outbox và LiveKit xem
+[hướng dẫn T03](docs/t03-handoff.md).
 
 `setup:env` tạo `.env` gốc cho Compose, `backend/.env` cho server và
 `apps/web/.env.local` cho Next.js. Mật khẩu local và khóa ký được tạo ngẫu nhiên,
@@ -74,10 +76,11 @@ backend/
       auth/                  # AuthModule: đăng ký, đăng nhập, phiên
       users/                 # UsersModule: thông tin và hồ sơ user
       communities/           # API mẫu cũ
-      rooms/                 # API mẫu cũ, lưu trong bộ nhớ
+      memberships/           # T03: thành viên, quyền và thu hồi truy cập
+      rooms/                 # Phòng theo nhóm, mapping lưu DB
       files/                 # API mẫu cũ
   test/                      # Kiểm thử cấu hình và HTTP
-  realtime/                  # Workspace Socket.IO mẫu cũ
+  realtime/                  # Service Socket.IO dùng chung quyền T03
   prisma/                    # Schema và migration đã commit
   prisma.config.ts           # Cấu hình Prisma CLI, đọc backend/.env
 ```

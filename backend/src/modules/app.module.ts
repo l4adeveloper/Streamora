@@ -5,6 +5,7 @@ import { FilesModule } from "./files/files.module";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/users.module";
 import { GroupsModule } from "./groups/groups.module";
+import { MembershipsModule } from "./memberships/memberships.module";
 import { DatabaseModule } from "../database/database.module";
 import { ConfigurationModule } from "../config/configuration.module";
 import type { EnvironmentConfig } from "../config/environment";
@@ -24,6 +25,7 @@ class HealthController {
     AuthModule,
     UsersModule,
     GroupsModule,
+    MembershipsModule,
     CommunitiesModule,
     RoomsModule,
     FilesModule,

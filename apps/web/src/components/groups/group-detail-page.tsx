@@ -212,9 +212,10 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
 
         <h2
           style={{
-            fontSize: "17px",
+            fontSize: "var(--type-section)",
+            lineHeight: "var(--line-section)",
             fontWeight: "600",
-            color: "#ede7f6",
+            color: "var(--text)",
             margin: "32px 0 16px",
           }}
         >
@@ -239,11 +240,15 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
             </div>
             <div>
               <h3>Thành viên & Phân quyền</h3>
-              <p>
-                Quản lý thành viên và vai trò trong nhóm sẽ được bổ sung sau.
-              </p>
+              <p>Xem danh sách, tìm kiếm và quản lý vai trò thành viên.</p>
+              <Link
+                className="button secondary compact"
+                href={`/workspace?groupId=${group.id}&tab=members`}
+              >
+                Quản lý thành viên
+              </Link>
             </div>
-            <span className="badge">Sắp có</span>
+            <span className="badge">T03</span>
           </div>
 
           <div className="group-section-box">
