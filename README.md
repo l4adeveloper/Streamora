@@ -16,6 +16,7 @@ Mở http://127.0.0.1:3000. Các trang trải nghiệm chạy độc lập với
 Đăng ký, đăng nhập và tài khoản dùng API/PostgreSQL thật; xem [hướng dẫn frontend](apps/web/README.md).
 Đồng đội bắt đầu từ [hướng dẫn bàn giao T01](backend/docs/t01-handoff.md).
 Phần quản lý nhóm xem [hướng dẫn bàn giao T02](backend/docs/t02-handoff.md).
+Thành viên và phân quyền nhóm xem [hướng dẫn bàn giao T03](backend/docs/t03-handoff.md).
 Swagger API local: `http://127.0.0.1:4000/api/v1/docs`.
 
 | Đường dẫn    | Nội dung                                                      |
@@ -45,7 +46,8 @@ backend/
     auth/                # Đăng ký, đăng nhập, JWT và refresh rotation
     users/               # GET/PATCH hồ sơ với guard xác thực
     communities/         # Danh sách cộng đồng mẫu
-    rooms/               # API tạo/đọc phòng trong bộ nhớ
+    memberships/         # Thành viên, quyền nhóm và thu hồi Socket.IO/LiveKit
+    rooms/               # Phòng theo nhóm và ánh xạ LiveKit trong DB
     files/               # Tìm kiếm metadata tài liệu mẫu
   realtime/src/          # NestJS Socket.IO: tham gia kênh và phát tin nhắn
   test/                  # Test cấu hình, setup và HTTP nền tảng
@@ -71,11 +73,14 @@ npm run test:database # PostgreSQL local đang chạy
 npm run build
 ```
 
-API mẫu: `GET /api/v1/communities`, `POST /api/v1/rooms` với body `{"name":"Nhóm học tập"}`, `GET /api/v1/rooms/:id`, `GET /api/v1/files?q=slide`.
-Phòng API lưu trong bộ nhớ và mất khi restart. DTO giới hạn tên 1–100 ký tự.
-Realtime nhận `channel:join` (`{channelId}`), `chat:send` (`{channelId,text}`) và phát `chat:message` đến các socket cùng kênh.
-Khu vực tài khoản dùng `NEXT_PUBLIC_API_URL` để gọi backend. Các trang trải nghiệm
-còn dùng dữ liệu demo; biến cấu hình realtime/media tiếp tục dành cho các task sau.
+`GET /api/v1/communities` vẫn là dữ liệu mẫu. API phòng yêu cầu Bearer:
+`POST /api/v1/rooms` với `{name,groupId}` dành cho HOST/OWNER/ADMIN và
+`GET /api/v1/rooms/:id` xác minh membership từ room trong DB.
+`GET /api/v1/files?groupId=<uuid>&q=slide` yêu cầu thành viên nhóm; nội dung vẫn minh họa.
+Realtime `/classroom` dùng `auth.accessToken`; `channel:join` nhận `{groupId}`,
+`chat:send` nhận `{groupId,text}`. API cũng cung cấp gateway; service cổng 4001 dùng cùng bộ quyền.
+Khu vực tài khoản/nhóm/thành viên dùng `NEXT_PUBLIC_API_URL` gọi backend thật;
+các phần lớp học và thư viện còn dùng dữ liệu minh họa.
 
 `npm run setup:env` tạo cấu hình local cùng mật khẩu và khóa ký ngẫu nhiên; giữ nguyên
 file đã có. `.env` gốc dành cho Docker, `backend/.env` dành cho server,
@@ -117,7 +122,7 @@ docker compose --env-file .env -f infra/docker/compose.yml --profile media up -d
 ## Phạm vi đã triển khai
 
 - Điều hướng giữa các trang, mời bằng liên kết, tạo/tham gia phòng mẫu, tìm metadata tài liệu và tin nhắn.
-- Chat được lưu riêng theo kênh; kênh mới và metadata thư viện lưu trong `localStorage` trên thiết bị. Thao tác cộng đồng/quản lý thành viên/bình chọn là trạng thái mẫu.
+- Chat được lưu riêng theo kênh; kênh mới và metadata thư viện lưu trong `localStorage` trên thiết bị. Thao tác cộng đồng/bình chọn là trạng thái mẫu. Mục Thành viên dùng API thật: tên/email, tìm kiếm, thêm/xóa, gán HOST/VIEWER và bảo vệ OWNER.
 - Thanh tua kéo được, play/pause, đuổi theo mốc trực tiếp, chọn tốc độ/chất lượng và toàn màn hình là mô phỏng giao diện, chưa phát video HLS thực.
 - Camera/micro/chia sẻ màn hình dùng `getUserMedia`/`getDisplayMedia` thật sau khi cho phép, có dừng track khi rời trang. Chưa truyền media giữa người dùng.
 - Có thiết lập FPS cho lần chia sẻ tiếp theo; trình duyệt quyết định mức hỗ trợ.
@@ -126,12 +131,13 @@ docker compose --env-file .env -f infra/docker/compose.yml --profile media up -d
 
 ## Phần cần tích hợp tiếp
 
-RBAC theo group; LiveKit SDK và token từ API đã xác thực;
+Tích hợp guard T03 vào các module lớp học/tài liệu/bản ghi khi triển khai; LiveKit và token từ API đã xác thực;
 Egress + Web Audio API; HLS/hls.js với rolling DVR playlist; presigned multipart upload S3 có resume thật;
 worker FFmpeg, retry/DLQ; Redis adapter; replication GCS và định tuyến CDN; Kubernetes/HPA/WAF và metrics.
 
-API/realtime hiện chỉ bind loopback. API hồ sơ đã xác thực; API nghiệp vụ mẫu và realtime
-chưa tích hợp xác thực/phân quyền. Các owner sẽ tích hợp guard và quyền theo group ở task tương ứng.
+API/realtime chỉ bind loopback. API phòng/tài liệu và Socket.IO hiện đã xác thực,
+kiểm tra quyền theo group và thu hồi truy cập khi xóa thành viên. Xem giới hạn media,
+TTL, outbox và hướng dẫn dùng chung guard/hook trong tài liệu T03.
 Có [HTTPS staging local cho T01](backend/docs/t01-staging.md) tại
 https://localhost:8443, khởi tạo bằng `npm run staging:setup` rồi `npm run staging:up`.
 Kết quả test, PR và giới hạn bàn giao xem [báo cáo T01](backend/docs/t01-delivery-report.md).

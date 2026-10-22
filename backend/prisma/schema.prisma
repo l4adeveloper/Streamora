@@ -97,6 +97,7 @@ model Group {
   deletedAt   DateTime?     @map("deleted_at") @db.Timestamptz(3)
   members     GroupMember[]
   owner       User          @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  rooms       GroupRoom[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -115,6 +116,7 @@ model GroupMember {
 
   @@id([userId, groupId])
   @@index([groupId, role])
+  @@index([groupId, joinedAt, userId])
   @@map("group_members")
 }
 
@@ -128,4 +130,40 @@ model GroupCreateRequest {
 
   @@id([userId, key])
   @@map("group_create_requests")
+}
+
+// Transactional outbox: database permissions change before notifications/media cleanup.
+model MembershipChange {
+  version       BigInt    @id @default(autoincrement())
+  groupId       String    @map("group_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  role          GroupMemberRole?
+  removed       Boolean
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  mediaSyncedAt DateTime? @map("media_synced_at") @db.Timestamptz(3)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  attempts      Int       @default(0)
+
+  @@index([mediaSyncedAt, nextAttemptAt, version])
+  @@map("membership_changes")
+}
+
+// Registered by the room/session owner; never resolve group access from client metadata.
+model GroupRoom {
+  id       String @id @default(uuid()) @db.Uuid
+  groupId  String @map("group_id") @db.Uuid
+  name     String @db.VarChar(100)
+  roomName String @unique @map("room_name") @db.VarChar(200)
+  group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@map("group_rooms")
+}
+
+model MembershipLookupWindow {
+  userId      String   @id @map("user_id") @db.Uuid
+  windowStart DateTime @map("window_start") @db.Timestamptz(3)
+  attempts    Int
+
+  @@map("membership_lookup_windows")
 }

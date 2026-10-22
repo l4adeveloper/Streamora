@@ -116,7 +116,12 @@ test("group UI retries a lost create response with the same key and clears an ex
         .description,
       "",
     );
-    assert.equal(await page.locator(".group-sections-grid a").count(), 0);
+    assert.equal(
+      await page
+        .getByRole("link", { name: "Quản lý thành viên", exact: true })
+        .getAttribute("href"),
+      `/workspace?groupId=${(await fixture.prisma.group.findFirst({ where: { ownerId: user.id } })).id}&tab=members`,
+    );
     await page.getByRole("button", { name: "Xóa nhóm", exact: true }).click();
     await page
       .getByRole("button", { name: "Xác nhận xóa", exact: true })

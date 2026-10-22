@@ -38,9 +38,10 @@ claims, phiên còn hiệu lực và user chưa bị khóa. Thiếu/sai/hết h�
 `CurrentAuth()` cung cấp `{user,sessionId}`, không cung cấp raw token.
 Nếu quên guard, decorator vẫn từ chối request vì chưa có identity.
 
-API demo cộng đồng/phòng/tệp hiện vẫn công khai. Owner module tự gắn guard khi
-tích hợp nghiệp vụ. Quyền ADMIN không tự cho phép mọi group; owner T03 cần kiểm tra
-membership OWNER/HOST/VIEWER sau bước xác thực.
+API cộng đồng vẫn là dữ liệu mẫu công khai. T03 đã bảo vệ API phòng/tệp và realtime;
+global ADMIN có quyền quản lý mọi group còn hoạt động. Module khác dùng
+`GroupAccessService`/`RequireGroupAccess`, resolve groupId từ tài nguyên phía server.
+Xem [hướng dẫn T03](t03-handoff.md) cho ma trận OWNER/HOST/VIEWER và thu hồi truy cập.
 
 ## Contracts và đầu vào
 

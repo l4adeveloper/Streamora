@@ -82,22 +82,68 @@ test("the relocated API serves versioned routes, validation and credentialed COR
       foreignOrigin,
     );
 
+    const credentials = {
+      email: `room-${randomUUID()}@example.test`,
+      password: "Room-test-password-123!",
+    };
+    await fetch(`${base}/api/v1/auth/register`, {
+      method: "POST",
+      headers: { Origin: origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ ...credentials, fullName: "Chủ phòng kiểm thử" }),
+    });
+    const grant = await (
+      await fetch(`${base}/api/v1/auth/login`, {
+        method: "POST",
+        headers: { Origin: origin, "Content-Type": "application/json" },
+        body: JSON.stringify(credentials),
+      })
+    ).json();
+    const authorized = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${grant.accessToken}`,
+    };
+    const group = (
+      await (
+        await fetch(`${base}/api/v1/groups`, {
+          method: "POST",
+          headers: authorized,
+          body: JSON.stringify({ name: "Nhóm kiểm thử phòng" }),
+        })
+      ).json()
+    ).group;
     const invalidRoom = await fetch(`${base}/api/v1/rooms`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Nhóm học", unexpectedField: true }),
+      headers: authorized,
+      body: JSON.stringify({
+        name: "Nhóm học",
+        groupId: group.id,
+        unexpectedField: true,
+      }),
     });
     assert.equal(invalidRoom.status, 400);
     const create = await fetch(`${base}/api/v1/rooms`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Nhóm học" }),
+      headers: authorized,
+      body: JSON.stringify({ name: "Nhóm học", groupId: group.id }),
     });
     assert.equal(create.status, 201);
     const room = (await create.json()).data;
-    assert.equal((await fetch(`${base}/api/v1/rooms/${room.id}`)).status, 200);
+    assert.equal((await fetch(`${base}/api/v1/rooms/${room.id}`)).status, 401);
+    assert.equal(
+      (await fetch(`${base}/api/v1/rooms/${room.id}`, { headers: authorized }))
+        .status,
+      200,
+    );
     assert.equal((await fetch(`${base}/api/v1/communities`)).status, 200);
-    assert.equal((await fetch(`${base}/api/v1/files?q=slide`)).status, 200);
+    assert.equal((await fetch(`${base}/api/v1/files?q=slide`)).status, 401);
+    assert.equal(
+      (
+        await fetch(`${base}/api/v1/files?q=slide&groupId=${group.id}`, {
+          headers: authorized,
+        })
+      ).status,
+      200,
+    );
   } finally {
     await app.close();
   }
@@ -111,7 +157,7 @@ const newUser = (email) => ({
   passwordHash: fixturePasswordHash,
 });
 
-test("a fresh database receives the complete auth migration", async () => {
+test("a fresh database receives the complete auth, group and membership migrations", async () => {
   const result = await sql.query(
     "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
   );
@@ -121,13 +167,16 @@ test("a fresh database receives the complete auth migration", async () => {
     "auth_sessions",
     "group_create_requests",
     "group_members",
+    "group_rooms",
     "groups",
+    "membership_changes",
+    "membership_lookup_windows",
     "users",
   ]);
   const migrations = await sql.query(
     'SELECT finished_at FROM "_prisma_migrations"',
   );
-  assert.equal(migrations.rowCount, 3);
+  assert.equal(migrations.rowCount, 4);
   assert.ok(migrations.rows.every((row) => row.finished_at));
 });
 
