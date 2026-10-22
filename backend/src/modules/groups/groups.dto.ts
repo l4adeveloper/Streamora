@@ -1,4 +1,10 @@
-import { IsOptional, IsString, Length, MaxLength } from "class-validator";
+import {
+  IsOptional,
+  IsString,
+  Length,
+  MaxLength,
+  ValidateIf,
+} from "class-validator";
 import { Transform } from "class-transformer";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { GROUP_CONSTRAINTS } from "@streamora/contracts";
@@ -41,13 +47,15 @@ export class UpdateGroupDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === "string" ? value.trim() : value,
   )
-  @IsOptional()
+  @ValidateIf((_object, value: unknown) => value !== undefined)
   @IsString()
   @Length(GROUP_CONSTRAINTS.nameMinLength, GROUP_CONSTRAINTS.nameMaxLength)
   name?: string;
 
   @ApiPropertyOptional({
     description: "Mô tả nhóm mới. Truyền null để xóa mô tả.",
+    type: String,
+    nullable: true,
     maxLength: GROUP_CONSTRAINTS.descriptionMaxLength,
   })
   @Transform(({ value }: { value: unknown }) =>
@@ -56,7 +64,7 @@ export class UpdateGroupDto {
   @IsOptional()
   @IsString()
   @MaxLength(GROUP_CONSTRAINTS.descriptionMaxLength)
-  description?: string;
+  description?: string | null;
 }
 
 export class GroupListQueryDto extends PaginationQueryDto {

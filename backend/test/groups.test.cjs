@@ -24,10 +24,7 @@ describe("T02: Groups DTO Validation", () => {
 
     // Empty name should fail
     await assert.rejects(
-      pipe.transform(
-        { name: "" },
-        { type: "body", metatype: CreateGroupDto },
-      ),
+      pipe.transform({ name: "" }, { type: "body", metatype: CreateGroupDto }),
       (err) => {
         const body = err.getResponse();
         assert.equal(body.error.code, "VALIDATION_ERROR");
@@ -91,12 +88,28 @@ describe("T02: Groups DTO Validation", () => {
     assert.equal(valid.q, "toán");
     assert.equal(valid.limit, 10);
   });
+
+  test("partial updates reject null names and allow clearing descriptions", async () => {
+    await assert.rejects(
+      pipe.transform(
+        { name: null },
+        { type: "body", metatype: UpdateGroupDto },
+      ),
+      (err) => err.getStatus() === 400,
+    );
+    const result = await pipe.transform(
+      { description: null },
+      { type: "body", metatype: UpdateGroupDto },
+    );
+    assert.equal(result.description, null);
+  });
 });
 
 describe("T02: GroupsService Business Logic & Isolation", () => {
   function createMockPrisma() {
     const groups = new Map();
     const members = new Map();
+    const requests = new Map();
 
     return {
       groups,
@@ -135,6 +148,15 @@ describe("T02: GroupsService Business Logic & Isolation", () => {
           let results = [];
           for (const g of groups.values()) {
             if (where.deletedAt === null && g.deletedAt !== null) continue;
+            if (
+              where.OR &&
+              !where.OR.some(
+                (condition) =>
+                  condition.ownerId === g.ownerId ||
+                  members.has(`${condition.members?.some?.userId}_${g.id}`),
+              )
+            )
+              continue;
             if (where.members?.some?.userId) {
               const uId = where.members.some.userId;
               const hasMember = Array.from(members.values()).some(
@@ -186,38 +208,15 @@ describe("T02: GroupsService Business Logic & Isolation", () => {
           return members.get(key) || null;
         },
       },
-      $transaction: async (fn) => {
-        return fn({
-          group: {
-            create: async (args) => {
-              const id = randomUUID();
-              const record = {
-                id,
-                name: args.data.name,
-                description: args.data.description ?? null,
-                ownerId: args.data.ownerId,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-                deletedAt: null,
-              };
-              groups.set(id, record);
-              return record;
-            },
-          },
-          groupMember: {
-            create: async (args) => {
-              const key = `${args.data.userId}_${args.data.groupId}`;
-              const record = {
-                userId: args.data.userId,
-                groupId: args.data.groupId,
-                role: args.data.role,
-                joinedAt: new Date(),
-              };
-              members.set(key, record);
-              return record;
-            },
-          },
-        });
+      groupCreateRequest: {
+        findUnique: async ({ where: { userId_key } }) =>
+          requests.get(`${userId_key.userId}:${userId_key.key}`) ?? null,
+        create: async ({ data }) =>
+          requests.set(`${data.userId}:${data.key}`, data),
+      },
+      $queryRaw: async () => [],
+      async $transaction(fn) {
+        return fn(this);
       },
     };
   }
@@ -273,7 +272,9 @@ describe("T02: GroupsService Business Logic & Isolation", () => {
     const userBob = randomUUID();
 
     // Alice creates Group A
-    const groupA = await service.create(userAlice, { name: "Group A của Alice" });
+    const groupA = await service.create(userAlice, {
+      name: "Group A của Alice",
+    });
     // Bob creates Group B
     const groupB = await service.create(userBob, { name: "Group B của Bob" });
 
@@ -306,14 +307,11 @@ describe("T02: GroupsService Business Logic & Isolation", () => {
     assert.equal(viewAlice.group.name, "Nhóm kín");
 
     // Bob is not a member — rejected with 403 FORBIDDEN
-    await assert.rejects(
-      service.findOne(userBob, created.group.id),
-      (err) => {
-        assert.equal(err.getStatus(), 403);
-        assert.equal(err.getResponse().error.code, "FORBIDDEN");
-        return true;
-      },
-    );
+    await assert.rejects(service.findOne(userBob, created.group.id), (err) => {
+      assert.equal(err.getStatus(), 403);
+      assert.equal(err.getResponse().error.code, "FORBIDDEN");
+      return true;
+    });
 
     // Admin can view even without direct membership
     const adminView = await service.findOne(userBob, created.group.id, true);
@@ -369,5 +367,25 @@ describe("T02: GroupsService Business Logic & Isolation", () => {
         return true;
       },
     );
+  });
+
+  test("T02 rejects malformed cursors before querying the database", async () => {
+    const service = new GroupsService(createMockPrisma());
+    for (const value of [
+      "?",
+      {},
+      null,
+      { createdAt: "invalid", id: randomUUID() },
+      { createdAt: new Date().toISOString(), id: "not-a-uuid" },
+    ]) {
+      const cursor =
+        typeof value === "string"
+          ? value
+          : Buffer.from(JSON.stringify(value)).toString("base64url");
+      await assert.rejects(
+        service.list(randomUUID(), { cursor }),
+        (err) => err.getResponse().error.code === "INVALID_CURSOR",
+      );
+    }
   });
 });

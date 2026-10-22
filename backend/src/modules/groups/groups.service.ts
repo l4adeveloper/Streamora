@@ -1,8 +1,19 @@
 import { Injectable } from "@nestjs/common";
+import { createHash } from "node:crypto";
+import { isUUID } from "class-validator";
+import type { Prisma } from "../../generated/prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { ApiError } from "../../common/api-error";
-import type { Group, GroupResponse, GroupListResponse } from "@streamora/contracts";
-import type { CreateGroupDto, UpdateGroupDto, GroupListQueryDto } from "./groups.dto";
+import type {
+  Group,
+  GroupResponse,
+  GroupListResponse,
+} from "@streamora/contracts";
+import type {
+  CreateGroupDto,
+  UpdateGroupDto,
+  GroupListQueryDto,
+} from "./groups.dto";
 import { PAGINATION_DEFAULTS } from "@streamora/contracts";
 
 // Shape returned from Prisma — maps to Group contract
@@ -14,6 +25,10 @@ const GROUP_SELECT = {
   createdAt: true,
   updatedAt: true,
 } as const;
+
+function normalizeName(name: string) {
+  return name.trim().replace(/\s+/g, " ");
+}
 
 function toGroupContract(raw: {
   id: string;
@@ -33,16 +48,8 @@ function toGroupContract(raw: {
   };
 }
 
-interface IdempotencyEntry {
-  userId: string;
-  response: GroupResponse;
-  expiresAt: number;
-}
-
 @Injectable()
 export class GroupsService {
-  private readonly idempotencyCache = new Map<string, IdempotencyEntry>();
-
   constructor(private readonly prisma: PrismaService) {}
 
   // ─── T02-01: Tạo group ────────────────────────────────────────────────────
@@ -52,20 +59,51 @@ export class GroupsService {
     dto: CreateGroupDto,
     idempotencyKey?: string,
   ): Promise<GroupResponse> {
-    // Check idempotency cache if key provided
-    if (idempotencyKey) {
-      const cacheKey = `${userId}:${idempotencyKey}`;
-      const cached = this.idempotencyCache.get(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) {
-        return cached.response;
-      }
+    const name = normalizeName(dto.name);
+    if (
+      idempotencyKey !== undefined &&
+      !/^[\x21-\x7e]{1,128}$/.test(idempotencyKey)
+    ) {
+      throw new ApiError(
+        400,
+        "VALIDATION_ERROR",
+        "Idempotency-Key phải có từ 1 đến 128 ký tự ASCII không chứa khoảng trắng.",
+      );
     }
+    const bodyHash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          name,
+          description: dto.description ?? null,
+        }),
+      )
+      .digest("hex");
 
-    // Transaction: tạo group và gán membership OWNER cùng lúc
-    const group = await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize creates/renames for the same owner, including requests without a key.
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
+      if (idempotencyKey) {
+        const previous = await tx.groupCreateRequest.findUnique({
+          where: { userId_key: { userId, key: idempotencyKey } },
+        });
+        if (previous) {
+          if (previous.bodyHash !== bodyHash) {
+            throw new ApiError(
+              409,
+              "IDEMPOTENCY_CONFLICT",
+              "Khóa tạo nhóm đã được dùng với nội dung khác.",
+            );
+          }
+          return previous.response as unknown as GroupResponse;
+        }
+      }
+
+      await this.requireAvailableName(tx, userId, name);
+
+      // Create the group and its OWNER membership atomically.
       const g = await tx.group.create({
         data: {
-          name: dto.name,
+          name,
           description: dto.description ?? null,
           ownerId: userId,
         },
@@ -74,21 +112,19 @@ export class GroupsService {
       await tx.groupMember.create({
         data: { userId, groupId: g.id, role: "OWNER" },
       });
-      return g;
+      const response = { group: toGroupContract(g) };
+      if (idempotencyKey) {
+        await tx.groupCreateRequest.create({
+          data: {
+            userId,
+            key: idempotencyKey,
+            bodyHash,
+            response: response as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
+      return response;
     });
-
-    const response = { group: toGroupContract(group) };
-
-    if (idempotencyKey) {
-      const cacheKey = `${userId}:${idempotencyKey}`;
-      this.idempotencyCache.set(cacheKey, {
-        userId,
-        response,
-        expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes TTL
-      });
-    }
-
-    return response;
   }
 
   // ─── T02-02: Danh sách group của user (hoặc toàn hệ thống nếu ADMIN) ─────
@@ -107,20 +143,38 @@ export class GroupsService {
     let cursorCondition: { createdAt: Date; id: string } | undefined;
     if (query.cursor) {
       try {
+        if (!/^[A-Za-z0-9_-]+$/.test(query.cursor)) throw new Error();
         const decoded = JSON.parse(
           Buffer.from(query.cursor, "base64url").toString("utf8"),
         ) as { createdAt: string; id: string };
+        if (
+          !decoded ||
+          typeof decoded.createdAt !== "string" ||
+          typeof decoded.id !== "string" ||
+          !isUUID(decoded.id) ||
+          !Number.isFinite(Date.parse(decoded.createdAt)) ||
+          new Date(decoded.createdAt).toISOString() !== decoded.createdAt
+        )
+          throw new Error();
         cursorCondition = {
           createdAt: new Date(decoded.createdAt),
           id: decoded.id,
         };
       } catch {
-        throw new ApiError(400, "INVALID_CURSOR", "Con trỏ phân trang không hợp lệ.");
+        throw new ApiError(
+          400,
+          "INVALID_CURSOR",
+          "Con trỏ phân trang không hợp lệ.",
+        );
       }
     }
 
     // ADMIN có thể truy vấn toàn hệ thống; người khác chỉ group đang là thành viên
-    const membershipFilter = isAdmin ? {} : { members: { some: { userId } } };
+    const membershipFilter = isAdmin
+      ? {}
+      : {
+          OR: [{ ownerId: userId }, { members: { some: { userId } } }],
+        };
 
     const rows = await this.prisma.group.findMany({
       where: {
@@ -131,11 +185,15 @@ export class GroupsService {
           : {}),
         ...(cursorCondition
           ? {
-              OR: [
-                { createdAt: { lt: cursorCondition.createdAt } },
+              AND: [
                 {
-                  createdAt: { equals: cursorCondition.createdAt },
-                  id: { lt: cursorCondition.id },
+                  OR: [
+                    { createdAt: { lt: cursorCondition.createdAt } },
+                    {
+                      createdAt: { equals: cursorCondition.createdAt },
+                      id: { lt: cursorCondition.id },
+                    },
+                  ],
                 },
               ],
             }
@@ -152,7 +210,10 @@ export class GroupsService {
     const nextCursor =
       hasMore && last
         ? Buffer.from(
-            JSON.stringify({ createdAt: last.createdAt.toISOString(), id: last.id }),
+            JSON.stringify({
+              createdAt: last.createdAt.toISOString(),
+              id: last.id,
+            }),
           ).toString("base64url")
         : null;
 
@@ -174,16 +235,24 @@ export class GroupsService {
       select: GROUP_SELECT,
     });
     if (!group) {
-      throw new ApiError(404, "GROUP_NOT_FOUND", "Nhóm không tồn tại hoặc đã bị xóa.");
+      throw new ApiError(
+        404,
+        "GROUP_NOT_FOUND",
+        "Nhóm không tồn tại hoặc đã bị xóa.",
+      );
     }
 
-    if (!isAdmin) {
+    if (!isAdmin && group.ownerId !== userId) {
       const membership = await this.prisma.groupMember.findUnique({
         where: { userId_groupId: { userId, groupId } },
         select: { role: true },
       });
       if (!membership) {
-        throw new ApiError(403, "FORBIDDEN", "Bạn không phải thành viên của nhóm này.");
+        throw new ApiError(
+          403,
+          "FORBIDDEN",
+          "Bạn không phải thành viên của nhóm này.",
+        );
       }
     }
 
@@ -206,23 +275,51 @@ export class GroupsService {
         select: { id: true },
       });
       if (!exists) {
-        throw new ApiError(404, "GROUP_NOT_FOUND", "Nhóm không tồn tại hoặc đã bị xóa.");
+        throw new ApiError(
+          404,
+          "GROUP_NOT_FOUND",
+          "Nhóm không tồn tại hoặc đã bị xóa.",
+        );
       }
     }
 
     // Build only provided fields
     const data: { name?: string; description?: string | null } = {};
-    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.name !== undefined) data.name = normalizeName(dto.name);
     if (dto.description !== undefined) data.description = dto.description;
 
     if (Object.keys(data).length === 0) {
       return this.findOne(userId, groupId, isAdmin);
     }
 
-    const group = await this.prisma.group.update({
-      where: { id: groupId, deletedAt: null },
-      data,
-      select: GROUP_SELECT,
+    const group = await this.prisma.$transaction(async (tx) => {
+      const current = await tx.group.findFirst({
+        where: { id: groupId, deletedAt: null },
+        select: { ownerId: true },
+      });
+      if (!current)
+        throw new ApiError(404, "GROUP_NOT_FOUND", "Nhóm không tồn tại.");
+      if (!isAdmin && current.ownerId !== userId)
+        throw new ApiError(
+          403,
+          "FORBIDDEN",
+          "Bạn không có quyền sửa nhóm này.",
+        );
+
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${current.ownerId}::uuid FOR UPDATE`;
+      if (data.name !== undefined) {
+        await this.requireAvailableName(
+          tx,
+          current.ownerId,
+          data.name,
+          groupId,
+        );
+      }
+      return tx.group.update({
+        where: { id: groupId, deletedAt: null, ownerId: current.ownerId },
+        data,
+        select: GROUP_SELECT,
+      });
     });
     return { group: toGroupContract(group) };
   }
@@ -242,7 +339,11 @@ export class GroupsService {
         select: { id: true },
       });
       if (!exists) {
-        throw new ApiError(404, "GROUP_NOT_FOUND", "Nhóm không tồn tại hoặc đã bị xóa.");
+        throw new ApiError(
+          404,
+          "GROUP_NOT_FOUND",
+          "Nhóm không tồn tại hoặc đã bị xóa.",
+        );
       }
     }
 
@@ -250,12 +351,39 @@ export class GroupsService {
     // (If session status == 'LIVE', throw 409 ACTIVE_SESSION)
 
     await this.prisma.group.update({
-      where: { id: groupId, deletedAt: null },
+      where: {
+        id: groupId,
+        deletedAt: null,
+        ...(!isAdmin ? { ownerId: userId } : {}),
+      },
       data: { deletedAt: new Date() },
     });
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  private async requireAvailableName(
+    tx: Prisma.TransactionClient,
+    ownerId: string,
+    name: string,
+    excludeId: string | null = null,
+  ) {
+    // Normalize existing names too, without changing legacy data.
+    const matches = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM groups
+      WHERE owner_id = ${ownerId}::uuid AND deleted_at IS NULL
+        AND (${excludeId}::uuid IS NULL OR id <> ${excludeId}::uuid)
+        AND lower(btrim(regexp_replace(name, '[[:space:]]+', ' ', 'g'))) = lower(${name})
+      LIMIT 1
+    `;
+    if (matches.length) {
+      throw new ApiError(
+        409,
+        "GROUP_NAME_EXISTS",
+        "Bạn đã có nhóm mang tên này. Vui lòng chọn tên khác.",
+      );
+    }
+  }
 
   /** Check membership and return the member's role; throws 404/403 accordingly. */
   async requireRole(
@@ -265,18 +393,29 @@ export class GroupsService {
   ): Promise<void> {
     const group = await this.prisma.group.findFirst({
       where: { id: groupId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, ownerId: true },
     });
     if (!group)
       throw new ApiError(404, "GROUP_NOT_FOUND", "Nhóm không tồn tại.");
+
+    // ownerId is the source of truth used by both the API and the UI.
+    if (group.ownerId === userId && allowedRoles.includes("OWNER")) return;
 
     const member = await this.prisma.groupMember.findUnique({
       where: { userId_groupId: { userId, groupId } },
       select: { role: true },
     });
     if (!member)
-      throw new ApiError(403, "FORBIDDEN", "Bạn không phải thành viên của nhóm này.");
-    if (!allowedRoles.includes(member.role as "OWNER" | "HOST" | "VIEWER"))
-      throw new ApiError(403, "FORBIDDEN", "Bạn không có quyền thực hiện thao tác này.");
+      throw new ApiError(
+        403,
+        "FORBIDDEN",
+        "Bạn không phải thành viên của nhóm này.",
+      );
+    if (member.role === "OWNER" || !allowedRoles.includes(member.role))
+      throw new ApiError(
+        403,
+        "FORBIDDEN",
+        "Bạn không có quyền thực hiện thao tác này.",
+      );
   }
 }

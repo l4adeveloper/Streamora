@@ -24,7 +24,7 @@
     "test:browser": "npm run test:browser --workspace=@streamora/api",
     "test:frontend": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/frontend/*.test.cjs",
     "test:t01": "npm run typecheck && npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/*.test.cjs backend/test/integration/*.test.cjs backend/test/browser/*.test.cjs backend/test/frontend/*.test.cjs",
-    "test:t02": "node --test backend/test/groups.test.cjs",
+    "test:t02": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/groups.test.cjs backend/test/integration/groups.test.cjs backend/test/frontend/groups-ui.test.cjs",
     "docs:api": "npm run docs:api --workspace=@streamora/api",
     "docs:api:check": "npm run docs:api:check --workspace=@streamora/api",
     "demo:auth": "node backend/scripts/demo-auth.cjs",

@@ -20,7 +20,11 @@ async function runGroupsDemo({
   const steps = [];
   let token = "";
 
-  async function api(path, expected, { method = "GET", body, idempotencyKey } = {}) {
+  async function api(
+    path,
+    expected,
+    { method = "GET", body, idempotencyKey } = {},
+  ) {
     const headers = {
       Origin: origin,
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
@@ -62,7 +66,10 @@ async function runGroupsDemo({
       },
     });
     const groupId = createRes.group.id;
-    if (!groupId || createRes.group.name !== "Nhóm Điện toán đám mây K69 Demo") {
+    if (
+      !groupId ||
+      createRes.group.name !== "Nhóm Điện toán đám mây K69 Demo"
+    ) {
       throw new DemoError("Tạo nhóm không trả đúng thông tin contract Group.");
     }
 
@@ -70,10 +77,15 @@ async function runGroupsDemo({
     const repeatCreate = await api("/groups", 201, {
       method: "POST",
       idempotencyKey,
-      body: { name: "Nhóm Điện toán đám mây K69 Demo" },
+      body: {
+        name: "Nhóm Điện toán đám mây K69 Demo",
+        description: "Thực hành bài tập lớn môn Điện toán đám mây",
+      },
     });
     if (repeatCreate.group.id !== groupId) {
-      throw new DemoError("Idempotency-Key không trả đúng nhóm đã tạo trước đó.");
+      throw new DemoError(
+        "Idempotency-Key không trả đúng nhóm đã tạo trước đó.",
+      );
     }
 
     // 4. T02-02: Danh sách nhóm
@@ -104,7 +116,9 @@ async function runGroupsDemo({
     // 8. Xác minh xóa mềm: không còn trong danh sách & GET trả 404
     const listAfterDelete = await api("/groups", 200, { method: "GET" });
     if (listAfterDelete.items.some((g) => g.id === groupId)) {
-      throw new DemoError("Nhóm bị xóa mềm vẫn còn xuất hiện trong danh sách hoạt động.");
+      throw new DemoError(
+        "Nhóm bị xóa mềm vẫn còn xuất hiện trong danh sách hoạt động.",
+      );
     }
 
     await api(`/groups/${groupId}`, 404, { method: "GET" });

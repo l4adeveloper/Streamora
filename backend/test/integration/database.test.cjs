@@ -119,13 +119,16 @@ test("a fresh database receives the complete auth migration", async () => {
     "_prisma_migrations",
     "auth_refresh_tokens",
     "auth_sessions",
+    "group_create_requests",
+    "group_members",
+    "groups",
     "users",
   ]);
   const migrations = await sql.query(
     'SELECT finished_at FROM "_prisma_migrations"',
   );
-  assert.equal(migrations.rowCount, 1);
-  assert.ok(migrations.rows[0].finished_at);
+  assert.equal(migrations.rowCount, 3);
+  assert.ok(migrations.rows.every((row) => row.finished_at));
 });
 
 test("concurrent inserts of the same email produce one user and a unique conflict", async () => {
