@@ -36,40 +36,51 @@ export function GroupsListPage() {
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [deletingGroup, setDeletingGroup] = useState<Group | null>(null);
 
-  // Debounced search
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchRef = useRef("");
+  const requestVersion = useRef(0);
   const handleSearchChange = (val: string) => {
+    requestVersion.current++;
+    searchRef.current = val;
     setSearchDraft(val);
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    searchTimeoutRef.current = setTimeout(() => {
-      setQuery(val.trim());
-    }, 350);
   };
 
-  const fetchGroups = useCallback(async (searchQuery: string) => {
+  const fetchGroups = useCallback(async () => {
+    const version = ++requestVersion.current;
+    const searchQuery = searchRef.current.trim();
+    setQuery(searchQuery);
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
     try {
       const res = await listGroups({
         q: searchQuery || undefined,
         limit: 12,
       });
+      if (version !== requestVersion.current) return;
       setGroups(res.items);
       setNextCursor(res.nextCursor);
     } catch (err) {
-      setError(err);
+      if (version === requestVersion.current) setError(err);
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchGroups(query);
-  }, [fetchGroups, query]);
+    requestVersion.current++;
+    setLoading(true);
+    setLoadingMore(false);
+    const timer = setTimeout(() => void fetchGroups(), 350);
+    return () => {
+      clearTimeout(timer);
+      requestVersion.current++;
+    };
+  }, [fetchGroups, searchDraft]);
 
   // Load more via cursor pagination
   const handleLoadMore = async () => {
-    if (!nextCursor || loadingMore) return;
+    if (!nextCursor || loading || loadingMore) return;
+    const version = requestVersion.current;
     setLoadingMore(true);
     try {
       const res = await listGroups({
@@ -77,35 +88,38 @@ export function GroupsListPage() {
         cursor: nextCursor,
         limit: 12,
       });
+      if (version !== requestVersion.current) return;
       setGroups((prev) => [...prev, ...res.items]);
       setNextCursor(res.nextCursor);
     } catch (err) {
-      notify("Chưa thể tải thêm nhóm. Vui lòng thử lại.", { tone: "error" });
+      if (version === requestVersion.current)
+        notify("Chưa thể tải thêm nhóm. Vui lòng thử lại.", { tone: "error" });
     } finally {
-      setLoadingMore(false);
+      if (version === requestVersion.current) setLoadingMore(false);
     }
   };
 
   // Actions
-  const handleCreate = async (data: { name: string; description?: string }) => {
-    const res = await createGroup(data);
-    setGroups((prev) => [res.group, ...prev]);
+  const handleCreate = async (
+    data: { name: string; description?: string },
+    key: string,
+  ) => {
+    const res = await createGroup(data, key);
+    await fetchGroups();
     notify(`Đã tạo nhóm "${res.group.name}" thành công!`, { tone: "success" });
   };
 
   const handleUpdate = async (data: { name: string; description?: string }) => {
     if (!editingGroup) return;
     const res = await updateGroup(editingGroup.id, data);
-    setGroups((prev) =>
-      prev.map((g) => (g.id === res.group.id ? res.group : g)),
-    );
+    await fetchGroups();
     notify(`Đã cập nhật nhóm "${res.group.name}".`, { tone: "success" });
   };
 
   const handleDelete = async () => {
     if (!deletingGroup) return;
     await deleteGroup(deletingGroup.id);
-    setGroups((prev) => prev.filter((g) => g.id !== deletingGroup.id));
+    await fetchGroups();
     notify(`Đã xóa nhóm "${deletingGroup.name}".`, { tone: "info" });
   };
 
@@ -119,7 +133,11 @@ export function GroupsListPage() {
       <div className="groups-page-container">
         <div className="groups-toolbar">
           <div className="groups-search-box">
-            <Search size={16} className="groups-search-icon" aria-hidden="true" />
+            <Search
+              size={16}
+              className="groups-search-icon"
+              aria-hidden="true"
+            />
             <input
               type="text"
               placeholder="Tìm kiếm nhóm theo tên…"
@@ -132,8 +150,7 @@ export function GroupsListPage() {
                 type="button"
                 className="groups-search-clear"
                 onClick={() => {
-                  setSearchDraft("");
-                  setQuery("");
+                  handleSearchChange("");
                 }}
                 aria-label="Xóa từ khóa tìm kiếm"
               >
@@ -146,7 +163,7 @@ export function GroupsListPage() {
             <button
               type="button"
               className="button secondary compact"
-              onClick={() => fetchGroups(query)}
+              onClick={() => fetchGroups()}
               title="Làm mới danh sách"
             >
               <RefreshCw size={14} /> Làm mới
@@ -164,10 +181,12 @@ export function GroupsListPage() {
         {loading ? (
           <LoadingState message="Đang tải danh sách nhóm học tập…" />
         ) : error ? (
-          <RequestError error={error} onRetry={() => fetchGroups(query)} />
+          <RequestError error={error} onRetry={() => fetchGroups()} />
         ) : groups.length === 0 ? (
           <EmptyState
-            title={query ? "Không tìm thấy nhóm phù hợp" : "Chưa có nhóm học tập nào"}
+            title={
+              query ? "Không tìm thấy nhóm phù hợp" : "Chưa có nhóm học tập nào"
+            }
             description={
               query
                 ? `Không có nhóm nào khớp với từ khóa "${query}". Hãy thử từ khóa khác.`
@@ -179,8 +198,7 @@ export function GroupsListPage() {
                 type="button"
                 className="button secondary"
                 onClick={() => {
-                  setSearchDraft("");
-                  setQuery("");
+                  handleSearchChange("");
                 }}
               >
                 Xóa tìm kiếm

@@ -9,7 +9,6 @@ import {
   Folder,
   Settings2,
   Trash2,
-  ExternalLink,
   ShieldCheck,
   Calendar,
   Clock,
@@ -63,7 +62,9 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
     if (!group) return;
     const res = await updateGroup(group.id, data);
     setGroup(res.group);
-    notify(`Đã cập nhật thông tin nhóm "${res.group.name}".`, { tone: "success" });
+    notify(`Đã cập nhật thông tin nhóm "${res.group.name}".`, {
+      tone: "success",
+    });
   };
 
   const handleDelete = async () => {
@@ -93,7 +94,11 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
         breadcrumb="Nhóm học tập"
       >
         <div style={{ marginBottom: "20px" }}>
-          <Link href="/groups" className="button secondary compact" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+          <Link
+            href="/groups"
+            className="button secondary compact"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
             <ChevronLeft size={16} /> Quay lại danh sách nhóm
           </Link>
         </div>
@@ -102,13 +107,14 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
     );
   }
 
-  const initials = group.name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join("")
-    .toUpperCase() || "GR";
+  const initials =
+    group.name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((word) => word[0])
+      .join("")
+      .toUpperCase() || "GR";
 
   const createdDate = new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "medium",
@@ -123,13 +129,19 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
   return (
     <PageShell
       title={group.name}
-      description={group.description ?? "Không gian cộng tác, học tập và tài liệu chung."}
+      description={
+        group.description ?? "Không gian cộng tác, học tập và tài liệu chung."
+      }
       eyebrow="CHI TIẾT NHÓM"
       breadcrumb={group.name}
     >
       <div className="groups-page-container">
         <div style={{ marginBottom: "20px" }}>
-          <Link href="/groups" className="button secondary compact" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+          <Link
+            href="/groups"
+            className="button secondary compact"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
             <ChevronLeft size={16} /> Danh sách nhóm
           </Link>
         </div>
@@ -141,7 +153,9 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
             </div>
             <div className="group-detail-info">
               <h1>{group.name}</h1>
-              <p>{group.description || "Chưa có mô tả chi tiết cho nhóm này."}</p>
+              <p>
+                {group.description || "Chưa có mô tả chi tiết cho nhóm này."}
+              </p>
               <div className="group-detail-tags">
                 {isOwner ? (
                   <span className="group-role-badge owner">
@@ -155,24 +169,24 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
                   <span className="group-role-badge">Thành viên nhóm</span>
                 )}
                 <span>
-                  <Calendar size={12} style={{ display: "inline", verticalAlign: "-2px" }} /> Tạo lúc: {createdDate}
+                  <Calendar
+                    size={12}
+                    style={{ display: "inline", verticalAlign: "-2px" }}
+                  />{" "}
+                  Tạo lúc: {createdDate}
                 </span>
                 <span>
-                  <Clock size={12} style={{ display: "inline", verticalAlign: "-2px" }} /> Cập nhật: {updatedDate}
+                  <Clock
+                    size={12}
+                    style={{ display: "inline", verticalAlign: "-2px" }}
+                  />{" "}
+                  Cập nhật: {updatedDate}
                 </span>
               </div>
             </div>
           </div>
 
           <div className="group-detail-controls">
-            <Link
-              href="/workspace"
-              className="button primary"
-              style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
-            >
-              <ExternalLink size={15} /> Vào không gian học
-            </Link>
-
             {canManage && (
               <>
                 <button
@@ -196,43 +210,54 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
           </div>
         </section>
 
-        <h2 style={{ fontSize: "17px", fontWeight: "600", color: "#ede7f6", margin: "32px 0 16px" }}>
+        <h2
+          style={{
+            fontSize: "17px",
+            fontWeight: "600",
+            color: "#ede7f6",
+            margin: "32px 0 16px",
+          }}
+        >
           Không gian tính năng
         </h2>
 
         <div className="group-sections-grid">
-          <Link href="/workspace" className="group-section-box">
+          <div className="group-section-box">
             <div className="group-section-icon">
               <Video size={20} />
             </div>
             <div>
               <h3>Buổi học & Phòng trực tiếp</h3>
-              <p>Tham gia lớp học video WebRTC, chia sẻ màn hình và tương tác thời gian thực.</p>
+              <p>Lớp học trực tiếp của nhóm sẽ được bổ sung sau.</p>
             </div>
-            <span className="badge">T04 / T05</span>
-          </Link>
+            <span className="badge">Sắp có</span>
+          </div>
 
-          <Link href="/community" className="group-section-box">
+          <div className="group-section-box">
             <div className="group-section-icon">
               <Users size={20} />
             </div>
             <div>
               <h3>Thành viên & Phân quyền</h3>
-              <p>Danh sách thành viên nhóm, phân vai trò HOST, VIEWER và điều khiển truy cập.</p>
+              <p>
+                Quản lý thành viên và vai trò trong nhóm sẽ được bổ sung sau.
+              </p>
             </div>
-            <span className="badge">T03</span>
-          </Link>
+            <span className="badge">Sắp có</span>
+          </div>
 
-          <Link href="/files" className="group-section-box">
+          <div className="group-section-box">
             <div className="group-section-icon">
               <Folder size={20} />
             </div>
             <div>
               <h3>Tài liệu & Bản ghi</h3>
-              <p>Thư viện tài liệu chia sẻ, slide bài giảng và video bản ghi lưu trữ trên Cloud.</p>
+              <p>
+                Thư viện tài liệu và bản ghi riêng của nhóm sẽ được bổ sung sau.
+              </p>
             </div>
-            <span className="badge">T15</span>
-          </Link>
+            <span className="badge">Sắp có</span>
+          </div>
         </div>
       </div>
 

@@ -29,7 +29,7 @@ export interface CreateGroupRequest {
 
 export interface UpdateGroupRequest {
   name?: string;
-  description?: string;
+  description?: string | null;
 }
 
 export interface GroupResponse {
@@ -46,6 +46,7 @@ export interface GroupListRequest extends PaginationRequest {
 
 export type GroupErrorCode =
   | "GROUP_NOT_FOUND"
+  | "GROUP_NAME_EXISTS"
   | "GROUP_NAME_REQUIRED"
   | "ACTIVE_SESSION"
   | "ALREADY_MEMBER"

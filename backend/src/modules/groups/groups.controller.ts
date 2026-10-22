@@ -22,7 +22,11 @@ import { RequireAuth, CurrentAuth, UUIDParamPipe } from "../../common";
 import type { AuthenticatedIdentity } from "../../common";
 import { ApiErrors, ApiSuccess } from "../../documentation/api-decorators";
 import { GroupsService } from "./groups.service";
-import { CreateGroupDto, UpdateGroupDto, GroupListQueryDto } from "./groups.dto";
+import {
+  CreateGroupDto,
+  UpdateGroupDto,
+  GroupListQueryDto,
+} from "./groups.dto";
 import { GroupResponseDto, GroupListResponseDto } from "./groups.models";
 
 @Controller("groups")
@@ -45,12 +49,14 @@ export class GroupsController {
   @ApiHeader({
     name: "Idempotency-Key",
     required: false,
-    description: "Khoá duy nhất của client để đảm bảo tính idempotent khi gọi tạo nhóm.",
+    description:
+      "Khóa 1–128 ký tự ASCII không có khoảng trắng. Cùng user/key và nội dung trả lại kết quả cũ; khác nội dung trả 409.",
   })
   @ApiSuccess(201, GroupResponseDto)
   @ApiErrors(
     [400, "VALIDATION_ERROR"],
     [401, "UNAUTHENTICATED"],
+    [409, "IDEMPOTENCY_CONFLICT", "GROUP_NAME_EXISTS"],
   )
   create(
     @CurrentAuth() identity: AuthenticatedIdentity,
@@ -70,10 +76,7 @@ export class GroupsController {
       "Hỗ trợ tìm theo tên và cursor pagination. Chỉ trả group chưa bị xóa mềm.",
   })
   @ApiSuccess(200, GroupListResponseDto)
-  @ApiErrors(
-    [400, "INVALID_CURSOR"],
-    [401, "UNAUTHENTICATED"],
-  )
+  @ApiErrors([400, "INVALID_CURSOR"], [401, "UNAUTHENTICATED"])
   list(
     @CurrentAuth() identity: AuthenticatedIdentity,
     @Query() query: GroupListQueryDto,
@@ -89,7 +92,7 @@ export class GroupsController {
     summary: "T02-03 — Chi tiết group",
     description:
       "Chỉ thành viên của group (hoặc ADMIN) mới đọc được. Trả 404 nếu group không tồn tại, " +
-      "đã xóa mềm hoặc user không phải thành viên.",
+      "đã xóa mềm; trả 403 nếu user không phải thành viên.",
   })
   @ApiParam({ name: "groupId", format: "uuid" })
   @ApiSuccess(200, GroupResponseDto)
@@ -122,6 +125,7 @@ export class GroupsController {
     [401, "UNAUTHENTICATED"],
     [403, "FORBIDDEN"],
     [404, "GROUP_NOT_FOUND"],
+    [409, "GROUP_NAME_EXISTS"],
   )
   update(
     @CurrentAuth() identity: AuthenticatedIdentity,

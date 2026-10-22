@@ -12,7 +12,10 @@ interface GroupFormDialogProps {
   mode: "create" | "edit";
   initialGroup?: Group;
   onClose: () => void;
-  onSubmit: (data: { name: string; description?: string }) => Promise<void>;
+  onSubmit: (
+    data: { name: string; description: string },
+    idempotencyKey: string,
+  ) => Promise<void>;
 }
 
 export function GroupFormDialog({
@@ -29,6 +32,7 @@ export function GroupFormDialog({
   const [errorNotice, setErrorNotice] = useState<string>();
   const [pending, setPending] = useState(false);
   const nameInputRef = useRef<HTMLDivElement>(null);
+  const createRequest = useRef<{ body: string; key: string } | null>(null);
 
   // Focus trap and escape key
   useEffect(() => {
@@ -71,14 +75,20 @@ export function GroupFormDialog({
     setErrorNotice(undefined);
 
     try {
-      await onSubmit({
+      const data = {
         name: name.trim(),
-        description: description.trim() || undefined,
-      });
+        description: description.trim(),
+      };
+      const body = JSON.stringify(data);
+      if (!createRequest.current || createRequest.current.body !== body) {
+        createRequest.current = { body, key: crypto.randomUUID() };
+      }
+      await onSubmit(data, createRequest.current.key);
       onClose();
     } catch (err) {
       const apiErr = asApiError(err);
-      setErrorNotice(apiErr.message);
+      if (apiErr.fields.name) setNameError(apiErr.fields.name);
+      else setErrorNotice(apiErr.message);
     } finally {
       setPending(false);
     }
@@ -97,7 +107,9 @@ export function GroupFormDialog({
       <div className="modal-dialog">
         <div className="modal-header">
           <h2 id="group-dialog-title">
-            {mode === "create" ? "Tạo nhóm học tập mới" : "Chỉnh sửa nhóm học tập"}
+            {mode === "create"
+              ? "Tạo nhóm học tập mới"
+              : "Chỉnh sửa nhóm học tập"}
           </h2>
           <button
             type="button"

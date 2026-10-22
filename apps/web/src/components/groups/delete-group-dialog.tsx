@@ -55,7 +55,15 @@ export function DeleteGroupDialog({
     >
       <div className="modal-dialog">
         <div className="modal-header">
-          <h2 id="delete-group-title" style={{ display: "flex", alignItems: "center", gap: "8px", color: "#f87171" }}>
+          <h2
+            id="delete-group-title"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              color: "#f87171",
+            }}
+          >
             <AlertTriangle size={20} /> Xóa nhóm học tập
           </h2>
           <button
@@ -70,7 +78,14 @@ export function DeleteGroupDialog({
 
         {errorNotice && <InlineNotice tone="error">{errorNotice}</InlineNotice>}
 
-        <p style={{ color: "#d2c8df", fontSize: "13px", lineHeight: "1.7", margin: "0 0 16px" }}>
+        <p
+          style={{
+            color: "#d2c8df",
+            fontSize: "13px",
+            lineHeight: "1.7",
+            margin: "0 0 16px",
+          }}
+        >
           Bạn có chắc chắn muốn xóa nhóm <strong>{group.name}</strong> không?
         </p>
 
@@ -87,7 +102,7 @@ export function DeleteGroupDialog({
           }}
         >
           Nhóm sẽ được xóa mềm và ngừng xuất hiện trong danh sách hoạt động.
-          Dữ liệu và lịch sử các buổi học trước đó sẽ được lưu trữ an toàn theo chính sách hệ thống.
+          Thao tác này giữ lại thông tin nhóm trong hệ thống.
         </div>
 
         <div className="modal-footer">

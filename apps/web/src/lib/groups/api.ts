@@ -12,10 +12,14 @@ export type { Group, GroupResponse, GroupListResponse };
 
 // ─── T02-01: Tạo group ────────────────────────────────────────────────────────
 
-export async function createGroup(data: CreateGroupRequest): Promise<GroupResponse> {
+export async function createGroup(
+  data: CreateGroupRequest,
+  idempotencyKey: string,
+): Promise<GroupResponse> {
   return apiRequest<GroupResponse>("/groups", {
     method: "POST",
     body: data,
+    idempotencyKey,
   });
 }
 
