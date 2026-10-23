@@ -192,7 +192,9 @@ Review và commit cả schema lẫn thư mục migration. Không dùng `db push`
 
 ## Hợp đồng API và lỗi
 
-Swagger local ở `http://127.0.0.1:4000/api/v1/docs`, JSON ở `/api/v1/docs-json`.
+Swagger local có Try it out cả Auth/Users ở `http://127.0.0.1:3000/api/v1/docs`
+qua proxy frontend; JSON ở `/api/v1/docs-json`. Cần chạy cả API và frontend.
+Truy cập trực tiếp port 4000 vẫn xem docs được nhưng POST auth sai Origin sẽ bị chặn.
 API_DOCS_ENABLED mặc định true ở development, false ở test/production.
 Xem [Swagger/OpenAPI](docs/openapi.md), [bàn giao T01](docs/t01-handoff.md)
 và [nội dung PR](docs/t01-pr.md). `npm run docs:api` xuất spec không cần database;

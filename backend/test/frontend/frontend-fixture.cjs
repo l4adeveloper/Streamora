@@ -31,6 +31,7 @@ async function freePort() {
 async function createFrontendFixture({
   sessionProbe = false,
   shellProbe = false,
+  docsEnabled = false,
 } = {}) {
   const previewRoot = join(root, ".preview");
   const directory = join(previewRoot, `auth-frontend-run-${randomUUID()}`);
@@ -69,6 +70,7 @@ async function createFrontendFixture({
       databaseUrl: database.url,
       webOrigin,
       nodeEnv: "test",
+      docsEnabled,
       auth: {
         ...database.config.auth,
         accessTokenSecret: randomBytes(48).toString("base64url"),
