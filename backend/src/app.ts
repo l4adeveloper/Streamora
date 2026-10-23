@@ -10,6 +10,7 @@ import { ApiErrorFilter } from "./common/api-error";
 import { createValidationPipe } from "./common/validation";
 import { setupOpenApi, DOCS_PATH, OPENAPI_PATH } from "./documentation/openapi";
 import { setupMembershipsOpenApi } from "./documentation/memberships-openapi";
+import { setupClassSessionsOpenApi } from "./documentation/class-sessions-openapi";
 import {
   requestContextMiddleware,
   type RequestLogWriter,
@@ -42,6 +43,8 @@ export function configureApplication(
       request.path === `/${API_PREFIX}/users/lookup` ||
       request.path.startsWith(`/${API_PREFIX}/groups/`) ||
       request.path.startsWith(`/${API_PREFIX}/rooms`) ||
+      request.path.startsWith(`/${API_PREFIX}/sessions`) ||
+      request.path.startsWith(`/${API_PREFIX}/meets`) ||
       request.path.startsWith(`/${API_PREFIX}/files`) ||
       request.path === OPENAPI_PATH ||
       request.path.startsWith(DOCS_PATH)
@@ -67,6 +70,7 @@ export function configureApplication(
   if (config.docsEnabled) {
     setupOpenApi(app);
     setupMembershipsOpenApi(app);
+    setupClassSessionsOpenApi(app);
   }
   app.enableShutdownHooks();
 }

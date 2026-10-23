@@ -19,6 +19,14 @@ Swagger local có Try it out Auth/Users: `http://127.0.0.1:3000/api/v1/docs`
 (cần chạy cả frontend và API).
 Phần quản lý nhóm xem [hướng dẫn bàn giao T02](backend/docs/t02-handoff.md).
 Thành viên và phân quyền nhóm xem [hướng dẫn bàn giao T03](backend/docs/t03-handoff.md).
+Lịch học, meet độc lập và vòng đời buổi học xem [API T04](backend/docs/t04-api.md).
+Xin vào, accept/reject và vào/ra xem [API tham gia T04](backend/docs/t04-admission.md).
+Thông báo realtime, heartbeat và reconnect xem [realtime T04](backend/docs/t04-realtime.md).
+Giao diện T04 thật: mở nhóm → **Xem lịch học**, hoặc vào `/meet` để tạo/tham gia
+cuộc họp độc lập. Xem [hướng dẫn giao diện T04](apps/web/docs/class-sessions.md).
+Điểm tích hợp T05/T11: [kiểm tra lượt tham gia và sự kiện kết thúc](backend/docs/t04-integration.md).
+Nghiệm thu toàn bộ bằng `npm run test:t04`; xem [bàn giao và kịch bản demo T04](backend/docs/t04-handoff.md).
+Swagger T04 local: `http://127.0.0.1:4000/api/v1/docs-sessions`.
 Swagger API local: `http://127.0.0.1:4000/api/v1/docs`.
 
 | Đường dẫn    | Nội dung                                                      |
@@ -81,8 +89,8 @@ npm run build
 `GET /api/v1/files?groupId=<uuid>&q=slide` yêu cầu thành viên nhóm; nội dung vẫn minh họa.
 Realtime `/classroom` dùng `auth.accessToken`; `channel:join` nhận `{groupId}`,
 `chat:send` nhận `{groupId,text}`. API cũng cung cấp gateway; service cổng 4001 dùng cùng bộ quyền.
-Khu vực tài khoản/nhóm/thành viên dùng `NEXT_PUBLIC_API_URL` gọi backend thật;
-các phần lớp học và thư viện còn dùng dữ liệu minh họa.
+Khu vực tài khoản/nhóm/thành viên/lịch học/Meet dùng `NEXT_PUBLIC_API_URL` gọi backend thật;
+trình phát trong workspace và thư viện còn dùng dữ liệu minh họa.
 
 `npm run setup:env` tạo cấu hình local cùng mật khẩu và khóa ký ngẫu nhiên; giữ nguyên
 file đã có. `.env` gốc dành cho Docker, `backend/.env` dành cho server,

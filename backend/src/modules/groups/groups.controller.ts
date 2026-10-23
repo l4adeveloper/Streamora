@@ -144,7 +144,7 @@ export class GroupsController {
     summary: "T02-05 — Xóa mềm group",
     description:
       "Chỉ OWNER (hoặc ADMIN) mới được xóa. Dùng xóa mềm (deletedAt) để không mất liên kết dữ liệu nghiệp vụ. " +
-      "Khi T04 triển khai: chặn xóa nếu có ACTIVE_SESSION (lớp đang LIVE). " +
+      "Chặn xóa với lỗi ACTIVE_SESSION nếu có lớp đang LIVE. " +
       "Dọn dữ liệu/object qua policy nền; không cascade xóa bản ghi liên quan ngay lập tức.",
   })
   @ApiParam({ name: "groupId", format: "uuid" })

@@ -10,6 +10,9 @@ const { NestFactory } = require("@nestjs/core");
 const { AppModule } = require("../../dist/modules/app.module");
 const { configureApplication } = require("../../dist/app");
 const { PrismaService } = require("../../dist/database/prisma.service");
+const {
+  AccessTokenService,
+} = require("../../dist/modules/auth/access-token.service");
 const { createTestDatabase } = require("../integration/database-fixture.cjs");
 const jwt = require("jsonwebtoken");
 
@@ -31,6 +34,7 @@ async function freePort() {
 async function createFrontendFixture({
   sessionProbe = false,
   shellProbe = false,
+  sessionRealtime,
   docsEnabled = false,
 } = {}) {
   const previewRoot = join(root, ".preview");
@@ -70,6 +74,7 @@ async function createFrontendFixture({
       databaseUrl: database.url,
       webOrigin,
       nodeEnv: "test",
+      ...(sessionRealtime ? { sessionRealtime } : {}),
       docsEnabled,
       auth: {
         ...database.config.auth,
@@ -195,6 +200,14 @@ async function createFrontendFixture({
       prisma,
       previewRoot,
       cleanup,
+      async issueAccessToken(userId) {
+        const session = await prisma.authSession.create({
+          data: { userId, expiresAt: new Date(Date.now() + 3600000) },
+        });
+        return app
+          .get(AccessTokenService)
+          .issue(userId, session.id, 900, new Date());
+      },
       expireAccessToken(token) {
         const claims = jwt.decode(token);
         return jwt.sign(
