@@ -6,7 +6,7 @@ Tài liệu này hoàn thành mục 1 của kế hoạch T04: thống nhất hà
 để làm database, API, realtime và giao diện ở các mục tiếp theo. Các hành vi
 dưới đây là chuẩn nghiệp vụ; tiến độ triển khai xem [database](t04-database.md)
 và [API lịch học/vòng đời](t04-api.md), [API tham gia](t04-admission.md),
-[realtime/heartbeat](t04-realtime.md), [giao diện](../../apps/web/docs/class-sessions.md)
+[realtime/heartbeat](t04-realtime.md), [giao diện](../../frontend/docs/class-sessions.md)
 và [điểm tích hợp T05/T11](t04-integration.md).
 Nghiệm thu toàn bộ và hướng dẫn demo: [bàn giao T04](t04-handoff.md).
 

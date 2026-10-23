@@ -155,7 +155,7 @@ test("staging templates enforce HTTPS/Secure and keep frontend configuration pub
   assert.equal(config.auth.cookie.sameSite, "lax");
   assert.equal(new URL(config.webOrigin).protocol, "https:");
   const web = parseEnv(
-    await readFile(join(root, "apps/web/.env.staging.example"), "utf8"),
+    await readFile(join(root, "frontend/.env.staging.example"), "utf8"),
   );
   assert.ok(Object.keys(web).every((key) => key.startsWith("NEXT_PUBLIC_")));
   assert.equal(new URL(web.NEXT_PUBLIC_API_URL).protocol, "https:");

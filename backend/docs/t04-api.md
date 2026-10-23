@@ -4,7 +4,7 @@
 [database/contracts](t04-database.md). Mục này có lịch học, meet độc lập và các
 thao tác bắt đầu/kết thúc/hủy. [Mục 4](t04-admission.md) đã bổ sung API xin vào,
 accept/reject và vào/ra. [Mục 5](t04-realtime.md) đã có realtime/heartbeat;
-[giao diện mục 6](../../apps/web/docs/class-sessions.md) đã nối các luồng này.
+[giao diện mục 6](../../frontend/docs/class-sessions.md) đã nối các luồng này.
 API mới không gọi LiveKit.
 
 ## Chạy local và tài liệu API

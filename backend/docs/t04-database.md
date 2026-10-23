@@ -4,7 +4,7 @@
 Mục này chuẩn bị dữ liệu. [Mục 3](t04-api.md) đã có API lịch/vòng đời và kiểm tra
 quyền quản lý; [mục 4](t04-admission.md) có xin vào/duyệt và vào/ra;
 [mục 5](t04-realtime.md) bổ sung lease/journal và heartbeat;
-[mục 6](../../apps/web/docs/class-sessions.md) đã nối giao diện.
+[mục 6](../../frontend/docs/class-sessions.md) đã nối giao diện.
 [Mục 7](t04-integration.md) thêm bảng `class_session_end_consumers` để ghi checkpoint
 consumer nghiệp vụ; không ảnh hưởng journal invalidation của realtime.
 
