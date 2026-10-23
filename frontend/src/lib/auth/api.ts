@@ -34,7 +34,25 @@ const messages: Record<string, string> = {
   GROUP_NAME_EXISTS: "Bạn đã có nhóm mang tên này. Vui lòng chọn tên khác.",
   INVALID_CURSOR: "Không thể tải trang tiếp theo. Vui lòng làm mới danh sách.",
   IDEMPOTENCY_CONFLICT:
-    "Yêu cầu tạo nhóm đã thay đổi. Vui lòng kiểm tra và thử lại.",
+    "Nội dung thao tác đã thay đổi. Vui lòng kiểm tra và thử lại.",
+  SESSION_NOT_FOUND: "Buổi học không tồn tại hoặc mã cuộc họp không đúng.",
+  SESSION_NOT_EDITABLE: "Chỉ chỉnh sửa được buổi học chưa bắt đầu.",
+  SESSION_NOT_LIVE:
+    "Buổi học chưa bắt đầu hoặc đã kết thúc. Vui lòng làm mới trạng thái.",
+  INVALID_SESSION_STATE:
+    "Trạng thái buổi học đã thay đổi. Vui lòng làm mới trước khi tiếp tục.",
+  JOIN_REQUEST_NOT_FOUND: "Yêu cầu tham gia không còn tồn tại.",
+  JOIN_REQUEST_ALREADY_RESOLVED:
+    "Yêu cầu đã được xử lý hoặc không còn hiệu lực. Danh sách sẽ được cập nhật.",
+  JOIN_REQUEST_NOT_REQUIRED:
+    "Bạn đã có thể vào phòng hoặc đang tham gia. Vui lòng kiểm tra trạng thái mới nhất.",
+  ADMISSION_REQUIRED: "Bạn cần được chấp nhận trước khi vào phòng.",
+  ADMISSION_REVOKED:
+    "Lượt tham gia cũ đã hết hiệu lực. Hãy xin vào lại nếu muốn tiếp tục.",
+  PARTICIPATION_NOT_FOUND:
+    "Không tìm thấy lượt tham gia này. Vui lòng làm mới trạng thái.",
+  ACTIVE_SESSION:
+    "Nhóm còn buổi học đang diễn ra. Cần kết thúc buổi học trước khi xóa nhóm.",
 };
 
 export interface AuthRequestOptions {

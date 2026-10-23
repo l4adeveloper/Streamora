@@ -15,6 +15,12 @@ export function SiteHeader() {
       <Brand />
       <nav aria-label="Điều hướng chính">
         <Link
+          href="/meet"
+          aria-current={path.startsWith("/meet") ? "page" : undefined}
+        >
+          Cuộc họp
+        </Link>
+        <Link
           href="/groups"
           aria-current={path.startsWith("/groups") ? "page" : undefined}
         >
