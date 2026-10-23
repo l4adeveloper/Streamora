@@ -10,3 +10,4 @@ coverage/
 .preview/
 backend/src/generated/prisma/
 infra/docker/staging/tls/
+.DS_Store
