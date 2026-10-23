@@ -1,10 +1,12 @@
 # Swagger và OpenAPI T01
 
 Sau khi pull dependency mới, chạy `npm ci` ở gốc repo. Dừng API bản cũ bằng Ctrl+C
-và chạy lại `npm run dev:api` để nạp code mới. Backend hiện không tự reload TypeScript.
+và chạy lại `npm run dev:api` để nạp code mới. Chạy lại `npm run dev` vì cấu hình
+proxy frontend cũng thay đổi. Backend hiện không tự reload TypeScript.
 
-- Swagger UI local: `http://127.0.0.1:4000/api/v1/docs`
-- OpenAPI JSON: `http://127.0.0.1:4000/api/v1/docs-json`
+- Swagger UI đầy đủ Try it out: `http://127.0.0.1:3000/api/v1/docs`
+- OpenAPI JSON qua cùng proxy: `http://127.0.0.1:3000/api/v1/docs-json`
+- Bản tài liệu trực tiếp từ API vẫn ở `http://127.0.0.1:4000/api/v1/docs`.
 - Bản xuất để review/import: [openapi.json](openapi.json)
 
 Tài liệu có đúng sáu API Auth/Users của T01 với request DTO, constraint, public user,
@@ -15,19 +17,32 @@ API tương ứng, ví dụ `http://127.0.0.1:4000`.
 
 ## Thử trên giao diện
 
-GET/PATCH `/users/me` có Try it out. Mở Authorize, chỉ nhập **access token** của tài
-khoản thử vào mục accessToken, bấm Authorize rồi Close. Không thêm chữ `Bearer`.
-Token chỉ nằm trong bộ nhớ trang Swagger; reload sẽ xóa trạng thái Authorize.
-Swagger không tự refresh, không đồng bộ phiên với frontend và không cần refresh cookie
-để đọc/sửa hồ sơ. Không nhập refresh token vào hộp Authorize.
+Mở **http://127.0.0.1:3000/api/v1/docs**, chạy cả API và frontend. Cả sáu API có
+Try it out. Next.js proxy `/api/v1/*` tới NEXT_PUBLIC_API_URL đã cấu hình, giữ
+Origin/Cookie/Set-Cookie. Swagger dùng server `/`, nên request đi qua cùng origin
+frontend; không cần sửa AuthOriginGuard hoặc thêm origin API vào allowlist.
 
-Các POST auth có đầy đủ mô tả nhưng không có Try it out trên Swagger. Trang Swagger
-ở origin API `http://127.0.0.1:4000`; frontend ở `http://127.0.0.1:3000`. Browser
-tự gửi Origin của trang hiện tại, trong khi POST auth yêu cầu đúng WEB_ORIGIN.
-Giữ nguyên guard này; không thêm origin API hoặc wildcard vào allowlist để thử Swagger.
-Dùng [frontend](../../frontend/README.md), [PowerShell](auth-api.md) hoặc
-`npm run demo:auth` để chạy POST auth đúng hợp đồng. POST login trực tiếp từ origin
-Swagger vẫn bị 403 ORIGIN_NOT_ALLOWED.
+1. Mở POST `/auth/register`, bấm Try it out, nhập email mới, password ít nhất 12
+   ký tự và fullName, rồi Execute. Thành công trả 201.
+2. POST `/auth/login`: nhập email/password vừa tạo, Execute; trả 200 và accessToken.
+   Browser tự nhận refresh cookie HttpOnly, không cần chép cookie thủ công.
+3. Mở Authorize, nhập **accessToken** của response login vào mục accessToken,
+   bấm Authorize rồi Close. Không thêm chữ Bearer. Thử GET/PATCH `/users/me`.
+4. POST `/auth/refresh` không có body. Execute sẽ tự gửi cookie, trả accessToken
+   mới và xoay cookie. Muốn dùng token mới cho GET/PATCH thì nhập lại vào Authorize.
+5. POST `/auth/logout` không có body; thành công 204, cookie bị xóa và bearer của
+   session không dùng lại được. Reload Swagger để xóa response/Authorize khỏi trang.
+
+Nếu giao diện có ô Origin, giữ giá trị trùng URL frontend (mặc định
+http://127.0.0.1:3000); browser tự gửi header thực tế, không cho giả header này.
+Mở Swagger trực tiếp ở port 4000 vẫn xem tài liệu/thử Bearer GET/PATCH được nhưng
+POST auth bị 403 ORIGIN_NOT_ALLOWED. Dùng đúng URL port **3000**, không đổi host
+sang localhost khi WEB_ORIGIN đang là 127.0.0.1.
+
+Token chỉ nằm trong bộ nhớ trang Swagger; reload xóa trạng thái Authorize.
+Swagger không tự refresh/Authorize và không đồng bộ trạng thái UI với frontend.
+Không nhập refresh token vào hộp Authorize. Local dùng cùng host/cookie với frontend;
+nên thử Swagger bằng cửa sổ ẩn danh riêng nếu đang dùng tài khoản khác trên frontend.
 
 Ví dụ nếu đã chạy login theo hướng dẫn PowerShell, access token là biến
 `$login.accessToken`; không in cả response/login ra log hoặc đưa token vào ảnh demo.
@@ -65,6 +80,8 @@ giả cho việc dựng metadata; không được dùng để chạy API.
 Đổi endpoint, DTO, status, security hoặc error cần cập nhật decorator, chạy export
 và đưa spec đã sinh vào cùng PR. `npm run test:t01` tự kiểm tra spec không bị cũ,
 response thật khớp schema, chế độ production tắt docs và Swagger UI qua Edge.
+Có test Next production proxy thực thi đủ register/login/GET/PATCH/refresh/logout,
+xoay/xóa cookie HttpOnly, chặn Origin sai và không lưu credentials vào storage.
 
 Các schema response có class riêng trong `src/documentation/api-models.ts`,
 implements contracts TypeScript để giữ đồng bộ kiểu. Validation nghiệp vụ vẫn do

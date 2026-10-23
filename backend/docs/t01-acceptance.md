@@ -8,8 +8,8 @@ staging chung vẫn cần hoàn tất trước khi cập nhật trạng thái to
 ## Kết quả local ngày 20/10/2026
 
 Đã chạy `npm run test:t01`, exit code 0. Typecheck mọi workspace đạt.
-83 kiểm thử đạt: 18 unit/config, 30 API/database, 7 browser và
-28 frontend/session. Không có ca fail, cancelled, skipped hoặc todo.
+84 kiểm thử đạt: 18 unit/config, 30 API/database, 7 browser và
+29 frontend/session. Không có ca fail, cancelled, skipped hoặc todo.
 Frontend tests đã build production các bản sao tạm của mã nguồn hiện tại.
 
 ## Chạy toàn bộ
@@ -123,6 +123,11 @@ Swagger có kiểm thử đặc tả sinh offline, schema khớp sáu API thật
 Bearer, tài liệu tắt ở production và script demo 12 bước. Edge kiểm tra giao diện
 Swagger, gọi GET /users/me với Bearer thật, không giữ thông tin authorize sau reload
 và không gửi request ra dịch vụ ngoài. JSON đã lưu được đối chiếu với source.
+
+`test/frontend/swagger-ui.test.cjs` build Next production và mở Swagger qua proxy
+frontend, Execute đủ register/login/GET/PATCH/refresh/logout bằng UI thực. Kiểm tra
+Origin gốc được giữ, cookie HttpOnly xoay/xóa, bearer sau logout bị chặn, Origin API
+bị từ chối ngay cả qua proxy, storage không chứa credentials và reload xóa Authorize.
 
 Fixture kết nối PostgreSQL local để tạo `streamora_test_<uuid>`, cần quyền CREATEDB.
 Chỉ chạy migration và thay đổi user/session trong DB vừa tạo. Cleanup kiểm tra tên

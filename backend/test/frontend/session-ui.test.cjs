@@ -79,6 +79,13 @@ async function login(page, account) {
     .locator(".workspace-identity .session-identity")
     .getByText("Người dùng phiên", { exact: true })
     .waitFor();
+  // Login opens the workspace. Profile/session cases below operate on /account.
+  await page.goto(`${fixture.webOrigin}/account`, {
+    waitUntil: "domcontentloaded",
+  });
+  await page
+    .getByRole("heading", { name: "Người dùng phiên", exact: true })
+    .waitFor();
   return jwt.decode(body.accessToken).sid;
 }
 async function probe(page, account) {

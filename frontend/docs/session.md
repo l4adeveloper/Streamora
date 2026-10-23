@@ -61,7 +61,9 @@ phase gồm checking, authenticated, anonymous, error. Khi checking, không rend
 liệu riêng; anonymous chuyển về `/login`; lỗi kiểm tra phiên tạm thời có nút thử lại.
 RequireSession thay subtree khi user đổi, giúp xóa form/state riêng của user trước.
 Backend module vẫn phải gắn RequireAuth và kiểm tra quyền nghiệp vụ/group.
-Các trang demo workspace/meet/community/files vẫn công khai, có thể xem với vai trò Khách.
+Các trang demo workspace/rooms/community/files vẫn công khai, có thể xem với vai trò Khách.
+Trang Meet và buổi học T04 yêu cầu đăng nhập; liên kết mời được giữ qua login/register
+theo allowlist nội bộ. Xem [giao diện T04](class-sessions.md).
 Mục Thành viên yêu cầu tài khoản và nhóm thật. T03 dùng `useGroupPermissions` để
 đồng bộ quyền lớp học/tài liệu/bản ghi qua Socket.IO và tái xác minh trên API;
 xem [hướng dẫn T03](../../backend/docs/t03-handoff.md).

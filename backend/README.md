@@ -13,6 +13,14 @@ Swagger, phân quyền group và tích hợp giao diện tiếp tục ở các m
 Hướng dẫn gọi API từng bước: [docs/auth-api.md](docs/auth-api.md).
 Hướng dẫn tích hợp cho đồng đội: [docs/backend-conventions.md](docs/backend-conventions.md).
 Cookie, staging và kiểm thử browser: [docs/session-security.md](docs/session-security.md).
+Phạm vi và luồng nghiệp vụ T04 đã chốt ở [docs/t04-scope.md](docs/t04-scope.md).
+Mục 2 có [schema, migration và contracts T04](docs/t04-database.md);
+mục 3 có [API lịch học, meet và vòng đời](docs/t04-api.md).
+Mục 4 có [API xin vào, accept/reject và vào/ra phòng](docs/t04-admission.md).
+Mục 5 có [realtime và heartbeat T04](docs/t04-realtime.md);
+mục 6 đã nối [giao diện lịch học, Meet và tham gia phòng](../frontend/docs/class-sessions.md).
+Mục 7 cung cấp [guard tham gia và consumer sự kiện cho T05/T11](docs/t04-integration.md).
+Mục 8 có `npm run test:t04` và [hướng dẫn nghiệm thu/bàn giao T04](docs/t04-handoff.md).
 
 ## Chạy local
 
@@ -193,7 +201,9 @@ Review và commit cả schema lẫn thư mục migration. Không dùng `db push`
 
 ## Hợp đồng API và lỗi
 
-Swagger local ở `http://127.0.0.1:4000/api/v1/docs`, JSON ở `/api/v1/docs-json`.
+Swagger local có Try it out cả Auth/Users ở `http://127.0.0.1:3000/api/v1/docs`
+qua proxy frontend; JSON ở `/api/v1/docs-json`. Cần chạy cả API và frontend.
+Truy cập trực tiếp port 4000 vẫn xem docs được nhưng POST auth sai Origin sẽ bị chặn.
 API_DOCS_ENABLED mặc định true ở development, false ở test/production.
 Xem [Swagger/OpenAPI](docs/openapi.md), [bàn giao T01](docs/t01-handoff.md)
 và [nội dung PR](docs/t01-pr.md). `npm run docs:api` xuất spec không cần database;
