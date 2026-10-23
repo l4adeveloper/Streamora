@@ -64,10 +64,10 @@ export async function setupEnvironment(root = repositoryRoot) {
     status: await writeIfMissing(resolve(root, "backend/.env"), backend),
   });
   result.push({
-    path: "apps/web/.env.local",
+    path: "frontend/.env.local",
     status: await writeIfMissing(
-      resolve(root, "apps/web/.env.local"),
-      await template("apps/web/.env.example"),
+      resolve(root, "frontend/.env.local"),
+      await template("frontend/.env.example"),
     ),
   });
   return result;

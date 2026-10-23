@@ -35,7 +35,7 @@ npm run dev
 
 Mặc định socket đi cùng API tại cổng 4000. Nếu muốn dùng realtime riêng, chạy
 `npm run dev:realtime` ở terminal thứ ba và đặt
-`NEXT_PUBLIC_REALTIME_URL=http://127.0.0.1:4001` trong `apps/web/.env.local`, rồi
+`NEXT_PUBLIC_REALTIME_URL=http://127.0.0.1:4001` trong `frontend/.env.local`, rồi
 khởi động lại frontend. API/realtime phải cùng database và khóa ký token.
 Các URL frontend là biến public khi build; không đưa secret backend vào chúng.
 Luồng T04 không cần LiveKit hoặc seed lại tài khoản.
@@ -127,11 +127,11 @@ Mất phản hồi/503/offline được chủ động tạo ở lớp mạng tr�
 fixture là 5 giây để thử timeout nhanh; production giữ 30 giây. Không cần chạy
 server thủ công, không ghi đè `.next` hoặc sửa database ứng dụng.
 
-Tham chiếu: [phạm vi T04](../../../backend/docs/t04-scope.md),
-[API admission](../../../backend/docs/t04-admission.md),
-[hợp đồng realtime](../../../backend/docs/t04-realtime.md).
+Tham chiếu: [phạm vi T04](../../backend/docs/t04-scope.md),
+[API admission](../../backend/docs/t04-admission.md),
+[hợp đồng realtime](../../backend/docs/t04-realtime.md).
 Nghiệm thu toàn bộ T01–T04 bằng `npm run test:t04`; xem
-[bàn giao và demo T04](../../../backend/docs/t04-handoff.md).
+[bàn giao và demo T04](../../backend/docs/t04-handoff.md).
 
 ## Kết quả ngày 23/10/2026
 

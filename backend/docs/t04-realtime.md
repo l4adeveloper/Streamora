@@ -26,7 +26,7 @@ và khóa ký access token. Đây là namespace Socket.IO, không phải đườ
 `/api/v1/sessions`. Namespace `/classroom` của T03 giữ nguyên.
 
 Sau khi pull migration cần khởi động lại API/realtime để dùng schema và build mới.
-[Giao diện T04 mục 6](../../apps/web/docs/class-sessions.md) đã nối watch/attach và
+[Giao diện T04 mục 6](../../frontend/docs/class-sessions.md) đã nối watch/attach và
 heartbeat ở các trang buổi học/Meet mới. Thử HTTP enter riêng thì lượt đó cũng
 hết hạn sau 30 giây nếu chưa attach.
 
@@ -192,4 +192,4 @@ vào database ứng dụng và không gọi LiveKit.
 - Đối chiếu Prisma/database không có chênh lệch T04. Chênh lệch default UUID cũ
   ở groups/group_rooms vẫn giữ nguyên như các mục trước.
 - Kết quả mục 5 dùng socket Node thật. Giao diện và kiểm thử trình duyệt đã bổ sung
-  ở [mục 6](../../apps/web/docs/class-sessions.md).
+  ở [mục 6](../../frontend/docs/class-sessions.md).

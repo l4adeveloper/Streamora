@@ -66,7 +66,7 @@ Trang Meet và buổi học T04 yêu cầu đăng nhập; liên kết mời đư
 theo allowlist nội bộ. Xem [giao diện T04](class-sessions.md).
 Mục Thành viên yêu cầu tài khoản và nhóm thật. T03 dùng `useGroupPermissions` để
 đồng bộ quyền lớp học/tài liệu/bản ghi qua Socket.IO và tái xác minh trên API;
-xem [hướng dẫn T03](../../../backend/docs/t03-handoff.md).
+xem [hướng dẫn T03](../../backend/docs/t03-handoff.md).
 
 Profile update qua useAuth cập nhật store và báo các tab khác đọc lại profile.
 Focus revalidation không ghi đè bản nháp khi giá trị user phía server chưa đổi.

@@ -1,6 +1,6 @@
 # @streamora/contracts
 
-Hợp đồng request/response dùng chung cho `backend` và `apps/web`. Package này
+Hợp đồng request/response dùng chung cho `backend` và `frontend`. Package này
 không phụ thuộc NestJS, Prisma, React hoặc biến môi trường server.
 
 ```ts

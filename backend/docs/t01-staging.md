@@ -19,7 +19,7 @@ npm run staging:up
 Lệnh setup tạo `infra/docker/staging/.env` với mật khẩu/khóa ngẫu nhiên riêng và
 certificate/key tại `infra/docker/staging/tls/`; giữ file đã có. Cả hai đều được
 gitignore và loại khỏi build context. Không thay `.env`, `backend/.env` hay
-`apps/web/.env.local` đang dùng cho development. Không đổi mật khẩu sau khi đã có
+`frontend/.env.local` đang dùng cho development. Không đổi mật khẩu sau khi đã có
 volume trừ khi đồng thời đổi role PostgreSQL đúng quy trình.
 
 Compose project `streamora-t01-stage` gồm PostgreSQL, migration một lần, API, Next.js

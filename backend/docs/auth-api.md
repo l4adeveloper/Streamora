@@ -4,7 +4,7 @@ Chạy PostgreSQL và `npm run dev:api` trước. Nếu server đang chạy bả
 Ctrl+C rồi chạy lại; lệnh dev hiện không tự reload TypeScript.
 Tất cả đường dẫn dưới đây có tiền tố `http://127.0.0.1:4000/api/v1`.
 Từ mục 6 có thể thử qua `/register`, `/login`, `/account` tại frontend;
-xem [hướng dẫn giao diện](../../apps/web/README.md).
+xem [hướng dẫn giao diện](../../frontend/README.md).
 
 Từ mục 4, mọi request nhận header `X-Request-ID`. Body lỗi có cùng `requestId`;
 lỗi DTO bổ sung `error.details.fields` với `field`, `code`, `message` để frontend
