@@ -1,55 +1,44 @@
-# Triển khai tài khoản và phiên T01 với backend riêng
+# Sửa Swagger Auth chưa có Try it out
 
-Ứng dụng cần tài khoản lưu bền và xác thực phiên cho các module nghiệp vụ. Bổ sung
-sáu API auth/profile trong `backend/`, giao diện đăng ký/đăng nhập/tài khoản và nền
-tảng dùng chung để các thành viên tích hợp xác thực, lỗi và trạng thái UI.
+Swagger chỉ bật Execute cho GET/PATCH, khiến bốn API Auth không có Try it out.
+Bật POST và cookie credentials; bổ sung proxy Next.js để Swagger mở tại origin
+frontend và thực thi đủ sáu API mà vẫn giữ nguyên AuthOriginGuard.
 
 ## Thay đổi
 
-- Chuyển API/realtime về `backend/`, cập nhật workspaces và cấu hình local. Frontend
-  giữ trong `apps/web/`; contracts dùng chung cho frontend/backend.
-- PostgreSQL/Prisma với migration users, auth_sessions và lịch sử auth_refresh_tokens.
-  Email chuẩn hóa/unique, mật khẩu Argon2id, refresh chỉ lưu SHA-256 trong server.
-- Access JWT ngắn hạn, cookie HttpOnly xoay vòng, hạn refresh tuyệt đối, reuse thu hồi
-  family và logout vô hiệu bearer ngay. Chặn tài khoản khóa và Origin không hợp lệ.
-- Guard/DTO/error/log/requestId chung, rate limit login/register theo IP/tiến trình.
-- Frontend khôi phục phiên, refresh/retry tối đa một lần, phối hợp nhiều tab và bỏ
-  kết quả/request từ danh tính cũ. Token ở bộ nhớ; marker công khai đồng bộ tab.
-- Khung trang/form/toast/loading/error dùng chung. Swagger/OpenAPI cho sáu API,
-  export/check đặc tả không cần database, cùng script demo HTTP.
+- Swagger hỗ trợ GET/POST/PATCH, cookie HttpOnly do browser tự gửi/nhận và xoay.
+- Next rewrite `/api/v1/*` tới NEXT_PUBLIC_API_URL tuyệt đối. Swagger dùng server
+  `/`, nên Origin là frontend, đúng WEB_ORIGIN. URL tương đối `/api/v1` trong
+  Compose không tạo rewrite; nginx đã xử lý proxy.
+- Không tự refresh/Authorize, không giữ Bearer sau reload. GET/PATCH dùng token
+  người thử nhập vào Authorize. Origin sai vẫn bị chặn ở cả API và proxy.
+- Cập nhật đặc tả export, URL/hướng dẫn demo, nghiệm thu và báo cáo bàn giao.
+  Không có migration hoặc thay đổi dữ liệu ứng dụng.
 
 ## Validation
 
-```powershell
-npm run test:t01
-npm run docs:api:check
-```
+`npm run test:t01`: **84/84 pass** ngày 20/10/2026, exit 0; không có
+fail/cancelled/skipped/todo. Typecheck mọi workspace đạt.
 
-Nghiệm thu dùng database/port/browser context riêng, Next.js production build và
-cookie HTTP/HTTPS thật. Có case email trùng đồng thời, rotation/reuse, logout chen
-refresh, JWT giả/hết hạn, tài khoản khóa, mất mạng, nhiều tab, đổi user và log an toàn.
-83/83 kiểm thử đạt ngày 20/10/2026, không fail/cancel/skip/todo.
-Swagger được kiểm tra với Bearer thật, schema khớp response và docs tắt ở production.
-Script demo HTTP được kiểm thử trên API/database tạm.
+Test mới build Next production, mở Swagger trên Edge và Execute đủ register,
+login, GET/PATCH profile, refresh và logout với API/PostgreSQL thật trong DB tạm.
+Kiểm tra Origin gốc, cookie HttpOnly xoay/xóa, bearer sau logout 401, Origin API
+bị từ chối cả khi qua proxy, storage không chứa credentials và reload xóa Authorize.
+Test Swagger trên host API chờ DOM render trước khi kiểm tra nút POST.
+OpenAPI export/check khớp source. Chi tiết: backend/docs/t01-acceptance.md.
 
-## Migration và cấu hình
+## Chạy thử
 
-Chạy setup:env và db:migrate theo `backend/docs/t01-handoff.md`; mỗi máy có database
-local riêng. Migration chỉ tạo schema auth mới, không seed user dùng chung. Chỉ
-commit env template; không chứa credentials thật. Swagger mặc định bật ở development,
-tắt ở production; API_DOCS_ENABLED là lựa chọn triển khai.
+Restart hai terminal `npm run dev:api` và `npm run dev`, mở
+http://127.0.0.1:3000/api/v1/docs. Register/login rồi chép accessToken vào Authorize
+để thử GET/PATCH; refresh/logout dùng cookie tự động, không có body.
 
-API nghiệp vụ demo và realtime chưa được tự động bảo vệ bởi PR này; owner cần tích
-hợp RequireAuth và quyền theo tài nguyên/group. Rate limit phân tán, trusted proxy
-và môi trường staging chung thuộc bước tích hợp hạ tầng. Có Compose HTTPS local
-riêng để demo production tại https://localhost:8443, database/secrets/volume riêng.
+Trang trực tiếp ở port 4000 vẫn xem tài liệu được nhưng POST auth trả 403 do Origin
+khác WEB_ORIGIN. Docs vẫn mặc định tắt ở production. Image HTTPS local trước đó
+không tự rebuild theo thay đổi này; cấu hình staging vẫn tắt Swagger.
 
-## Minh chứng khi gửi review
+## PR
 
-- Kết quả local: xem `backend/docs/t01-acceptance.md`.
-- Nhánh: codex/t01-auth-handoff → main (default branch; workbook chưa chốt nhánh).
-- Reviewer và staging chung: chờ nhóm; PR giữ draft, chưa tự merge.
-- Draft PR: https://github.com/l4adeveloper/Streamora/pull/1.
-- Docker production build/migration/health đạt; smoke HTTPS local 11/11 bước đạt
-  trên Edge. Chi tiết: backend/docs/t01-delivery-report.md.
-- Kịch bản demo và điểm tích hợp: `backend/docs/t01-handoff.md`.
+[Draft PR #2](https://github.com/l4adeveloper/Streamora/pull/2):
+codex/t01-auth-handoff → main. GitHub xác nhận PR #1 bàn giao T01 trước đó đã merge;
+PR #2 chỉ chứa phần sửa Swagger và minh chứng liên quan, giữ draft chờ review.

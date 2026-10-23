@@ -24,18 +24,23 @@ enum SessionRevocationReason {
 }
 
 model User {
-  id                  String               @id @default(uuid()) @db.Uuid
-  email               String               @unique @db.VarChar(254)
-  passwordHash        String               @map("password_hash") @db.Text
-  fullName            String               @map("full_name") @db.VarChar(100)
-  globalRole          GlobalRole           @default(USER) @map("global_role")
-  disabledAt          DateTime?            @map("disabled_at") @db.Timestamptz(3)
-  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  sessions            AuthSession[]
-  ownedGroups         Group[]
-  memberships         GroupMember[]
-  groupCreateRequests GroupCreateRequest[]
+  id                   String                @id @default(uuid()) @db.Uuid
+  email                String                @unique @db.VarChar(254)
+  passwordHash         String                @map("password_hash") @db.Text
+  fullName             String                @map("full_name") @db.VarChar(100)
+  globalRole           GlobalRole            @default(USER) @map("global_role")
+  disabledAt           DateTime?             @map("disabled_at") @db.Timestamptz(3)
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sessions             AuthSession[]
+  ownedGroups          Group[]
+  memberships          GroupMember[]
+  groupCreateRequests  GroupCreateRequest[]
+  createdClassSessions ClassSession[]        @relation("ClassSessionCreator")
+  classJoinRequests    ClassJoinRequest[]    @relation("ClassJoinRequester")
+  classJoinDecisions   ClassJoinRequest[]    @relation("ClassJoinReviewer")
+  classParticipations  ClassParticipation[]
+  classSessionCommands ClassSessionCommand[]
 
   @@map("users")
 }
@@ -43,15 +48,16 @@ model User {
 // A session is also the refresh-token family. Its id stays stable during rotation
 // and becomes the access token's sid. Revoking it invalidates the whole family.
 model AuthSession {
-  id               String                   @id @default(uuid()) @db.Uuid
-  userId           String                   @map("user_id") @db.Uuid
-  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
-  expiresAt        DateTime                 @map("expires_at") @db.Timestamptz(3)
-  lastUsedAt       DateTime?                @map("last_used_at") @db.Timestamptz(3)
-  revokedAt        DateTime?                @map("revoked_at") @db.Timestamptz(3)
-  revocationReason SessionRevocationReason? @map("revocation_reason")
-  user             User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  refreshTokens    AuthRefreshToken[]
+  id                  String                   @id @default(uuid()) @db.Uuid
+  userId              String                   @map("user_id") @db.Uuid
+  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt           DateTime                 @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt          DateTime?                @map("last_used_at") @db.Timestamptz(3)
+  revokedAt           DateTime?                @map("revoked_at") @db.Timestamptz(3)
+  revocationReason    SessionRevocationReason? @map("revocation_reason")
+  user                User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens       AuthRefreshToken[]
+  classPresenceLeases ClassPresenceLease[]
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
@@ -88,16 +94,17 @@ enum GroupMemberRole {
 // Soft-delete: deletedAt non-null means the group is archived.
 // Active sessions block delete (checked at application layer by T04).
 model Group {
-  id          String        @id @default(uuid()) @db.Uuid
-  name        String        @db.VarChar(100)
-  description String?       @db.VarChar(500)
-  ownerId     String        @map("owner_id") @db.Uuid
-  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  deletedAt   DateTime?     @map("deleted_at") @db.Timestamptz(3)
-  members     GroupMember[]
-  owner       User          @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  rooms       GroupRoom[]
+  id            String         @id @default(uuid()) @db.Uuid
+  name          String         @db.VarChar(100)
+  description   String?        @db.VarChar(500)
+  ownerId       String         @map("owner_id") @db.Uuid
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt     DateTime?      @map("deleted_at") @db.Timestamptz(3)
+  members       GroupMember[]
+  owner         User           @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  rooms         GroupRoom[]
+  classSessions ClassSession[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -134,15 +141,15 @@ model GroupCreateRequest {
 
 // Transactional outbox: database permissions change before notifications/media cleanup.
 model MembershipChange {
-  version       BigInt    @id @default(autoincrement())
-  groupId       String    @map("group_id") @db.Uuid
-  userId        String    @map("user_id") @db.Uuid
+  version       BigInt           @id @default(autoincrement())
+  groupId       String           @map("group_id") @db.Uuid
+  userId        String           @map("user_id") @db.Uuid
   role          GroupMemberRole?
   removed       Boolean
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  mediaSyncedAt DateTime? @map("media_synced_at") @db.Timestamptz(3)
-  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
-  attempts      Int       @default(0)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  mediaSyncedAt DateTime?        @map("media_synced_at") @db.Timestamptz(3)
+  nextAttemptAt DateTime         @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  attempts      Int              @default(0)
 
   @@index([mediaSyncedAt, nextAttemptAt, version])
   @@map("membership_changes")
@@ -166,4 +173,185 @@ model MembershipLookupWindow {
   attempts    Int
 
   @@map("membership_lookup_windows")
+}
+
+// T04: application sessions/admission only; independent of LiveKit and auth sessions.
+enum ClassSessionKind {
+  GROUP
+  MEET
+
+  @@map("class_session_kind")
+}
+
+enum ClassSessionStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+  CANCELLED
+
+  @@map("class_session_status")
+}
+
+enum ClassJoinRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  EXPIRED
+  REVOKED
+
+  @@map("class_join_request_status")
+}
+
+enum ClassParticipationLeaveReason {
+  LEFT
+  DISCONNECTED
+  SESSION_ENDED
+  ACCESS_REVOKED
+
+  @@map("class_participation_leave_reason")
+}
+
+model ClassSession {
+  id             String                @id @default(uuid()) @db.Uuid
+  kind           ClassSessionKind
+  groupId        String?               @map("group_id") @db.Uuid
+  createdById    String                @map("created_by_id") @db.Uuid
+  title          String                @db.VarChar(100)
+  description    String?               @db.VarChar(2000)
+  joinCode       String                @unique @map("join_code") @db.VarChar(12)
+  scheduledAt    DateTime?             @map("scheduled_at") @db.Timestamptz(3)
+  status         ClassSessionStatus    @default(SCHEDULED)
+  startedAt      DateTime?             @map("started_at") @db.Timestamptz(3)
+  endedAt        DateTime?             @map("ended_at") @db.Timestamptz(3)
+  cancelledAt    DateTime?             @map("cancelled_at") @db.Timestamptz(3)
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  group          Group?                @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  createdBy      User                  @relation("ClassSessionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  joinRequests   ClassJoinRequest[]
+  participations ClassParticipation[]
+  commands       ClassSessionCommand[]
+  endEvent       ClassSessionEndEvent?
+  changes        ClassSessionChange[]
+
+  @@index([groupId, scheduledAt, id], map: "class_sessions_group_schedule_idx")
+  @@index([groupId, status, scheduledAt, id], map: "class_sessions_group_status_schedule_idx")
+  @@index([createdById, kind, createdAt, id], map: "class_sessions_creator_kind_created_idx")
+  @@map("class_sessions")
+}
+
+model ClassJoinRequest {
+  id             String                 @id @default(uuid()) @db.Uuid
+  sessionId      String                 @map("session_id") @db.Uuid
+  userId         String                 @map("user_id") @db.Uuid
+  status         ClassJoinRequestStatus @default(PENDING)
+  requestedAt    DateTime               @default(now()) @map("requested_at") @db.Timestamptz(3)
+  decidedAt      DateTime?              @map("decided_at") @db.Timestamptz(3)
+  decidedById    String?                @map("decided_by_id") @db.Uuid
+  closedAt       DateTime?              @map("closed_at") @db.Timestamptz(3)
+  session        ClassSession           @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  user           User                   @relation("ClassJoinRequester", fields: [userId], references: [id], onDelete: Restrict)
+  decidedBy      User?                  @relation("ClassJoinReviewer", fields: [decidedById], references: [id], onDelete: Restrict)
+  participations ClassParticipation[]
+
+  // Composite key lets attendance reference only this request's session and user.
+  @@unique([id, sessionId, userId], map: "class_join_requests_identity_key")
+  @@index([sessionId, status, requestedAt, id], map: "class_join_requests_queue_idx")
+  @@index([sessionId, userId, requestedAt, id], map: "class_join_requests_history_idx")
+  @@index([userId, status], map: "class_join_requests_user_status_idx")
+  @@index([decidedById])
+  // Partial unique index for PENDING/ACCEPTED is maintained in migration SQL.
+  @@map("class_join_requests")
+}
+
+model ClassParticipation {
+  id                String                         @id @default(uuid()) @db.Uuid
+  sessionId         String                         @map("session_id") @db.Uuid
+  userId            String                         @map("user_id") @db.Uuid
+  // Null for direct entry by a manager. One accepted request authorizes one visit.
+  joinRequestId     String?                        @unique @map("join_request_id") @db.Uuid
+  joinedAt          DateTime                       @default(now()) @map("joined_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime                       @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  presenceCheckedAt DateTime                       @default(now()) @map("presence_checked_at") @db.Timestamptz(3)
+  leftAt            DateTime?                      @map("left_at") @db.Timestamptz(3)
+  leaveReason       ClassParticipationLeaveReason? @map("leave_reason")
+  session           ClassSession                   @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  user              User                           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  joinRequest       ClassJoinRequest?              @relation(fields: [joinRequestId, sessionId, userId], references: [id, sessionId, userId], onDelete: Restrict, map: "class_participations_request_identity_fkey")
+  leases            ClassPresenceLease[]
+
+  @@index([sessionId, leftAt, joinedAt, id], map: "class_participations_session_presence_idx")
+  @@index([userId, leftAt], map: "class_participations_user_presence_idx")
+  @@index([leftAt, presenceCheckedAt, id], map: "class_participations_sweep_idx")
+  // Partial unique index for left_at IS NULL is maintained in migration SQL.
+  @@map("class_participations")
+}
+
+model ClassSessionCommand {
+  userId    String       @map("user_id") @db.Uuid
+  operation String       @db.VarChar(32)
+  key       String       @db.VarChar(128)
+  bodyHash  String       @map("body_hash") @db.Char(64)
+  sessionId String       @map("session_id") @db.Uuid
+  response  Json
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  session   ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  @@id([userId, operation, key])
+  @@index([sessionId])
+  @@map("class_session_commands")
+}
+
+// Durable business event. Each named consumer commits its checkpoint with DB effects.
+model ClassSessionEndEvent {
+  version   BigInt       @id @default(autoincrement())
+  eventId   String       @unique @default(uuid()) @map("event_id") @db.Uuid
+  sessionId String       @unique @map("session_id") @db.Uuid
+  endedAt   DateTime     @map("ended_at") @db.Timestamptz(3)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  session   ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  @@map("class_session_end_events")
+}
+
+model ClassSessionEndConsumer {
+  name        String   @id @db.VarChar(100)
+  lastVersion BigInt   @default(0) @map("last_version")
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  @@map("class_session_end_consumers")
+}
+
+model ClassPresenceLease {
+  id              String             @id @default(uuid()) @db.Uuid
+  participationId String             @map("participation_id") @db.Uuid
+  authSessionId   String             @map("auth_session_id") @db.Uuid
+  instanceId      String             @map("instance_id") @db.Uuid
+  socketId        String             @map("socket_id") @db.VarChar(128)
+  connected       Boolean            @default(true)
+  lastHeartbeatAt DateTime           @map("last_heartbeat_at") @db.Timestamptz(3)
+  expiresAt       DateTime           @map("expires_at") @db.Timestamptz(3)
+  participation   ClassParticipation @relation(fields: [participationId], references: [id], onDelete: Cascade)
+  authSession     AuthSession        @relation(fields: [authSessionId], references: [id], onDelete: Cascade)
+
+  @@unique([instanceId, socketId, participationId], map: "class_presence_leases_connection_key")
+  @@index([participationId, expiresAt])
+  @@index([authSessionId])
+  @@map("class_presence_leases")
+}
+
+// Minimal invalidations, not snapshots of protected data. Subject is routing only.
+model ClassSessionChange {
+  version       BigInt       @id @default(autoincrement())
+  eventId       String       @unique @default(uuid()) @map("event_id") @db.Uuid
+  sessionId     String       @map("session_id") @db.Uuid
+  kind          String       @db.VarChar(32)
+  subjectUserId String?      @map("subject_user_id") @db.Uuid
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  session       ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  @@index([sessionId, version])
+  @@map("class_session_changes")
 }

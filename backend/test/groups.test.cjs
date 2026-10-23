@@ -114,6 +114,8 @@ describe("T02: GroupsService Business Logic & Isolation", () => {
     return {
       groups,
       members,
+      user: { findUnique: async () => ({ globalRole: "USER", disabledAt: null }) },
+      classSession: { count: async () => 0 },
       group: {
         create: async ({ data, select }) => {
           const id = randomUUID();

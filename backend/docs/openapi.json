@@ -1090,7 +1090,7 @@
   },
   "info": {
     "title": "Streamora T01 — tài khoản và phiên",
-    "description": "Sáu API T01. Access token giữ trong bộ nhớ; refresh cookie HttpOnly xoay vòng, hạn tuyệt đối, reuse thu hồi family. POST auth yêu cầu Origin=WEB_ORIGIN. Swagger trên host API chỉ cho Try it out GET/PATCH bằng Bearer; thử POST auth qua frontend hoặc hướng dẫn PowerShell. Swagger không tự refresh phiên.",
+    "description": "Sáu API T01. Mở Swagger qua frontend tại /api/v1/docs để Try it out cả Auth và Users trên cùng Origin. POST auth yêu cầu Origin=WEB_ORIGIN; browser tự gửi Origin và cookie HttpOnly. Login/refresh trả accessToken để nhập vào Authorize cho GET/PATCH. Refresh xoay vòng, hạn tuyệt đối, reuse thu hồi family. Swagger không tự refresh hay tự Authorize và không giữ token sau reload.",
     "version": "1.0.0",
     "contact": {}
   },
