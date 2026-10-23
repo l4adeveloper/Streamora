@@ -157,7 +157,7 @@ const newUser = (email) => ({
   passwordHash: fixturePasswordHash,
 });
 
-test("a fresh database receives the complete auth, group and membership migrations", async () => {
+test("a fresh database receives the complete auth, group, membership and class session migrations", async () => {
   const result = await sql.query(
     "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
   );
@@ -165,6 +165,14 @@ test("a fresh database receives the complete auth, group and membership migratio
     "_prisma_migrations",
     "auth_refresh_tokens",
     "auth_sessions",
+    "class_join_requests",
+    "class_participations",
+    "class_presence_leases",
+    "class_session_changes",
+    "class_session_commands",
+    "class_session_end_consumers",
+    "class_session_end_events",
+    "class_sessions",
     "group_create_requests",
     "group_members",
     "group_rooms",
@@ -176,7 +184,7 @@ test("a fresh database receives the complete auth, group and membership migratio
   const migrations = await sql.query(
     'SELECT finished_at FROM "_prisma_migrations"',
   );
-  assert.equal(migrations.rowCount, 4);
+  assert.equal(migrations.rowCount, 9);
   assert.ok(migrations.rows.every((row) => row.finished_at));
 });
 

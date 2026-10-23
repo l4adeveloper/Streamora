@@ -3,6 +3,7 @@ import { PrismaService } from "../../database/prisma.service";
 import type { Prisma } from "../../generated/prisma/client";
 import { ApiError } from "../../common/api-error";
 import { PUBLIC_USER_SELECT } from "../users/user.types";
+import { revokeDisabledClassAccess } from "../../database/class-admission-revocation";
 
 export type AuthTransaction = Prisma.TransactionClient;
 
@@ -27,11 +28,13 @@ export class SessionStore {
     return clock.now;
   }
 
-  revokeDisabledUser(tx: AuthTransaction, userId: string, now: Date) {
-    return tx.authSession.updateMany({
+  async revokeDisabledUser(tx: AuthTransaction, userId: string, now: Date) {
+    const result = await tx.authSession.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: now, revocationReason: "USER_DISABLED" },
     });
+    await revokeDisabledClassAccess(tx, userId, now);
+    return result;
   }
 
   async authenticate(userId: string, sessionId: string) {
