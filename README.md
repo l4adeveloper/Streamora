@@ -13,7 +13,7 @@ npm run dev
 ```
 
 Mở http://127.0.0.1:3000. Các trang trải nghiệm chạy độc lập với dữ liệu mẫu.
-Đăng ký, đăng nhập và tài khoản dùng API/PostgreSQL thật; xem [hướng dẫn frontend](apps/web/README.md).
+Đăng ký, đăng nhập và tài khoản dùng API/PostgreSQL thật; xem [hướng dẫn frontend](frontend/README.md).
 Đồng đội bắt đầu từ [hướng dẫn bàn giao T01](backend/docs/t01-handoff.md).
 Swagger local có Try it out Auth/Users: `http://127.0.0.1:3000/api/v1/docs`
 (cần chạy cả frontend và API).
@@ -23,7 +23,7 @@ Lịch học, meet độc lập và vòng đời buổi học xem [API T04](back
 Xin vào, accept/reject và vào/ra xem [API tham gia T04](backend/docs/t04-admission.md).
 Thông báo realtime, heartbeat và reconnect xem [realtime T04](backend/docs/t04-realtime.md).
 Giao diện T04 thật: mở nhóm → **Xem lịch học**, hoặc vào `/meet` để tạo/tham gia
-cuộc họp độc lập. Xem [hướng dẫn giao diện T04](apps/web/docs/class-sessions.md).
+cuộc họp độc lập. Xem [hướng dẫn giao diện T04](frontend/docs/class-sessions.md).
 Điểm tích hợp T05/T11: [kiểm tra lượt tham gia và sự kiện kết thúc](backend/docs/t04-integration.md).
 Nghiệm thu toàn bộ bằng `npm run test:t04`; xem [bàn giao và kịch bản demo T04](backend/docs/t04-handoff.md).
 Swagger T04 local: `http://127.0.0.1:4000/api/v1/docs-sessions`.
@@ -44,11 +44,11 @@ Swagger API local: `http://127.0.0.1:4000/api/v1/docs`.
 ## Cấu trúc
 
 ```text
-apps/
-  web/src/
+frontend/                # Next.js (@streamora/web)
+  src/
     app/                 # Các route Next.js App Router và giao diện chung
     components/          # landing, workspace, live-player, presentation, ui, demo-data
-backend/
+backend/                 # NestJS API (@streamora/api)
   src/config/            # Cấu hình môi trường và chính sách auth T01
   src/database/          # DatabaseModule/PrismaService kết nối PostgreSQL
   src/common/            # Guard, DTO, validation, lỗi và log HTTP dùng chung
@@ -62,10 +62,10 @@ backend/
   realtime/src/          # NestJS Socket.IO: tham gia kênh và phát tin nhắn
   test/                  # Test cấu hình, setup và HTTP nền tảng
   prisma/                # Schema và migration users/auth_sessions/refresh tokens
-packages/contracts/src/  # Kiểu dữ liệu dùng chung
-services/
-  recording/             # Hướng tích hợp LiveKit Egress
-  video-worker/          # Hướng tích hợp RabbitMQ + FFmpeg + HLS
+  services/
+    recording/           # Hướng tích hợp LiveKit Egress
+    video-worker/        # Hướng tích hợp RabbitMQ + FFmpeg + HLS
+packages/contracts/src/  # Kiểu dữ liệu dùng chung FE/BE
 infra/
   docker/                # PostgreSQL, Redis, RabbitMQ, LiveKit dev
   kubernetes/            # Ghi chú tổ chức deployment
@@ -94,7 +94,7 @@ trình phát trong workspace và thư viện còn dùng dữ liệu minh họa.
 
 `npm run setup:env` tạo cấu hình local cùng mật khẩu và khóa ký ngẫu nhiên; giữ nguyên
 file đã có. `.env` gốc dành cho Docker, `backend/.env` dành cho server,
-`apps/web/.env.local` chỉ có biến public. Quy ước tài khoản, token, cookie, cấu trúc module
+`frontend/.env.local` chỉ có biến public. Quy ước tài khoản, token, cookie, cấu trúc module
 và phạm vi từng mục được ghi trong [backend/README.md](backend/README.md).
 Backend đã nạp/kiểm tra env, bật CORS credentials và tích hợp PostgreSQL/Prisma.
 Đã có 6 API auth/hồ sơ; xem [hướng dẫn thử API](backend/docs/auth-api.md).
@@ -103,9 +103,9 @@ Mục 4 đã cung cấp package `@streamora/contracts` cho FE/BE và
 Mục 5 có [cấu hình cookie/staging và test trình duyệt](backend/docs/session-security.md),
 chạy bằng `npm run test:browser` khi PostgreSQL local đang hoạt động.
 Mục 6 đã tích hợp giao diện đăng ký/đăng nhập/tài khoản. Mục 7 bổ sung tự refresh/retry
-và đồng bộ phiên giữa các tab; xem [hướng dẫn phiên frontend](apps/web/docs/session.md).
+và đồng bộ phiên giữa các tab; xem [hướng dẫn phiên frontend](frontend/docs/session.md).
 Mục 8 có khung trang/điều hướng, user, toast, form và trạng thái dùng chung;
-xem [quy ước frontend cho nhóm](apps/web/docs/frontend-conventions.md).
+xem [quy ước frontend cho nhóm](frontend/docs/frontend-conventions.md).
 Mục 9 có `npm run test:t01` để nghiệm thu typecheck, API/database, cookie và UI/phiên;
 xem [hướng dẫn nghiệm thu T01](backend/docs/t01-acceptance.md).
 Mục 10 cung cấp Swagger, bản OpenAPI để review, `npm run docs:api`,

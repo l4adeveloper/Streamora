@@ -12,7 +12,7 @@
 coverage
 docs
 backend/test
-apps/web/AGENTS.md
+frontend/AGENTS.md
 infra/docker/staging/tls
 **/*.log
 .vscode

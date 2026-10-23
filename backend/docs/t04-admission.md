@@ -17,7 +17,7 @@ Nếu API đang chạy bản cũ, dừng rồi chạy lại. Không cần chạy
 Swagger: http://127.0.0.1:4000/api/v1/docs-sessions, nhóm T04 Admission.
 Đăng nhập và lấy accessToken theo [hướng dẫn auth](auth-api.md), dùng Bearer cho
 mọi endpoint. [Mục 5](t04-realtime.md) đã có realtime/heartbeat;
-[mục 6](../../apps/web/docs/class-sessions.md) đã nối giao diện thật.
+[mục 6](../../frontend/docs/class-sessions.md) đã nối giao diện thật.
 
 ## Các endpoint mới
 

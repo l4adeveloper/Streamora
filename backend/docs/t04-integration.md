@@ -176,7 +176,7 @@ hai worker, restart, bigint và event module không có gateway. Không cần Li
 
 Tham chiếu: [phạm vi](t04-scope.md), [API vòng đời](t04-api.md),
 [admission](t04-admission.md), [realtime](t04-realtime.md),
-[giao diện](../../apps/web/docs/class-sessions.md).
+[giao diện](../../frontend/docs/class-sessions.md).
 
 ## Kết quả ngày 23/10/2026
 
@@ -189,4 +189,4 @@ Tham chiếu: [phạm vi](t04-scope.md), [API vòng đời](t04-api.md),
 - Đối chiếu schema không có chênh lệch T04; default UUID cũ ở groups/group_rooms
   được giữ nguyên. Không thêm dependencies, broker, LiveKit hoặc endpoint public.
 - Frontend không đổi ở mục này; các kết quả UI của mục 6 vẫn ghi riêng trong
-  [hướng dẫn giao diện](../../apps/web/docs/class-sessions.md).
+  [hướng dẫn giao diện](../../frontend/docs/class-sessions.md).

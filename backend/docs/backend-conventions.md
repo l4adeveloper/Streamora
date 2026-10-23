@@ -1,7 +1,7 @@
 # Quy ước dùng chung sau mục 4
 
 Mã backend đặt trong `backend/src`, theo module tại `modules/`.
-Frontend ở `apps/web`; hợp đồng public ở `packages/contracts`.
+Frontend ở `frontend`; hợp đồng public ở `packages/contracts`.
 Mục này không thay đổi schema/migration hoặc dữ liệu local.
 
 ## Dùng xác thực trong module khác

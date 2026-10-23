@@ -1,6 +1,6 @@
 # Bàn giao T01: tài khoản, đăng nhập và phiên
 
-Code backend nằm trong `backend/` ở gốc, frontend trong `apps/web/`, kiểu chung trong
+Code backend nằm trong `backend/` ở gốc, frontend trong `frontend/`, kiểu chung trong
 `packages/contracts/`. API auth/profile dùng PostgreSQL thật. Các màn hình nghiệp vụ
 cộng đồng/phòng/tệp hiện còn là demo và owner của từng task sẽ tích hợp tiếp.
 
@@ -33,7 +33,7 @@ Mở `http://127.0.0.1:3000/register`; health API ở
 `http://127.0.0.1:3000/api/v1/docs` (qua proxy frontend để thử cả Auth).
 
 setup:env tạo `.env` gốc cho Docker, `backend/.env` cho API và
-`apps/web/.env.local` chỉ chứa biến public. Mật khẩu PostgreSQL và khóa JWT được
+`frontend/.env.local` chỉ chứa biến public. Mật khẩu PostgreSQL và khóa JWT được
 sinh riêng trên từng máy. File đã có được giữ nguyên. Khi env cũ chưa có
 API_DOCS_ENABLED, development vẫn bật docs mặc định. Dùng nhất quán 127.0.0.1
 cho WEB_ORIGIN và frontend/API URL.
@@ -101,8 +101,8 @@ Sau khi thử host khác, bỏ hai biến hoặc mở terminal mới trước kh
   không thay thế guard. Xem [quy ước backend](backend-conventions.md).
 - Frontend dùng apiRequest từ `@/lib/api`, useAuth và RequireSession. Dùng PageShell,
   FormField, SubmitButton, trạng thái chung và useToast. Xem
-  [quy ước frontend](../../apps/web/docs/frontend-conventions.md) và
-  [quản lý phiên](../../apps/web/docs/session.md).
+  [quy ước frontend](../../frontend/docs/frontend-conventions.md) và
+  [quản lý phiên](../../frontend/docs/session.md).
 - Dùng kiểu request/response từ `@streamora/contracts`. Thành công theo resource,
   lỗi có code/message/details/requestId; không bọc lại thành shape khác ở từng module.
 - T01 cung cấp auth session và globalRole. OWNER/HOST/VIEWER theo group, thu hồi
@@ -110,7 +110,7 @@ Sau khi thử host khác, bỏ hai biến hoặc mở terminal mới trước kh
 
 ## Staging cho owner hạ tầng
 
-Template: `backend/.env.staging.example`, `apps/web/.env.staging.example`.
+Template: `backend/.env.staging.example`, `frontend/.env.staging.example`.
 Inject DATABASE_URL, ACCESS_TOKEN_SECRET ngẫu nhiên riêng, WEB_ORIGIN HTTPS,
 AUTH_COOKIE_SECURE=true, SameSite và API_DOCS_ENABLED theo quyết định nhóm.
 Không đưa khóa backend vào biến NEXT_PUBLIC hoặc image frontend.

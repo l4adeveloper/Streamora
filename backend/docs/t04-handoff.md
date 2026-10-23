@@ -55,7 +55,7 @@ npm run dev
 ```
 
 API mặc định cổng 4000; frontend cổng 3000. Socket.IO `/sessions` đã có ngay
-trên API. Nếu `apps/web/.env.local` đặt `NEXT_PUBLIC_REALTIME_URL` sang cổng
+trên API. Nếu `frontend/.env.local` đặt `NEXT_PUBLIC_REALTIME_URL` sang cổng
 4001 thì mở thêm terminal chạy `npm run dev:realtime`. API và realtime phải
 dùng chung database/khóa ký; khởi động lại frontend sau khi đổi biến public.
 Các cổng đang chạy có thể giữ nguyên trong lúc chạy test vì fixture dùng cổng ngẫu nhiên.
@@ -199,4 +199,4 @@ publisher RabbitMQ hoặc endpoint token media. T05/T11 dùng public surface đ�
 
 Tài liệu tham chiếu: [phạm vi](t04-scope.md), [database](t04-database.md),
 [API lịch/vòng đời](t04-api.md), [admission](t04-admission.md),
-[realtime](t04-realtime.md), [giao diện](../../apps/web/docs/class-sessions.md).
+[realtime](t04-realtime.md), [giao diện](../../frontend/docs/class-sessions.md).
