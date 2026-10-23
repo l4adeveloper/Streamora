@@ -7,7 +7,7 @@ tảng dùng chung để các thành viên tích hợp xác thực, lỗi và tr
 ## Thay đổi
 
 - Chuyển API/realtime về `backend/`, cập nhật workspaces và cấu hình local. Frontend
-  giữ trong `apps/web/`; contracts dùng chung cho frontend/backend.
+  giữ trong `frontend/`; contracts dùng chung cho frontend/backend.
 - PostgreSQL/Prisma với migration users, auth_sessions và lịch sử auth_refresh_tokens.
   Email chuẩn hóa/unique, mật khẩu Argon2id, refresh chỉ lưu SHA-256 trong server.
 - Access JWT ngắn hạn, cookie HttpOnly xoay vòng, hạn refresh tuyệt đối, reuse thu hồi
