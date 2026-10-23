@@ -329,34 +329,46 @@ export class GroupsService {
   async remove(
     userId: string,
     groupId: string,
-    isAdmin = false,
+    _isAdmin = false,
   ): Promise<void> {
-    if (!isAdmin) {
-      await this.requireRole(userId, groupId, ["OWNER"]);
-    } else {
-      const exists = await this.prisma.group.findFirst({
+    await this.prisma.$transaction(async (tx) => {
+      // Match T04 lock order; start/delete cannot both commit for a live group.
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR SHARE`;
+      await tx.$queryRaw`SELECT id FROM groups WHERE id = ${groupId}::uuid FOR UPDATE`;
+      const group = await tx.group.findFirst({
         where: { id: groupId, deletedAt: null },
-        select: { id: true },
+        select: { ownerId: true },
       });
-      if (!exists) {
+      if (!group)
         throw new ApiError(
           404,
           "GROUP_NOT_FOUND",
           "Nhóm không tồn tại hoặc đã bị xóa.",
         );
-      }
-    }
-
-    // T04 integration hook: check active sessions before deleting
-    // (If session status == 'LIVE', throw 409 ACTIVE_SESSION)
-
-    await this.prisma.group.update({
-      where: {
-        id: groupId,
-        deletedAt: null,
-        ...(!isAdmin ? { ownerId: userId } : {}),
-      },
-      data: { deletedAt: new Date() },
+      const actor = await tx.user.findUnique({
+        where: { id: userId },
+        select: { globalRole: true, disabledAt: true },
+      });
+      if (
+        !actor ||
+        actor.disabledAt ||
+        (actor.globalRole !== "ADMIN" && group.ownerId !== userId)
+      )
+        throw new ApiError(
+          403,
+          "FORBIDDEN",
+          "Bạn không có quyền xóa nhóm này.",
+        );
+      if (await tx.classSession.count({ where: { groupId, status: "LIVE" } }))
+        throw new ApiError(
+          409,
+          "ACTIVE_SESSION",
+          "Nhóm có buổi học đang diễn ra.",
+        );
+      await tx.group.update({
+        where: { id: groupId, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
     });
   }
 

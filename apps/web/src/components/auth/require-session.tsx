@@ -6,12 +6,23 @@ import { Fragment, useEffect, type ReactNode } from "react";
 import { useAuth } from "./auth-provider";
 import { ErrorState, LoadingState } from "@/components/common/feedback";
 
-export function RequireSession({ children }: { children: ReactNode }) {
+export function RequireSession({
+  children,
+  preserveDestination = false,
+}: {
+  children: ReactNode;
+  preserveDestination?: boolean;
+}) {
   const auth = useAuth();
   const router = useRouter();
   useEffect(() => {
-    if (auth.phase === "anonymous") router.replace("/login");
-  }, [auth.phase, router]);
+    if (auth.phase === "anonymous")
+      router.replace(
+        preserveDestination
+          ? `/login?next=${encodeURIComponent(window.location.pathname)}`
+          : "/login",
+      );
+  }, [auth.phase, router, preserveDestination]);
   if (auth.phase === "checking" || auth.phase === "anonymous")
     return <LoadingState message="Đang kiểm tra phiên đăng nhập…" />;
   if (auth.phase === "error")

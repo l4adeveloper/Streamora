@@ -533,7 +533,6 @@ test("overview members can navigate to every workspace section and adding member
       ["/community", "trò chuyện chung"],
       ["/files", "Tài liệu chung"],
       ["/files?type=recordings", "Bản ghi bài giảng"],
-      ["/meet", "Tạo cuộc họp"],
       ["/rooms/nhom-01", "Phòng học nhóm"],
     ]) {
       await shell.locator(`.channel-sidebar a.channel[href="${href}"]`).click();

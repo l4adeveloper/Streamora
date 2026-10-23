@@ -13,6 +13,14 @@ Swagger, phân quyền group và tích hợp giao diện tiếp tục ở các m
 Hướng dẫn gọi API từng bước: [docs/auth-api.md](docs/auth-api.md).
 Hướng dẫn tích hợp cho đồng đội: [docs/backend-conventions.md](docs/backend-conventions.md).
 Cookie, staging và kiểm thử browser: [docs/session-security.md](docs/session-security.md).
+Phạm vi và luồng nghiệp vụ T04 đã chốt ở [docs/t04-scope.md](docs/t04-scope.md).
+Mục 2 có [schema, migration và contracts T04](docs/t04-database.md);
+mục 3 có [API lịch học, meet và vòng đời](docs/t04-api.md).
+Mục 4 có [API xin vào, accept/reject và vào/ra phòng](docs/t04-admission.md).
+Mục 5 có [realtime và heartbeat T04](docs/t04-realtime.md);
+mục 6 đã nối [giao diện lịch học, Meet và tham gia phòng](../apps/web/docs/class-sessions.md).
+Mục 7 cung cấp [guard tham gia và consumer sự kiện cho T05/T11](docs/t04-integration.md).
+Mục 8 có `npm run test:t04` và [hướng dẫn nghiệm thu/bàn giao T04](docs/t04-handoff.md).
 
 ## Chạy local
 

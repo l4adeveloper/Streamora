@@ -3,18 +3,21 @@
 Hướng dẫn chạy mới, demo và điểm tích hợp cho nhóm:
 [bàn giao T01](../../backend/docs/t01-handoff.md).
 
-Ba trang dùng API thật:
+Các trang tài khoản dùng API thật:
 
 - `/register`: họ tên, email, mật khẩu; validation theo trường, email đã có tài khoản,
   giới hạn tần suất, trạng thái đang gửi và thông báo đăng ký thành công. Đăng ký
   không tự đăng nhập; nút Đăng nhập ngay dẫn sang `/login`.
 - `/login`: xử lý sai thông tin, tài khoản khóa, rate limit và mất kết nối; thành công
-  chuyển tới `/account`. Có nút hiện/ẩn mật khẩu và autocomplete phù hợp.
+  chuyển tới `/workspace` hoặc liên kết mời T04 đã lưu. Có nút hiện/ẩn mật khẩu và autocomplete phù hợp.
 - `/account`: GET hồ sơ, sửa họ tên qua PATCH, email chỉ đọc, hiển thị vai trò và logout.
   Người chưa đăng nhập được đưa về `/login`; không hiển thị hồ sơ trong lúc kiểm tra phiên.
 
 Landing có liên kết đăng nhập/tạo tài khoản; icon tài khoản trong workspace dẫn
-tới `/account`. Các trang cộng đồng, họp và tệp vẫn dùng dữ liệu demo hiện tại.
+tới `/account`. Trang Meet, lịch nhóm và phòng T04 đã dùng API/realtime thật;
+xem [hướng dẫn T04 mục 6](docs/class-sessions.md). Các trang cộng đồng, tệp,
+`/rooms/:id` và trình phát workspace vẫn có phần demo hiện tại.
+Nghiệm thu đầy đủ và demo nhiều tài khoản: [bàn giao T04](../../backend/docs/t04-handoff.md).
 
 ## Chạy local
 

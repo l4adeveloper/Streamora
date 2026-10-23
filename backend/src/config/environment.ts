@@ -9,6 +9,13 @@ export interface EnvironmentConfig {
   docsEnabled: boolean;
   webOrigin: string;
   databaseUrl: string;
+  /** Trusted application overrides; omitted deployments use the shared protocol defaults. */
+  sessionRealtime?: {
+    pollIntervalMs: number;
+    sweepIntervalMs: number;
+    heartbeatIntervalMs: number;
+    leaseTtlMs: number;
+  };
   auth: {
     accessTokenSecret: string;
     accessTokenTtlSeconds: number;

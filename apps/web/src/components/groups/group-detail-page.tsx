@@ -229,9 +229,15 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
             </div>
             <div>
               <h3>Buổi học & Phòng trực tiếp</h3>
-              <p>Lớp học trực tiếp của nhóm sẽ được bổ sung sau.</p>
+              <p>Xem lịch, mở buổi học và quản lý yêu cầu tham gia.</p>
+              <Link
+                className="button secondary compact"
+                href={`/groups/${group.id}/sessions`}
+              >
+                Xem lịch học
+              </Link>
             </div>
-            <span className="badge">Sắp có</span>
+            <span className="badge">Lịch học</span>
           </div>
 
           <div className="group-section-box">

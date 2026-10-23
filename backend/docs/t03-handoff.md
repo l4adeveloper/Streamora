@@ -149,3 +149,13 @@ Migration T03 đã được áp dụng thành công vào database local.
 Ảnh kiểm tra được tạo lại bởi test giao diện trong `.preview/t03-members-*.png`.
 File Job.xlsx giữ nguyên. T03 chưa tự đánh dấu hoàn thành trong bảng kế hoạch vì
 review, staging và kiểm thử LiveKit/WebRTC thật là bước nghiệm thu của nhóm.
+
+## T04: quyền nhóm và quyền tham gia buổi học
+
+T04 đã có [guard/service và consumer sự kiện](t04-integration.md) cho T05/T11.
+Với chức năng LIVE thuộc một buổi cụ thể, chỉ `RequireGroupAccess` chưa chứng minh
+người dùng đã được duyệt và thực sự enter. T05 import ClassSessionsModule và dùng
+RequireClassParticipation/ClassParticipantService với sessionId/participationId
+đúng bản ghi server. Chủ meet độc lập được xác định từ session, không từ nhóm.
+Các chức năng tệp/lịch sử/bản ghi sau khi kết thúc vẫn cần chính sách tài nguyên
+riêng; không thay guard nhóm bằng guard LIVE trên mọi endpoint.

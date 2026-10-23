@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CircleHelp,
   Clock3,
+  CalendarDays,
   Copy,
   FileText,
   Folder,
@@ -598,6 +599,16 @@ export function Workspace({
                 <Plus size={14} />
               </Link>
             </div>
+            {workspaceGroup.groupId && (
+              <Link
+                href={`/groups/${workspaceGroup.groupId}/sessions`}
+                onClick={navigateWorkspace}
+                className="channel"
+              >
+                <CalendarDays size={19} />
+                Lịch học của nhóm
+              </Link>
+            )}
             <Link
               href="/workspace"
               onClick={navigateWorkspace}
