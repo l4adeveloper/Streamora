@@ -6,6 +6,7 @@ import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { Brand } from "@/components/ui";
 import { AccountLink } from "./account-link";
+import { ThemeToggle } from "./theme-toggle";
 
 export function SiteHeader() {
   const path = usePathname();
@@ -14,12 +15,19 @@ export function SiteHeader() {
       <Brand />
       <nav aria-label="Điều hướng chính">
         <Link
+          href="/groups"
+          aria-current={path.startsWith("/groups") ? "page" : undefined}
+        >
+          Nhóm học tập
+        </Link>
+        <Link
           href="/workspace"
           aria-current={path === "/workspace" ? "page" : undefined}
         >
           Không gian học tập
         </Link>
         <AccountLink />
+        <ThemeToggle />
       </nav>
     </header>
   );

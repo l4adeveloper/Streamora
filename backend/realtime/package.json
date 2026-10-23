@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "tsc && node --env-file-if-exists=../.env dist/main.js",
+    "dev": "npm run build --workspace=@streamora/api && tsc && node --env-file-if-exists=../.env dist/main.js",
     "build": "tsc",
     "start": "node --env-file-if-exists=../.env dist/main.js",
     "typecheck": "tsc --noEmit"

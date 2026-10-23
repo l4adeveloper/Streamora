@@ -74,9 +74,10 @@ async function login(page, account) {
   const response = page.waitForResponse(`${fixture.apiUrl}/auth/login`);
   await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
   const body = await (await response).json();
-  await page.waitForURL("**/account");
+  await page.waitForURL("**/workspace");
   await page
-    .getByRole("heading", { name: "Người dùng phiên", exact: true })
+    .locator(".workspace-identity .session-identity")
+    .getByText("Người dùng phiên", { exact: true })
     .waitFor();
   return jwt.decode(body.accessToken).sid;
 }

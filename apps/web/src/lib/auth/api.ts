@@ -24,12 +24,24 @@ const messages: Record<string, string> = {
   VALIDATION_ERROR: "Vui lòng kiểm tra lại thông tin đã nhập.",
   ORIGIN_NOT_ALLOWED: "Không thể xác thực yêu cầu. Vui lòng tải lại trang.",
   FORBIDDEN: "Bạn không có quyền thực hiện thao tác này.",
+  GROUP_NOT_FOUND: "Nhóm không tồn tại hoặc đã bị xóa.",
+  USER_NOT_FOUND: "Không tồn tại người dùng với email này.",
+  MEMBER_NOT_FOUND:
+    "Thành viên không còn trong nhóm. Vui lòng làm mới danh sách.",
+  ALREADY_MEMBER: "Người dùng đã là thành viên của nhóm.",
+  OWNER_PROTECTED: "Không thể xóa hoặc đổi vai trò chủ nhóm.",
+  RATE_LIMITED: "Bạn đã thao tác quá nhiều. Vui lòng thử lại sau một phút.",
+  GROUP_NAME_EXISTS: "Bạn đã có nhóm mang tên này. Vui lòng chọn tên khác.",
+  INVALID_CURSOR: "Không thể tải trang tiếp theo. Vui lòng làm mới danh sách.",
+  IDEMPOTENCY_CONFLICT:
+    "Yêu cầu tạo nhóm đã thay đổi. Vui lòng kiểm tra và thử lại.",
 };
 
 export interface AuthRequestOptions {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   token?: string;
+  idempotencyKey?: string;
 }
 
 export async function authRequest<T>(
@@ -52,6 +64,9 @@ export async function authRequest<T>(
           ? { "Content-Type": "application/json" }
           : {}),
         ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        ...(options.idempotencyKey
+          ? { "Idempotency-Key": options.idempotencyKey }
+          : {}),
       },
       body:
         options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -80,6 +95,8 @@ export async function authRequest<T>(
         }
       if (code === "EMAIL_EXISTS")
         fields.email = "Email đã có tài khoản. Vui lòng dùng email khác.";
+      if (code === "GROUP_NAME_EXISTS")
+        fields.name = messages.GROUP_NAME_EXISTS;
       const retry = Number(response.headers.get("retry-after"));
       const message =
         code === "RATE_LIMITED"

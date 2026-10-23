@@ -3,15 +3,23 @@ import Link from "next/link";
 
 import { Waves } from "lucide-react";
 
-export function Brand({ small = false }: { small?: boolean }) {
+export function Brand({
+  small = false,
+  href = "/",
+  label = "Streamora, trang chủ",
+}: {
+  small?: boolean;
+  href?: string;
+  label?: string;
+}) {
   return (
     <Link
-      href="/"
+      href={href}
       className={`brand ${small ? "brand-small" : ""}`}
-      aria-label="Streamora, trang chủ"
+      aria-label={label}
     >
       <span className="brand-mark">
-        <Waves size={25} strokeWidth={2.8} />
+        <Waves size={25} strokeWidth={2} />
       </span>
       {!small && (
         <>
