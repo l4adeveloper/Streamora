@@ -26,7 +26,7 @@ EXPOSE 4000
 CMD ["node", "backend/dist/main.js"]
 
 FROM runtime AS web
-COPY --from=build --chown=node:node /app/apps/web ./apps/web
-WORKDIR /app/apps/web
+COPY --from=build --chown=node:node /app/frontend ./frontend
+WORKDIR /app/frontend
 EXPOSE 3000
-CMD ["../../node_modules/.bin/next", "start", "--hostname", "0.0.0.0"]
+CMD ["../node_modules/.bin/next", "start", "--hostname", "0.0.0.0"]

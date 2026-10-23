@@ -25,7 +25,7 @@ Các POST auth có đầy đủ mô tả nhưng không có Try it out trên Swag
 ở origin API `http://127.0.0.1:4000`; frontend ở `http://127.0.0.1:3000`. Browser
 tự gửi Origin của trang hiện tại, trong khi POST auth yêu cầu đúng WEB_ORIGIN.
 Giữ nguyên guard này; không thêm origin API hoặc wildcard vào allowlist để thử Swagger.
-Dùng [frontend](../../apps/web/README.md), [PowerShell](auth-api.md) hoặc
+Dùng [frontend](../../frontend/README.md), [PowerShell](auth-api.md) hoặc
 `npm run demo:auth` để chạy POST auth đúng hợp đồng. POST login trực tiếp từ origin
 Swagger vẫn bị 403 ORIGIN_NOT_ALLOWED.
 

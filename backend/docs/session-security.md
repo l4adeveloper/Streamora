@@ -45,7 +45,7 @@ Policy này áp dụng cả khi SameSite=None; các endpoint dùng cookie mới 
 cùng Origin guard. API dùng Bearer không tự lấy danh tính từ refresh cookie.
 
 Frontend mục 7 đã gom refresh trong tab và dùng Web Locks giữa các tab cùng origin;
-xem [hướng dẫn tích hợp phiên](../../apps/web/docs/session.md).
+xem [hướng dẫn tích hợp phiên](../../frontend/docs/session.md).
 Nếu tự gửi hai refresh với cùng cookie, policy hiện tại chủ động thu hồi family.
 
 ## Local
@@ -58,7 +58,7 @@ WEB_ORIGIN=http://127.0.0.1:3000
 AUTH_COOKIE_SECURE=false
 AUTH_COOKIE_SAME_SITE=lax
 
-# apps/web/.env.local (public only)
+# frontend/.env.local (public only)
 NEXT_PUBLIC_API_URL=http://127.0.0.1:4000/api/v1
 ```
 
@@ -72,7 +72,7 @@ Hai template được commit:
 
 - `backend/.env.staging.example`: NODE_ENV=production, API_HOST=0.0.0.0,
   WEB_ORIGIN HTTPS chính xác, Secure=true, SameSite=Lax.
-- `apps/web/.env.staging.example`: API URL HTTPS có `/api/v1`, chỉ có biến public.
+- `frontend/.env.staging.example`: API URL HTTPS có `/api/v1`, chỉ có biến public.
 
 Địa chỉ `.example` là placeholder; thay bằng host thật khi nhóm dựng staging.
 Inject khóa JWT ngẫu nhiên riêng và DATABASE_URL bằng environment/secret của deployment.

@@ -87,7 +87,7 @@ async function createFrontendFixture({
     const apiUrl = `${await app.getUrl()}/api/v1`;
     await mkdir(webRoot, { recursive: true });
     // Build an isolated source copy. Never overwrite the user's .next or local env files.
-    const source = join(root, "apps/web");
+    const source = join(root, "frontend");
     await cp(join(source, "src"), join(webRoot, "src"), { recursive: true });
     if (sessionProbe) {
       const page = join(webRoot, "src/app/session-probe");

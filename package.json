@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/web",
+    "frontend",
     "backend",
     "backend/realtime",
     "packages/*"
