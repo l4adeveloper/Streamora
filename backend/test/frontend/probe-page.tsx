@@ -1,5 +1,5 @@
 "use client";
-// Copied into the isolated test build only. Never part of apps/web or a deployed route.
+// Copied into the isolated test build only. Never part of frontend or a deployed route.
 import { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";

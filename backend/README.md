@@ -6,9 +6,9 @@ Mục 3 triển khai 6 API auth/hồ sơ, Argon2id, JWT, refresh cookie và tran
 Mục 4 cung cấp contracts FE/BE, guard/DTO dùng lại, lỗi chi tiết theo trường,
 request ID và log HTTP chỉ chứa metadata.
 Mục 5 chốt cookie/CORS/Origin, thêm template staging và test browser HTTP/HTTPS.
-Mục 6 bổ sung giao diện gọi sáu API: xem [frontend/README](../apps/web/README.md).
+Mục 6 bổ sung giao diện gọi sáu API: xem [frontend/README](../frontend/README.md).
 Mục 7 hoàn thiện tự refresh/retry, bảo vệ trang và đồng bộ phiên giữa các tab;
-xem [hướng dẫn phiên frontend](../apps/web/docs/session.md).
+xem [hướng dẫn phiên frontend](../frontend/docs/session.md).
 Swagger, phân quyền group và tích hợp giao diện tiếp tục ở các mục sau.
 Hướng dẫn gọi API từng bước: [docs/auth-api.md](docs/auth-api.md).
 Hướng dẫn tích hợp cho đồng đội: [docs/backend-conventions.md](docs/backend-conventions.md).
@@ -36,7 +36,7 @@ gateway xác thực của API. Thành viên, guard, hook, outbox và LiveKit xem
 [hướng dẫn T03](docs/t03-handoff.md).
 
 `setup:env` tạo `.env` gốc cho Compose, `backend/.env` cho server và
-`apps/web/.env.local` cho Next.js. Mật khẩu local và khóa ký được tạo ngẫu nhiên,
+`frontend/.env.local` cho Next.js. Mật khẩu local và khóa ký được tạo ngẫu nhiên,
 không in ra terminal, không ghi đè file đã tồn tại. DATABASE_URL/RABBITMQ_URL của
 file backend mới được ghép từ mật khẩu trong `.env` gốc.
 Nếu đã có file cấu hình, tự đối chiếu URL/mật khẩu và `/api/v1`; chạy lại setup
@@ -81,12 +81,13 @@ backend/
       files/                 # API mẫu cũ
   test/                      # Kiểm thử cấu hình và HTTP
   realtime/                  # Service Socket.IO dùng chung quyền T03
+  services/                  # Điểm tích hợp recording, video-worker (chưa triển khai)
   prisma/                    # Schema và migration đã commit
   prisma.config.ts           # Cấu hình Prisma CLI, đọc backend/.env
 ```
 
-API nghiệp vụ viết thành module trong ứng dụng NestJS này. Không tạo thêm backend
-trong `apps/`. Kiểu request/response dùng chung FE/BE nằm ở `packages/contracts`,
+API nghiệp vụ viết thành module trong ứng dụng NestJS này. Không đặt code backend
+trong `frontend/`. Kiểu request/response dùng chung FE/BE nằm ở `packages/contracts`,
 import qua `@streamora/contracts`. Prisma và migration nằm trong `backend/prisma`.
 
 ## Database và migration T01

@@ -20,14 +20,14 @@ test("setup keeps existing files and connects newly generated backend credential
     for (const path of [
       ".env.example",
       "backend/.env.example",
-      "apps/web/.env.example",
+      "frontend/.env.example",
     ]) {
       await mkdir(dirname(join(root, path)), { recursive: true });
       await copyFile(join(source, path), join(root, path));
     }
     const first = await setupEnvironment(root);
     assert.ok(first.every((file) => file.status === "created"));
-    const files = [".env", "backend/.env", "apps/web/.env.local"];
+    const files = [".env", "backend/.env", "frontend/.env.local"];
     const contents = await Promise.all(
       files.map((path) => readFile(join(root, path), "utf8")),
     );

@@ -1,7 +1,7 @@
 # Frontend Streamora — tài khoản, phiên và khung chung T01, mục 6–8
 
 Hướng dẫn chạy mới, demo và điểm tích hợp cho nhóm:
-[bàn giao T01](../../backend/docs/t01-handoff.md).
+[bàn giao T01](../backend/docs/t01-handoff.md).
 
 Ba trang dùng API thật:
 
@@ -33,7 +33,7 @@ npm run dev
 Mở `http://127.0.0.1:3000/register`. Tài khoản đã tạo qua PowerShell trước đây
 có thể dùng ở trang đăng nhập. Không cần migration mới cho mục 6.
 
-`apps/web/.env.local` cần `NEXT_PUBLIC_API_URL=http://127.0.0.1:4000/api/v1`;
+`frontend/.env.local` cần `NEXT_PUBLIC_API_URL=http://127.0.0.1:4000/api/v1`;
 `backend/.env` cần `WEB_ORIGIN=http://127.0.0.1:3000`. Dùng nhất quán 127.0.0.1.
 Sau khi sửa env, khởi động lại dev server; production cần inject public URL trước build.
 Không đặt khóa JWT hoặc DATABASE_URL vào cấu hình frontend.
@@ -74,7 +74,7 @@ Xem [quy ước frontend cho nhóm](docs/frontend-conventions.md) để thêm mo
 ## Kiểm thử
 
 Nghiệm thu toàn bộ T01 (mục 9): `npm run test:t01` tại gốc repository.
-Xem [tiêu chí và cách chạy](../../backend/docs/t01-acceptance.md).
+Xem [tiêu chí và cách chạy](../backend/docs/t01-acceptance.md).
 Hai ca bổ sung kiểm tra tài khoản bị khóa khi đang dùng và hạn refresh tuyệt đối
 bằng API/DB thật, cùng đồng bộ tab, xóa cookie và chặn thay đổi hồ sơ.
 
@@ -99,5 +99,5 @@ Session tests kiểm tra 401/refresh/retry, payload/method ban đầu, request �
 401 cũ đến muộn, lỗi 403/500/503, thu hồi phiên, nhiều tab, logout khi đang refresh,
 đổi user khi còn request, tab lỡ thông báo, đồng bộ workspace và các fallback thông báo.
 Các trang session-probe, shell-probe và shell-crash chỉ được chép vào bản build tạm
-của test, không có trong apps/web. Test khung chung kiểm tra toast, lỗi trường của
+của test, không có trong frontend. Test khung chung kiểm tra toast, lỗi trường của
 module, pending, 403/5xx, 404, render error/retry và mobile.
