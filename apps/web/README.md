@@ -76,6 +76,13 @@ Xem [quy ước frontend cho nhóm](docs/frontend-conventions.md) để thêm mo
 
 ## Kiểm thử
 
+Swagger có thể mở tại `http://127.0.0.1:3000/api/v1/docs` khi API và frontend cùng
+chạy. Next.js rewrite `/api/v1/*` tới NEXT_PUBLIC_API_URL tuyệt đối; trình duyệt giữ
+Origin frontend và tự quản lý cookie nên Auth có Try it out đầy đủ. Cấu hình URL
+tương đối `/api/v1` (Compose HTTPS) không tạo rewrite vòng lặp; nginx đã proxy API.
+Thay NEXT_PUBLIC_API_URL cần restart dev hoặc build lại production.
+Xem [cách thử sáu API](../../backend/docs/openapi.md).
+
 Nghiệm thu toàn bộ T01 (mục 9): `npm run test:t01` tại gốc repository.
 Xem [tiêu chí và cách chạy](../../backend/docs/t01-acceptance.md).
 Hai ca bổ sung kiểm tra tài khoản bị khóa khi đang dùng và hạn refresh tuyệt đối

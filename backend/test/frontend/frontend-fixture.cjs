@@ -35,6 +35,7 @@ async function createFrontendFixture({
   sessionProbe = false,
   shellProbe = false,
   sessionRealtime,
+  docsEnabled = false,
 } = {}) {
   const previewRoot = join(root, ".preview");
   const directory = join(previewRoot, `auth-frontend-run-${randomUUID()}`);
@@ -74,6 +75,7 @@ async function createFrontendFixture({
       webOrigin,
       nodeEnv: "test",
       ...(sessionRealtime ? { sessionRealtime } : {}),
+      docsEnabled,
       auth: {
         ...database.config.auth,
         accessTokenSecret: randomBytes(48).toString("base64url"),
