@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { revokeClassAccess } from "../../database/class-admission-revocation";
 import { isUUID } from "class-validator";
 import type {
   Membership,
@@ -216,6 +217,10 @@ export class MembershipsService {
       await tx.groupMember.delete({
         where: { userId_groupId: { userId, groupId } },
       });
+      const [clock] = await tx.$queryRaw<
+        { now: Date }[]
+      >`SELECT clock_timestamp() AS now`;
+      await revokeClassAccess(tx, userId, clock.now, { groupId });
       await this.changed(tx, groupId, userId, null);
     });
   }

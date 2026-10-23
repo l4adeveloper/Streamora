@@ -51,7 +51,8 @@ export default function Page() {
 RequireSession không render phần riêng tư trong lúc checking; anonymous chuyển đến
 `/login`; lỗi khôi phục tạm thời có nút thử lại. Khi đổi user, guard thay subtree để
 xóa state/form của danh tính cũ. Backend vẫn phải dùng RequireAuth và kiểm tra quyền
-nghiệp vụ. Demo cộng đồng/phòng/tệp hiện tại vẫn mở cho khách.
+nghiệp vụ. Demo cộng đồng/phòng mẫu/tệp hiện tại vẫn mở cho khách; Meet T04 yêu cầu
+đăng nhập, xem [giao diện T04](class-sessions.md).
 
 ## Form và thông báo
 

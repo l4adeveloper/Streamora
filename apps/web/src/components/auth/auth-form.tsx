@@ -27,6 +27,7 @@ import {
 } from "@/lib/auth/validation";
 import { useAuth } from "./auth-provider";
 import { AuthFrame } from "./auth-ui";
+import { safeReturnTo } from "@/lib/auth/return-to";
 import { FormField } from "@/components/common/form-field";
 import {
   InlineNotice,
@@ -35,6 +36,10 @@ import {
 } from "@/components/common/feedback";
 
 export type AuthMode = "login" | "register";
+
+function loginDestination() {
+  return safeReturnTo(new URLSearchParams(window.location.search).get("next"));
+}
 
 function AuthModeAction({
   mode,
@@ -49,6 +54,8 @@ function AuthModeAction({
   className?: string;
   active?: boolean;
 }) {
+  const [destination, setDestination] = useState("/workspace");
+  useEffect(() => setDestination(loginDestination()), []);
   if (onModeChange)
     return (
       <button
@@ -62,7 +69,7 @@ function AuthModeAction({
     );
   return (
     <Link
-      href={mode === "login" ? "/login" : "/register"}
+      href={`${mode === "login" ? "/login" : "/register"}${destination !== "/workspace" ? `?next=${encodeURIComponent(destination)}` : ""}`}
       className={className}
       aria-current={active ? "page" : undefined}
     >
@@ -95,7 +102,7 @@ export function AuthForm({
   const form = useRef<HTMLFormElement>(null);
   const alert = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (auth.phase === "authenticated") router.replace("/workspace");
+    if (auth.phase === "authenticated") router.replace(loginDestination());
   }, [auth.phase, router]);
   function edit(field: keyof FieldErrors, value: string) {
     ({ email: setEmail, password: setPassword, fullName: setFullName })[field](
@@ -132,7 +139,7 @@ export function AuthForm({
       } else {
         await auth.login(credentials);
         setPassword("");
-        router.replace("/workspace");
+        router.replace(loginDestination());
       }
     } catch (error) {
       const failure = asAuthError(error);

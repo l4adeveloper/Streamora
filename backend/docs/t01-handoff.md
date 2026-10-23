@@ -30,7 +30,7 @@ npm run dev
 
 Mở `http://127.0.0.1:3000/register`; health API ở
 `http://127.0.0.1:4000/api/v1/health`; Swagger ở
-`http://127.0.0.1:4000/api/v1/docs`.
+`http://127.0.0.1:3000/api/v1/docs` (qua proxy frontend để thử cả Auth).
 
 setup:env tạo `.env` gốc cho Docker, `backend/.env` cho API và
 `apps/web/.env.local` chỉ chứa biến public. Mật khẩu PostgreSQL và khóa JWT được
@@ -58,8 +58,9 @@ một người không đồng bộ sang máy đồng đội. Không có tài kho
    được khôi phục; không cần đăng nhập lại.
 4. Mở account trong tab thứ hai, logout ở tab thứ nhất. Hai tab về login, thông
    tin riêng biến mất. Workspace công khai trở lại Khách.
-5. Mở Swagger, xem sáu operation và DTO/security/error. GET/PATCH có thể thử bằng
-   Bearer của tài khoản demo riêng. POST auth thử bằng frontend hoặc script bên dưới.
+5. Mở Swagger qua frontend, Try it out register/login rồi dùng accessToken trong
+   Authorize để thử GET/PATCH. Refresh/logout dùng cookie browser tự quản lý.
+   Xem [hướng dẫn Swagger](openapi.md) để thực hiện đúng thứ tự.
 6. Chạy `npm run test:t01` để minh chứng reuse, refresh đồng thời, JWT hết hạn,
    tài khoản khóa, logout chen refresh, đổi user khi request chờ và cookie HTTPS.
 
@@ -151,6 +152,8 @@ Nội dung PR tại [t01-pr.md](t01-pr.md). Chọn nhánh codex/t01-auth-handoff
 theo default branch của repository vì workbook chưa ghi nhánh đích. Trạng thái/URL
 PR được cập nhật trong [báo cáo bàn giao](t01-delivery-report.md). Đính kèm kết quả
 nghiệm thu và bổ sung minh chứng staging chung khi nhóm deploy.
+PR #1 bàn giao T01 đã được merge trên GitHub; phần sửa Try it out Auth nằm trong
+draft PR #2, nội dung review được cập nhật theo phạm vi bản sửa này.
 
 Reviewer cần xác nhận: backend đúng thư mục; migration chạy trên DB trống; DTO
 không nhận trường nâng quyền; Argon2id và refresh hash; transaction rotation/reuse;
