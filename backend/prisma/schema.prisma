@@ -24,15 +24,18 @@ enum SessionRevocationReason {
 }
 
 model User {
-  id           String        @id @default(uuid()) @db.Uuid
-  email        String        @unique @db.VarChar(254)
-  passwordHash String        @map("password_hash") @db.Text
-  fullName     String        @map("full_name") @db.VarChar(100)
-  globalRole   GlobalRole    @default(USER) @map("global_role")
-  disabledAt   DateTime?     @map("disabled_at") @db.Timestamptz(3)
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  sessions     AuthSession[]
+  id                  String               @id @default(uuid()) @db.Uuid
+  email               String               @unique @db.VarChar(254)
+  passwordHash        String               @map("password_hash") @db.Text
+  fullName            String               @map("full_name") @db.VarChar(100)
+  globalRole          GlobalRole           @default(USER) @map("global_role")
+  disabledAt          DateTime?            @map("disabled_at") @db.Timestamptz(3)
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sessions            AuthSession[]
+  ownedGroups         Group[]
+  memberships         GroupMember[]
+  groupCreateRequests GroupCreateRequest[]
 
   @@map("users")
 }
@@ -70,4 +73,97 @@ model AuthRefreshToken {
   @@unique([sessionId, generation])
   @@index([expiresAt])
   @@map("auth_refresh_tokens")
+}
+
+// ─── T02: Groups ──────────────────────────────────────────────────────────────
+
+enum GroupMemberRole {
+  OWNER
+  HOST
+  VIEWER
+
+  @@map("group_member_role")
+}
+
+// Soft-delete: deletedAt non-null means the group is archived.
+// Active sessions block delete (checked at application layer by T04).
+model Group {
+  id          String        @id @default(uuid()) @db.Uuid
+  name        String        @db.VarChar(100)
+  description String?       @db.VarChar(500)
+  ownerId     String        @map("owner_id") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime?     @map("deleted_at") @db.Timestamptz(3)
+  members     GroupMember[]
+  owner       User          @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  rooms       GroupRoom[]
+
+  @@index([ownerId])
+  @@index([deletedAt])
+  @@index([deletedAt, createdAt, id])
+  @@map("groups")
+}
+
+// One membership record per user/group pair; role may change over time.
+model GroupMember {
+  userId   String          @map("user_id") @db.Uuid
+  groupId  String          @map("group_id") @db.Uuid
+  role     GroupMemberRole @default(VIEWER)
+  joinedAt DateTime        @default(now()) @map("joined_at") @db.Timestamptz(3)
+  group    Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user     User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([userId, groupId])
+  @@index([groupId, role])
+  @@index([groupId, joinedAt, userId])
+  @@map("group_members")
+}
+
+// Keep successful create responses so retries work across API instances/restarts.
+model GroupCreateRequest {
+  userId   String @map("user_id") @db.Uuid
+  key      String @db.VarChar(128)
+  bodyHash String @map("body_hash") @db.Char(64)
+  response Json
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key])
+  @@map("group_create_requests")
+}
+
+// Transactional outbox: database permissions change before notifications/media cleanup.
+model MembershipChange {
+  version       BigInt    @id @default(autoincrement())
+  groupId       String    @map("group_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  role          GroupMemberRole?
+  removed       Boolean
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  mediaSyncedAt DateTime? @map("media_synced_at") @db.Timestamptz(3)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  attempts      Int       @default(0)
+
+  @@index([mediaSyncedAt, nextAttemptAt, version])
+  @@map("membership_changes")
+}
+
+// Registered by the room/session owner; never resolve group access from client metadata.
+model GroupRoom {
+  id       String @id @default(uuid()) @db.Uuid
+  groupId  String @map("group_id") @db.Uuid
+  name     String @db.VarChar(100)
+  roomName String @unique @map("room_name") @db.VarChar(200)
+  group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@map("group_rooms")
+}
+
+model MembershipLookupWindow {
+  userId      String   @id @map("user_id") @db.Uuid
+  windowStart DateTime @map("window_start") @db.Timestamptz(3)
+  attempts    Int
+
+  @@map("membership_lookup_windows")
 }

@@ -33,6 +33,23 @@ export function LivePlayer({
   const [quality, setQuality] = useState("Tự động");
   const [volume, setVolume] = useState(true);
   const player = useRef<HTMLDivElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = surface.current;
+    if (!element) return;
+    // Scale the sample slide like a shared screen without cropping its content.
+    const fitSlide = () => {
+      const scale = Math.min(
+        element.clientWidth / 700,
+        element.clientHeight / 400,
+      );
+      element.style.setProperty("--slide-scale", String(scale));
+    };
+    fitSlide();
+    const observer = new ResizeObserver(fitSlide);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     const timer = setInterval(() => {
       setLiveEdge((current) => current + 1);
@@ -56,7 +73,7 @@ export function LivePlayer({
   };
   return (
     <div className="live-player" ref={player}>
-      <div className="video-surface">
+      <div className="video-surface" ref={surface}>
         {sharing ? (
           <video
             className="shared-screen"

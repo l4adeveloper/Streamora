@@ -79,6 +79,61 @@ async function seed(email = uniqueEmail()) {
   return { email, user: (await response.json()).user };
 }
 
+test("home poster stays in one viewport and Start opens login before workspace", async () => {
+  const account = await seed();
+  await withPage(async (page) => {
+    const visited = [];
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame())
+        visited.push(new URL(frame.url()).pathname);
+    });
+    await open(page, "/");
+    await page.locator("svg.entry-illustration").waitFor();
+    assert.equal(
+      await page.locator(".entry-backdrop img, .entry-backdrop image").count(),
+      0,
+    );
+    assert.equal(
+      await page.locator(".entry-page form, .landing-preview, .preview-body, .app-shell").count(),
+      0,
+    );
+    const start = page.getByRole("link", { name: "Bắt đầu", exact: true });
+    assert.equal(await start.getAttribute("href"), "/login");
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 1366, height: 768 },
+      { width: 390, height: 844 },
+      { width: 320, height: 640 },
+      { width: 844, height: 390 },
+    ]) {
+      await page.setViewportSize(viewport);
+      assert.equal(
+        await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth > innerWidth ||
+            document.documentElement.scrollHeight > innerHeight,
+        ),
+        false,
+      );
+      const button = await start.boundingBox();
+      assert.ok(button.y >= 0 && button.y + button.height <= viewport.height);
+    }
+    await start.click();
+    await page.waitForURL("**/login");
+    await waitForButton(page, "Đăng nhập");
+    await fillLogin(page, account.email);
+    await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
+    await page.waitForURL("**/workspace");
+    await page
+      .locator(".workspace-identity .session-identity")
+      .getByText("Nguyễn Minh Anh", { exact: true })
+      .waitFor();
+    assert.equal(visited.includes("/account"), false);
+    await open(page, "/");
+    await page.getByRole("link", { name: "Bắt đầu", exact: true }).click();
+    await page.waitForURL("**/workspace");
+  });
+});
 test("real UI registers once, logs in, loads/updates the profile, restores after reload and logs out", async () => {
   await withPage(async (page) => {
     const email = uniqueEmail();
@@ -119,7 +174,8 @@ test("real UI registers once, logs in, loads/updates the profile, restores after
     const loginResponse = page.waitForResponse(`${fixture.apiUrl}/auth/login`);
     await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
     const oldToken = (await (await loginResponse).json()).accessToken;
-    await page.waitForURL("**/account");
+    await page.waitForURL("**/workspace");
+    await open(page, "/account");
     await page
       .getByRole("heading", { name: "Nguyễn Minh Anh", exact: true })
       .waitFor();
@@ -276,7 +332,8 @@ test("account validates name changes and keeps the session available when logout
     await waitForButton(page, "Đăng nhập");
     await fillLogin(page, registered.email);
     await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
-    await page.waitForURL("**/account");
+    await page.waitForURL("**/workspace");
+    await open(page, "/account");
     await page.getByLabel("Họ và tên", { exact: true }).fill("   ");
     await page.getByRole("button", { name: "Lưu thay đổi" }).click();
     await page.getByText("Vui lòng nhập họ và tên.", { exact: true }).waitFor();
@@ -357,7 +414,8 @@ async function loginForShell(page) {
   await waitForButton(page, "Đăng nhập");
   await fillLogin(page, account.email);
   await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
-  await page.waitForURL("**/account");
+  await page.waitForURL("**/workspace");
+  await open(page, "/account");
   await page
     .getByRole("heading", { name: "Nguyễn Minh Anh", exact: true })
     .waitFor();

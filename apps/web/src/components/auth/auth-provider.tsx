@@ -28,7 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
   const path = usePathname();
   useEffect(() => authSession.start(), []);
-  const formNotice = path === "/login" || path === "/register";
+  const formNotice = path === "/" || path === "/login" || path === "/register";
   return (
     <AuthContext.Provider
       value={{

@@ -346,6 +346,11 @@ function onFocus() {
   }
 }
 export const authSession = {
+  async getAccessToken(): Promise<string> {
+    await authenticatedRequest<UserResponse>("/users/me");
+    if (!token) throw changed();
+    return token;
+  },
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => {

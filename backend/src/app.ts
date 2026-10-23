@@ -9,6 +9,7 @@ import type { Request, Response, NextFunction } from "express";
 import { ApiErrorFilter } from "./common/api-error";
 import { createValidationPipe } from "./common/validation";
 import { setupOpenApi, DOCS_PATH, OPENAPI_PATH } from "./documentation/openapi";
+import { setupMembershipsOpenApi } from "./documentation/memberships-openapi";
 import {
   requestContextMiddleware,
   type RequestLogWriter,
@@ -38,6 +39,10 @@ export function configureApplication(
     if (
       request.path.startsWith(`/${API_PREFIX}/auth/`) ||
       request.path === `/${API_PREFIX}/users/me` ||
+      request.path === `/${API_PREFIX}/users/lookup` ||
+      request.path.startsWith(`/${API_PREFIX}/groups/`) ||
+      request.path.startsWith(`/${API_PREFIX}/rooms`) ||
+      request.path.startsWith(`/${API_PREFIX}/files`) ||
       request.path === OPENAPI_PATH ||
       request.path.startsWith(DOCS_PATH)
     ) {
@@ -59,6 +64,9 @@ export function configureApplication(
     exposedHeaders: ["X-Request-ID", "Retry-After"],
   });
   app.useGlobalPipes(createValidationPipe());
-  if (config.docsEnabled) setupOpenApi(app);
+  if (config.docsEnabled) {
+    setupOpenApi(app);
+    setupMembershipsOpenApi(app);
+  }
   app.enableShutdownHooks();
 }

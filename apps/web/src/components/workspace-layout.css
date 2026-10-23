@@ -1,0 +1,473 @@
+/* The workspace is a viewport shell; lists and conversations own their scroll. */
+html:has(.app-shell),
+body:has(.app-shell) {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+.app-shell {
+  --rail-width: 72px;
+  --channel-width: 239px;
+  --identity-height: 64px;
+  --workspace-topbar-height: 60px;
+  position: relative;
+  max-height: 100dvh;
+  min-height: 0;
+}
+.app-shell .community-rail {
+  padding-bottom: calc(var(--identity-height) + var(--space-3));
+}
+.app-shell .channel-sidebar {
+  padding-bottom: var(--identity-height);
+}
+.app-shell .sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: var(--space-3);
+}
+.app-shell .workspace-groups {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding-block: var(--space-1);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.app-shell .workspace-groups .community-icon {
+  font-size: var(--type-meta);
+  line-height: var(--line-meta);
+}
+.app-shell .workspace-groups .add-community {
+  flex-shrink: 0;
+}
+.app-shell .rail-loading {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: var(--muted);
+}
+.app-shell .workspace-identity {
+  position: absolute;
+  z-index: 60;
+  inset-inline-start: 0;
+  bottom: 0;
+  width: calc(var(--rail-width) + var(--channel-width));
+  height: var(--identity-height);
+  margin: 0;
+  padding: var(--space-2);
+  gap: var(--space-1);
+  border-right: 1px solid var(--border);
+  background: var(--navigation);
+}
+.app-shell .workspace-account {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border-radius: var(--radius-small);
+}
+.app-shell .workspace-account:hover {
+  background: var(--active);
+}
+.app-shell .workspace-account .avatar {
+  width: 32px;
+  height: 32px;
+}
+.app-shell .workspace-account small {
+  margin-top: 2px;
+  font-size: var(--type-meta);
+  line-height: var(--line-meta);
+  white-space: nowrap;
+}
+.app-shell .workspace-identity .icon-button {
+  width: 32px;
+  height: 32px;
+}
+.app-shell .workspace,
+.app-shell .main-content {
+  min-height: 0;
+}
+.app-shell .workspace {
+  overflow: hidden;
+}
+
+/* One context bar holds the current location and workspace actions. */
+.app-shell .workspace-topbar {
+  height: var(--workspace-topbar-height);
+  padding: 0 var(--space-4);
+  gap: var(--space-3);
+}
+.app-shell .breadcrumbs {
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-2);
+  font-size: var(--type-body);
+  line-height: var(--line-heading);
+  white-space: nowrap;
+}
+.app-shell .breadcrumbs > span {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-shell .breadcrumbs > h1 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.app-shell .breadcrumbs > svg,
+.app-shell .mobile-menu {
+  flex-shrink: 0;
+}
+.app-shell .topbar-actions {
+  flex-shrink: 0;
+  gap: var(--space-1);
+}
+.app-shell .topbar-actions .icon-button {
+  width: 36px;
+  height: 36px;
+}
+.app-shell .topbar-actions .icon-button > svg,
+.app-shell .topbar-actions .button > svg {
+  width: 18px;
+  height: 18px;
+}
+.app-shell .topbar-actions .button {
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--type-secondary);
+  line-height: var(--line-secondary);
+  white-space: nowrap;
+}
+
+/* Live content fits the available height instead of scrolling the stage. */
+.app-shell .view-live:not(.membership-main) {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  overflow: hidden;
+}
+.app-shell .view-live > .session-info {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: var(--type-meta);
+  line-height: var(--line-meta);
+}
+.app-shell .view-live > .live-player {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: min(220px, 50%);
+}
+.app-shell .view-live .video-surface {
+  flex: 1 1 0;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+/* Fit the complete sample slide in the same way as object-fit: contain. */
+.app-shell .view-live .presentation {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 700px;
+  height: 400px;
+  padding: 24px 32px;
+  transform: translate(-50%, -50%) scale(var(--slide-scale, 1));
+}
+.app-shell .view-live .slide-top {
+  font-size: 8px;
+  padding-bottom: 12px;
+}
+.app-shell .view-live .slide-content {
+  padding: 16px 0 8px;
+}
+.app-shell .view-live .slide-kicker {
+  font-size: 7px;
+  margin-bottom: 12px;
+}
+.app-shell .view-live .slide-content h2 {
+  font-size: 30px;
+  line-height: 1.2;
+  margin: 0 0 10px;
+}
+.app-shell .view-live .slide-content > p {
+  font-size: 9px;
+  line-height: 1.5;
+}
+.app-shell .view-live .architecture {
+  margin: 20px 0;
+  max-width: 90%;
+}
+.app-shell .view-live .diagram-node {
+  height: 80px;
+  min-width: 110px;
+  padding: 12px 8px;
+  gap: 6px;
+}
+.app-shell .view-live .diagram-node.gateway {
+  min-width: 120px;
+}
+.app-shell .view-live .diagram-node svg {
+  width: 24px;
+  height: 24px;
+}
+.app-shell .view-live .diagram-node b {
+  font-size: 9px;
+}
+.app-shell .view-live .diagram-node small {
+  font-size: 7px;
+}
+.app-shell .view-live .connector {
+  width: 60px;
+}
+.app-shell .view-live .branch {
+  height: 68px;
+  min-width: 40px;
+  margin-right: 20px;
+}
+.app-shell .view-live .branch > i {
+  right: -20px;
+  width: 20px;
+}
+.app-shell .view-live .service-stack {
+  min-width: 125px;
+  max-width: 160px;
+  gap: 6px;
+}
+.app-shell .view-live .service-stack > div {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 8px;
+}
+.app-shell .view-live .service-stack > div > span:last-child {
+  font-size: 7px;
+}
+.app-shell .view-live .service-stack svg {
+  width: 14px;
+}
+.app-shell .view-live .slide-callout {
+  gap: 8px;
+}
+.app-shell .view-live .slide-callout > span {
+  width: 24px;
+  height: 24px;
+  font-size: 8px;
+}
+.app-shell .view-live .slide-callout b {
+  font-size: 8px;
+}
+.app-shell .view-live .slide-callout small {
+  font-size: 7px;
+  max-width: none;
+  margin-top: 4px;
+}
+.app-shell .view-live .slide-bottom {
+  font-size: 7px;
+  padding-top: 8px;
+  margin-top: 0;
+}
+.app-shell .view-live .playback-console {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-3);
+}
+.app-shell .view-live .dvr-status {
+  margin-bottom: var(--space-1);
+}
+.app-shell .view-live .back-to-live {
+  padding: 4px 8px;
+  min-height: 28px;
+}
+.app-shell .view-live .player-controls {
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+}
+.app-shell .view-live .player-select select {
+  min-height: 28px;
+}
+.app-shell .view-live .player-controls .icon-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+.app-shell .view-live > .live-toolbar {
+  flex: 0 0 auto;
+  margin: 0;
+  gap: var(--space-2);
+}
+.app-shell .view-live > .rewind-tip {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 88px;
+  padding: var(--space-2) var(--space-3);
+  overflow-y: auto;
+}
+.app-shell .view-live .tip-icon {
+  width: 24px;
+  height: 24px;
+}
+.app-shell .view-live .rewind-tip b {
+  font-size: var(--type-secondary);
+  line-height: var(--line-secondary);
+}
+.app-shell .view-live .rewind-tip p {
+  margin-top: 0;
+  font-size: var(--type-meta);
+  line-height: var(--line-meta);
+}
+.app-shell .view-live > .session-bottom {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 28%;
+  margin: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.app-shell .view-live .section-heading {
+  margin-bottom: var(--space-1);
+}
+.app-shell .view-live .section-heading h2 {
+  font-size: var(--type-body);
+  line-height: var(--line-heading);
+  font-weight: 500;
+}
+.app-shell .view-live .lesson-resource {
+  padding: var(--space-2);
+}
+.app-shell .view-live .lesson-resource small {
+  margin-top: 2px;
+}
+.app-shell .view-live .demo-caption {
+  margin-top: var(--space-2);
+}
+.app-shell .view-live .local-camera-preview {
+  position: absolute;
+  top: 48px;
+  right: 24px;
+  width: 120px;
+  z-index: 2;
+  margin: 0;
+}
+
+/* Only chat history scrolls; each conversation keeps its own composer. */
+.app-shell .view-chat:not(.membership-main) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app-shell .community-chat {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.app-shell .chat-history {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.app-shell .chat-history .messages {
+  flex: none;
+  overflow: visible;
+}
+.app-shell .community-chat .chat-form {
+  position: static;
+  bottom: auto;
+  flex-shrink: 0;
+  margin: 0;
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--border);
+}
+.app-shell .right-panel > .membership-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.app-shell .panel-footer {
+  flex-shrink: 0;
+}
+
+@media (min-width: 1550px) {
+  .app-shell {
+    --rail-width: 78px;
+    --channel-width: 260px;
+  }
+}
+@media (max-width: 1220px) {
+  .app-shell {
+    --rail-width: 63px;
+    --channel-width: 210px;
+  }
+}
+@media (max-width: 1020px) {
+  .app-shell {
+    --rail-width: 58px;
+    --channel-width: 195px;
+  }
+}
+@media (max-width: 900px) {
+  .app-shell .right-panel {
+    top: var(--workspace-topbar-height);
+  }
+}
+@media (max-width: 650px) {
+  .app-shell .breadcrumbs {
+    gap: var(--space-1);
+    font-size: var(--type-secondary);
+    line-height: var(--line-secondary);
+  }
+  .app-shell {
+    --rail-width: 55px;
+    --channel-width: 225px;
+  }
+  .app-shell:not(.nav-open) .workspace-identity {
+    width: var(--rail-width);
+    padding: var(--space-1);
+  }
+  .app-shell:not(.nav-open) .workspace-account {
+    justify-content: center;
+    padding: 0;
+  }
+  .app-shell:not(.nav-open) .workspace-identity .session-identity,
+  .app-shell:not(.nav-open) .workspace-identity .icon-button {
+    display: none;
+  }
+  .app-shell .workspace-topbar {
+    padding-inline: var(--space-2);
+    gap: var(--space-2);
+  }
+  .app-shell .topbar-actions .button > span,
+  .app-shell .topbar-actions .vertical-divider {
+    display: none;
+  }
+  .app-shell .topbar-actions .button,
+  .app-shell .topbar-actions .icon-button {
+    width: 32px;
+    min-width: 32px;
+    padding-inline: 0;
+  }
+  .app-shell .view-live:not(.membership-main) {
+    padding: var(--space-3);
+    gap: var(--space-2);
+  }
+}

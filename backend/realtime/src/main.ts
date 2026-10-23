@@ -1,22 +1,14 @@
 import "reflect-metadata";
-import { NestFactory } from "@nestjs/core";
-import { Controller, Get, Module } from "@nestjs/common";
-import { RealtimeGateway } from "./realtime.gateway";
-
-@Controller("health")
-class HealthController {
-  @Get() health() {
-    return {
-      status: "ok",
-      service: "streamora-realtime",
-      mode: "development-scaffold",
-    };
-  }
-}
-@Module({ controllers: [HealthController], providers: [RealtimeGateway] })
-class AppModule {}
+// Reuse the authenticated gateway and durable permission events from the API.
+// Never run the previous anonymous channel/chat scaffold alongside real groups.
+const { createApplication } = require("../../dist/app");
+const {
+  loadEnvironmentFile,
+  readEnvironment,
+} = require("../../dist/config/environment");
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  loadEnvironmentFile();
+  const app = await createApplication(readEnvironment());
   await app.listen(Number(process.env.REALTIME_PORT || 4001), "127.0.0.1");
 }
 void bootstrap();
