@@ -30,7 +30,7 @@ Chạy tại thư mục gốc repository:
 ```sh
 npm ci
 npm run setup:env
-docker compose --env-file .env -f infra/docker/compose.yml up -d --wait postgres
+docker compose --env-file .env -f backend/infra/docker/compose.yml up -d --wait postgres
 npm run db:migrate
 npm run db:check
 npm run dev:api
@@ -57,7 +57,7 @@ Cấu hình sai bị từ chối khi khởi động; lỗi không chứa giá tr
 
 Docker Desktop cần chạy engine trước khi gọi Compose. `--wait` đợi healthcheck thành công;
 lần đầu cần tải image. Xem trạng thái bằng
-`docker compose --env-file .env -f infra/docker/compose.yml ps`.
+`docker compose --env-file .env -f backend/infra/docker/compose.yml ps`.
 Chỉ service `postgres` cần cho T01 ở bước này.
 
 `npm run db:migrate` áp dụng các migration đã commit bằng `prisma migrate deploy`,
@@ -65,7 +65,7 @@ không xóa/reset dữ liệu. `npm run db:check` kiểm tra kết nối từ ho
 và xác nhận có đủ bảng auth. NestJS cũng thử kết nối thật khi khởi động;
 không kết nối được thì ứng dụng không bắt đầu nhận request.
 
-Tắt PostgreSQL bằng `docker compose --env-file .env -f infra/docker/compose.yml stop postgres`.
+Tắt PostgreSQL bằng `docker compose --env-file .env -f backend/infra/docker/compose.yml stop postgres`.
 Khởi động lại bằng lệnh `up` ở trên. Dữ liệu nằm trong volume `streamora_postgres-data`;
 không dùng `down -v` khi muốn giữ dữ liệu. Mật khẩu khởi tạo chỉ áp dụng với volume mới,
 sửa `.env` không tự đổi mật khẩu của PostgreSQL đã khởi tạo.
@@ -90,12 +90,15 @@ backend/
   test/                      # Kiểm thử cấu hình và HTTP
   realtime/                  # Service Socket.IO dùng chung quyền T03
   services/                  # Điểm tích hợp recording, video-worker (chưa triển khai)
+  contracts/                 # @streamora/contracts: kiểu request/response dùng chung FE/BE
+  scripts/                   # setup-env, setup-staging, demo, seed, smoke test
+  infra/                     # Docker Compose dev/staging, ghi chú Kubernetes/observability
   prisma/                    # Schema và migration đã commit
   prisma.config.ts           # Cấu hình Prisma CLI, đọc backend/.env
 ```
 
 API nghiệp vụ viết thành module trong ứng dụng NestJS này. Không đặt code backend
-trong `frontend/`. Kiểu request/response dùng chung FE/BE nằm ở `packages/contracts`,
+trong `frontend/`. Kiểu request/response dùng chung FE/BE nằm ở `backend/contracts`,
 import qua `@streamora/contracts`. Prisma và migration nằm trong `backend/prisma`.
 
 ## Database và migration T01

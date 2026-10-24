@@ -1,7 +1,7 @@
 # Bàn giao T01: tài khoản, đăng nhập và phiên
 
 Code backend nằm trong `backend/` ở gốc, frontend trong `frontend/`, kiểu chung trong
-`packages/contracts/`. API auth/profile dùng PostgreSQL thật. Các màn hình nghiệp vụ
+`backend/contracts/`. API auth/profile dùng PostgreSQL thật. Các màn hình nghiệp vụ
 cộng đồng/phòng/tệp hiện còn là demo và owner của từng task sẽ tích hợp tiếp.
 
 ## Thành viên khác pull về và chạy lần đầu
@@ -11,7 +11,7 @@ Cần Node.js 22.16+ và npm 10+, Docker Desktop đang chạy. Tại gốc repos
 ```powershell
 npm ci
 npm run setup:env
-docker compose --env-file .env -f infra/docker/compose.yml up -d --wait postgres
+docker compose --env-file .env -f backend/infra/docker/compose.yml up -d --wait postgres
 npm run db:migrate
 npm run db:check
 ```
