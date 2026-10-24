@@ -17,7 +17,7 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=build --chown=node:node /app/package.json ./package.json
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/packages/contracts ./packages/contracts
+COPY --from=build --chown=node:node /app/backend/contracts ./backend/contracts
 USER node
 
 FROM runtime AS api

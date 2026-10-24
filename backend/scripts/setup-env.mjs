@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 
-const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 async function writeIfMissing(path, content) {
   try {

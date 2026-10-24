@@ -18,7 +18,7 @@ Tại gốc repository, dependencies và env local cần sẵn sàng theo README
 Bật Docker Desktop rồi chạy:
 
 ```powershell
-docker compose --env-file .env -f infra/docker/compose.yml up -d --wait postgres
+docker compose --env-file .env -f backend/infra/docker/compose.yml up -d --wait postgres
 npm run test:t01
 ```
 

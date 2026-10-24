@@ -13,7 +13,7 @@ const { resolve, join, dirname, basename } = require("node:path");
 const { parseEnv } = require("node:util");
 
 test("setup keeps existing files and connects newly generated backend credentials to Compose", async () => {
-  const { setupEnvironment } = await import("../../scripts/setup-env.mjs");
+  const { setupEnvironment } = await import("../scripts/setup-env.mjs");
   const root = await mkdtemp(join(tmpdir(), "streamora-env-setup-"));
   const source = resolve(__dirname, "../..");
   try {
