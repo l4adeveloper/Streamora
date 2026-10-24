@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -23,42 +22,12 @@ async function writeIfMissing(path, content) {
 export async function setupEnvironment(root = repositoryRoot) {
   const result = [];
   const template = (path) => readFile(resolve(root, path), "utf8");
-  const infrastructure = (await template(".env.example"))
-    .replace(
-      "POSTGRES_PASSWORD=replace-with-local-password",
-      `POSTGRES_PASSWORD=${randomBytes(24).toString("base64url")}`,
-    )
-    .replace(
-      "RABBITMQ_PASSWORD=replace-with-local-password",
-      `RABBITMQ_PASSWORD=${randomBytes(24).toString("base64url")}`,
-    );
-  result.push({
-    path: ".env",
-    status: await writeIfMissing(resolve(root, ".env"), infrastructure),
-  });
-
-  // Read the actual file, including an existing one, to keep credentials aligned.
-  const infrastructureEnv = parseEnv(await template(".env"));
-  const databasePassword = infrastructureEnv.POSTGRES_PASSWORD;
-  const rabbitPassword = infrastructureEnv.RABBITMQ_PASSWORD;
-  if (!databasePassword || !rabbitPassword) {
-    throw new Error(
-      "Thiếu POSTGRES_PASSWORD hoặc RABBITMQ_PASSWORD trong .env gốc.",
-    );
-  }
-  const backend = (await template("backend/.env.example"))
-    .replace(
-      "ACCESS_TOKEN_SECRET=replace-with-generated-secret",
-      `ACCESS_TOKEN_SECRET=${randomBytes(48).toString("base64url")}`,
-    )
-    .replace(
-      "streamora:replace-with-local-password@127.0.0.1:5432",
-      `streamora:${encodeURIComponent(databasePassword)}@127.0.0.1:5432`,
-    )
-    .replace(
-      "streamora:replace-with-local-password@127.0.0.1:5672",
-      `streamora:${encodeURIComponent(rabbitPassword)}@127.0.0.1:5672`,
-    );
+  // DATABASE_URL points at the team's PostgreSQL server; it stays a placeholder
+  // until filled in by hand, so no credential is generated or guessed here.
+  const backend = (await template("backend/.env.example")).replace(
+    "ACCESS_TOKEN_SECRET=replace-with-generated-secret",
+    `ACCESS_TOKEN_SECRET=${randomBytes(48).toString("base64url")}`,
+  );
   result.push({
     path: "backend/.env",
     status: await writeIfMissing(resolve(root, "backend/.env"), backend),
@@ -84,12 +53,10 @@ if (
       );
     }
     console.log(
-      "Cấu hình local sẵn sàng. File đã có không bị ghi đè; không in secrets.",
+      "Cấu hình local sẵn sàng. Điền DATABASE_URL trong backend/.env; file đã có không bị ghi đè, không in secrets.",
     );
   } catch {
-    console.error(
-      "Không thể tạo cấu hình local. Kiểm tra quyền ghi và POSTGRES_PASSWORD/RABBITMQ_PASSWORD trong .env gốc.",
-    );
+    console.error("Không thể tạo cấu hình local. Kiểm tra quyền ghi.");
     process.exitCode = 1;
   }
 }
