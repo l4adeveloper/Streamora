@@ -16,8 +16,8 @@ npm run staging:setup
 npm run staging:up
 ```
 
-Lệnh setup tạo `infra/docker/staging/.env` với mật khẩu/khóa ngẫu nhiên riêng và
-certificate/key tại `infra/docker/staging/tls/`; giữ file đã có. Cả hai đều được
+Lệnh setup tạo `backend/infra/docker/staging/.env` với mật khẩu/khóa ngẫu nhiên riêng và
+certificate/key tại `backend/infra/docker/staging/tls/`; giữ file đã có. Cả hai đều được
 gitignore và loại khỏi build context. Không thay `.env`, `backend/.env` hay
 `frontend/.env.local` đang dùng cho development. Không đổi mật khẩu sau khi đã có
 volume trừ khi đồng thời đổi role PostgreSQL đúng quy trình.
@@ -57,7 +57,7 @@ token hoặc cookie. Ảnh tài khoản demo ở `.preview/t01-staging-account.p
 Kiểm tra trạng thái hoặc dừng, giữ dữ liệu:
 
 ```powershell
-docker compose --env-file infra/docker/staging/.env -f infra/docker/staging/compose.yml ps
+docker compose --env-file backend/infra/docker/staging/.env -f backend/infra/docker/staging/compose.yml ps
 npm run staging:down
 ```
 

@@ -65,11 +65,12 @@ backend/                 # NestJS API (@streamora/api)
   services/
     recording/           # Hướng tích hợp LiveKit Egress
     video-worker/        # Hướng tích hợp RabbitMQ + FFmpeg + HLS
-packages/contracts/src/  # Kiểu dữ liệu dùng chung FE/BE
-infra/
-  docker/                # PostgreSQL, Redis, RabbitMQ, LiveKit dev
-  kubernetes/            # Ghi chú tổ chức deployment
-  observability/         # Danh mục metrics cần triển khai
+  contracts/src/         # Kiểu dữ liệu dùng chung FE/BE (@streamora/contracts)
+  scripts/               # setup-env, setup-staging, demo, seed, smoke test
+  infra/
+    docker/              # PostgreSQL, Redis, RabbitMQ, LiveKit dev và staging
+    kubernetes/          # Ghi chú tổ chức deployment
+    observability/       # Danh mục metrics cần triển khai
 ```
 
 ## Các dịch vụ local
@@ -113,7 +114,7 @@ Mục 10 cung cấp Swagger, bản OpenAPI để review, `npm run docs:api`,
 Chạy kiểm thử bằng `npm run test:frontend`. Trước khi chạy API, chuẩn bị database:
 
 ```sh
-docker compose --env-file .env -f infra/docker/compose.yml up -d --wait postgres
+docker compose --env-file .env -f backend/infra/docker/compose.yml up -d --wait postgres
 npm run db:migrate
 npm run db:check
 ```
@@ -124,9 +125,9 @@ dữ liệu đã insert trên máy khác không được đồng bộ qua Git.
 Với Docker, sau khi tạo cấu hình local, chạy:
 
 ```sh
-docker compose --env-file .env -f infra/docker/compose.yml up -d
+docker compose --env-file .env -f backend/infra/docker/compose.yml up -d
 # Thêm LiveKit ở chế độ phát triển:
-docker compose --env-file .env -f infra/docker/compose.yml --profile media up -d
+docker compose --env-file .env -f backend/infra/docker/compose.yml --profile media up -d
 ```
 
 ## Phạm vi đã triển khai
