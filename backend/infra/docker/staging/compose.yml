@@ -28,8 +28,8 @@ services:
   migrate:
     image: streamora-t01-api:local
     build:
-      context: ../../..
-      dockerfile: infra/docker/staging/Dockerfile
+      context: ../../../..
+      dockerfile: backend/infra/docker/staging/Dockerfile
       target: api
     environment: *api-environment
     command: ["npm", "run", "db:migrate", "--workspace=@streamora/api"]
@@ -40,8 +40,8 @@ services:
   api:
     image: streamora-t01-api:local
     build:
-      context: ../../..
-      dockerfile: infra/docker/staging/Dockerfile
+      context: ../../../..
+      dockerfile: backend/infra/docker/staging/Dockerfile
       target: api
     environment: *api-environment
     depends_on:
@@ -61,8 +61,8 @@ services:
   web:
     image: streamora-t01-web:local
     build:
-      context: ../../..
-      dockerfile: infra/docker/staging/Dockerfile
+      context: ../../../..
+      dockerfile: backend/infra/docker/staging/Dockerfile
       target: web
     healthcheck:
       test:
