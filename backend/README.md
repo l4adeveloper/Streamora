@@ -29,8 +29,7 @@ Chạy tại thư mục gốc repository:
 
 ```sh
 npm ci
-npm run setup:env
-docker compose --env-file .env -f backend/infra/docker/compose.yml up -d --wait postgres
+npm run setup:env   # rồi điền DATABASE_URL trong backend/.env
 npm run db:migrate
 npm run db:check
 npm run dev:api
@@ -43,10 +42,10 @@ Realtime chạy bằng `npm run dev:realtime`; service trong `backend/realtime/`
 gateway xác thực của API. Thành viên, guard, hook, outbox và LiveKit xem
 [hướng dẫn T03](docs/t03-handoff.md).
 
-`setup:env` tạo `.env` gốc cho Compose, `backend/.env` cho server và
-`frontend/.env.local` cho Next.js. Mật khẩu local và khóa ký được tạo ngẫu nhiên,
-không in ra terminal, không ghi đè file đã tồn tại. DATABASE_URL/RABBITMQ_URL của
-file backend mới được ghép từ mật khẩu trong `.env` gốc.
+`setup:env` tạo `backend/.env` cho server và `frontend/.env.local` cho Next.js.
+Khóa ký được tạo ngẫu nhiên, không in ra terminal, không ghi đè file đã tồn tại.
+Dự án không dùng Docker: `DATABASE_URL` trỏ tới PostgreSQL dùng chung của nhóm,
+điền tay theo mẫu trong `.env.example` (mật khẩu có ký tự đặc biệt phải URL-encode).
 Nếu đã có file cấu hình, tự đối chiếu URL/mật khẩu và `/api/v1`; chạy lại setup
 không cập nhật hay đồng bộ các file đã có.
 
@@ -55,20 +54,14 @@ terminal. Biến môi trường do shell/deployment cung cấp được ưu tiê
 Thiếu file local vẫn chạy được nếu môi trường đã cung cấp đủ biến.
 Cấu hình sai bị từ chối khi khởi động; lỗi không chứa giá trị secret.
 
-Docker Desktop cần chạy engine trước khi gọi Compose. `--wait` đợi healthcheck thành công;
-lần đầu cần tải image. Xem trạng thái bằng
-`docker compose --env-file .env -f backend/infra/docker/compose.yml ps`.
-Chỉ service `postgres` cần cho T01 ở bước này.
-
 `npm run db:migrate` áp dụng các migration đã commit bằng `prisma migrate deploy`,
 không xóa/reset dữ liệu. `npm run db:check` kiểm tra kết nối từ host bằng DATABASE_URL
 và xác nhận có đủ bảng auth. NestJS cũng thử kết nối thật khi khởi động;
 không kết nối được thì ứng dụng không bắt đầu nhận request.
 
-Tắt PostgreSQL bằng `docker compose --env-file .env -f backend/infra/docker/compose.yml stop postgres`.
-Khởi động lại bằng lệnh `up` ở trên. Dữ liệu nằm trong volume `streamora_postgres-data`;
-không dùng `down -v` khi muốn giữ dữ liệu. Mật khẩu khởi tạo chỉ áp dụng với volume mới,
-sửa `.env` không tự đổi mật khẩu của PostgreSQL đã khởi tạo.
+Database dùng chung cả nhóm: migration chạy một lần là mọi người cùng thấy, dữ liệu
+insert từ máy này hiện ngay ở máy khác. Test integration/UI tạo rồi xóa database
+`streamora_test_*` tạm trên cùng server, nên user trong `DATABASE_URL` cần quyền CREATEDB.
 
 ## Cấu trúc và trách nhiệm
 
@@ -91,8 +84,8 @@ backend/
   realtime/                  # Service Socket.IO dùng chung quyền T03
   services/                  # Điểm tích hợp recording, video-worker (chưa triển khai)
   contracts/                 # @streamora/contracts: kiểu request/response dùng chung FE/BE
-  scripts/                   # setup-env, setup-staging, demo, seed, smoke test
-  infra/                     # Docker Compose dev/staging, ghi chú Kubernetes/observability
+  scripts/                   # setup-env, demo, seed, export OpenAPI
+  infra/                     # Ghi chú Kubernetes/observability
   prisma/                    # Schema và migration đã commit
   prisma.config.ts           # Cấu hình Prisma CLI, đọc backend/.env
 ```

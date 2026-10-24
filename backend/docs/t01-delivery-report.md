@@ -65,5 +65,5 @@ trong nghiệm thu; smoke staging chỉ tạo user ngẫu nhiên trong database 
 Review draft PR #2 sửa Swagger, tích hợp các API nghiệp vụ với guard, triển khai commit lên
 staging chung có domain/TLS thật và bổ sung minh chứng vào quy trình T19/T20.
 Chỉ cập nhật T01 thành Hoàn thành sau khi đủ điều kiện workbook. PR #2 giữ draft,
-không merge tự động. Hướng dẫn chạy: [t01-handoff.md](t01-handoff.md) và
-[t01-staging.md](t01-staging.md).
+không merge tự động. Hướng dẫn chạy: [t01-handoff.md](t01-handoff.md). Staging Docker local
+(`t01-staging.md`) đã được gỡ khi dự án chuyển sang PostgreSQL dùng chung.

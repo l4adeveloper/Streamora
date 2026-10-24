@@ -15,10 +15,10 @@ Frontend tests đã build production các bản sao tạm của mã nguồn hi�
 ## Chạy toàn bộ
 
 Tại gốc repository, dependencies và env local cần sẵn sàng theo README.
-Bật Docker Desktop rồi chạy:
+`DATABASE_URL` trong `backend/.env` trỏ tới PostgreSQL dùng chung (user cần quyền CREATEDB
+để test tạo database tạm), rồi chạy:
 
 ```powershell
-docker compose --env-file .env -f backend/infra/docker/compose.yml up -d --wait postgres
 npm run test:t01
 ```
 

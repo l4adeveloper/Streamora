@@ -24,7 +24,7 @@ async function main() {
 
 void main().catch(() => {
   console.error(
-    "Database chưa sẵn sàng. Kiểm tra Docker, backend/.env và chạy npm run db:migrate.",
+    "Database chưa sẵn sàng. Kiểm tra DATABASE_URL trong backend/.env, kết nối tới server và chạy npm run db:migrate.",
   );
   process.exitCode = 1;
 });

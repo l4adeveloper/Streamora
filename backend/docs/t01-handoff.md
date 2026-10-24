@@ -6,12 +6,11 @@ cộng đồng/phòng/tệp hiện còn là demo và owner của từng task s�
 
 ## Thành viên khác pull về và chạy lần đầu
 
-Cần Node.js 22.16+ và npm 10+, Docker Desktop đang chạy. Tại gốc repository:
+Cần Node.js 22.16+ và npm 10+, không cần Docker. Tại gốc repository:
 
 ```powershell
 npm ci
-npm run setup:env
-docker compose --env-file .env -f backend/infra/docker/compose.yml up -d --wait postgres
+npm run setup:env   # rồi điền DATABASE_URL trong backend/.env
 npm run db:migrate
 npm run db:check
 ```
@@ -32,9 +31,8 @@ Mở `http://127.0.0.1:3000/register`; health API ở
 `http://127.0.0.1:4000/api/v1/health`; Swagger ở
 `http://127.0.0.1:3000/api/v1/docs` (qua proxy frontend để thử cả Auth).
 
-setup:env tạo `.env` gốc cho Docker, `backend/.env` cho API và
-`frontend/.env.local` chỉ chứa biến public. Mật khẩu PostgreSQL và khóa JWT được
-sinh riêng trên từng máy. File đã có được giữ nguyên. Khi env cũ chưa có
+setup:env tạo `backend/.env` cho API và `frontend/.env.local` chỉ chứa biến public.
+Khóa JWT được sinh riêng trên từng máy; `DATABASE_URL` của PostgreSQL dùng chung lấy từ nhóm. File đã có được giữ nguyên. Khi env cũ chưa có
 API_DOCS_ENABLED, development vẫn bật docs mặc định. Dùng nhất quán 127.0.0.1
 cho WEB_ORIGIN và frontend/API URL.
 
@@ -141,8 +139,6 @@ deploy staging, thiết lập trusted proxy và bộ đếm phân tán cần own
 Sau deploy, thử health, login/reload, profile update, logout hai tab, cookie Secure,
 Origin không hợp lệ và các API cần guard. Xác nhận docs 404 nếu để tắt. Đính kèm
 URL build/commit, kết quả smoke test và ảnh demo không chứa credentials vào PR.
-Đã bổ sung [HTTPS staging local riêng cho T01](t01-staging.md) tại
-https://localhost:8443 với các lệnh staging:setup, staging:up và staging:smoke.
 Kết quả và phạm vi triển khai nằm trong [báo cáo bàn giao](t01-delivery-report.md).
 Staging công khai của nhóm vẫn cần hạ tầng/domain/tài khoản deployment.
 

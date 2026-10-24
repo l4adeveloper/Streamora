@@ -79,7 +79,7 @@ Xem [quy ước frontend cho nhóm](docs/frontend-conventions.md) để thêm mo
 Swagger có thể mở tại `http://127.0.0.1:3000/api/v1/docs` khi API và frontend cùng
 chạy. Next.js rewrite `/api/v1/*` tới NEXT_PUBLIC_API_URL tuyệt đối; trình duyệt giữ
 Origin frontend và tự quản lý cookie nên Auth có Try it out đầy đủ. Cấu hình URL
-tương đối `/api/v1` (Compose HTTPS) không tạo rewrite vòng lặp; nginx đã proxy API.
+tương đối `/api/v1` (khi reverse proxy đã route API) không tạo rewrite vòng lặp.
 Thay NEXT_PUBLIC_API_URL cần restart dev hoặc build lại production.
 Xem [cách thử sáu API](../backend/docs/openapi.md).
 

@@ -8,7 +8,7 @@ Yêu cầu Node.js 22.16+ và npm 10+. Tại thư mục gốc:
 
 ```sh
 npm ci
-npm run setup:env
+npm run setup:env   # rồi điền DATABASE_URL trong backend/.env
 npm run dev
 ```
 
@@ -66,9 +66,8 @@ backend/                 # NestJS API (@streamora/api)
     recording/           # Hướng tích hợp LiveKit Egress
     video-worker/        # Hướng tích hợp RabbitMQ + FFmpeg + HLS
   contracts/src/         # Kiểu dữ liệu dùng chung FE/BE (@streamora/contracts)
-  scripts/               # setup-env, setup-staging, demo, seed, smoke test
+  scripts/               # setup-env, demo, seed, export OpenAPI
   infra/
-    docker/              # PostgreSQL, Redis, RabbitMQ, LiveKit dev và staging
     kubernetes/          # Ghi chú tổ chức deployment
     observability/       # Danh mục metrics cần triển khai
 ```
@@ -93,8 +92,8 @@ Realtime `/classroom` dùng `auth.accessToken`; `channel:join` nhận `{groupId}
 Khu vực tài khoản/nhóm/thành viên/lịch học/Meet dùng `NEXT_PUBLIC_API_URL` gọi backend thật;
 trình phát trong workspace và thư viện còn dùng dữ liệu minh họa.
 
-`npm run setup:env` tạo cấu hình local cùng mật khẩu và khóa ký ngẫu nhiên; giữ nguyên
-file đã có. `.env` gốc dành cho Docker, `backend/.env` dành cho server,
+`npm run setup:env` tạo cấu hình local cùng khóa ký ngẫu nhiên; giữ nguyên
+file đã có. `backend/.env` dành cho server (điền `DATABASE_URL` của PostgreSQL dùng chung),
 `frontend/.env.local` chỉ có biến public. Quy ước tài khoản, token, cookie, cấu trúc module
 và phạm vi từng mục được ghi trong [backend/README.md](backend/README.md).
 Backend đã nạp/kiểm tra env, bật CORS credentials và tích hợp PostgreSQL/Prisma.
@@ -111,24 +110,17 @@ Mục 9 có `npm run test:t01` để nghiệm thu typecheck, API/database, cooki
 xem [hướng dẫn nghiệm thu T01](backend/docs/t01-acceptance.md).
 Mục 10 cung cấp Swagger, bản OpenAPI để review, `npm run docs:api`,
 `npm run docs:api:check`, `npm run demo:auth` và tài liệu bàn giao/demo/PR/staging.
-Chạy kiểm thử bằng `npm run test:frontend`. Trước khi chạy API, chuẩn bị database:
+Chạy kiểm thử bằng `npm run test:frontend`. Dự án không dùng Docker: backend kết nối
+thẳng tới PostgreSQL qua `DATABASE_URL` trong `backend/.env`. Trước khi chạy API:
 
 ```sh
-docker compose --env-file .env -f backend/infra/docker/compose.yml up -d --wait postgres
 npm run db:migrate
 npm run db:check
 ```
 
-Đồng đội chạy migration để có cùng cấu trúc bảng trên database local riêng;
-dữ liệu đã insert trên máy khác không được đồng bộ qua Git.
-
-Với Docker, sau khi tạo cấu hình local, chạy:
-
-```sh
-docker compose --env-file .env -f backend/infra/docker/compose.yml up -d
-# Thêm LiveKit ở chế độ phát triển:
-docker compose --env-file .env -f backend/infra/docker/compose.yml --profile media up -d
-```
+Database dùng chung cho cả nhóm, nên chỉ cần chạy migration khi có migration mới.
+Test integration/UI tạo rồi xóa database `streamora_test_*` tạm trên cùng server,
+nên user trong `DATABASE_URL` cần quyền CREATEDB.
 
 ## Phạm vi đã triển khai
 
@@ -149,7 +141,5 @@ worker FFmpeg, retry/DLQ; Redis adapter; replication GCS và định tuyến CDN
 API/realtime chỉ bind loopback. API phòng/tài liệu và Socket.IO hiện đã xác thực,
 kiểm tra quyền theo group và thu hồi truy cập khi xóa thành viên. Xem giới hạn media,
 TTL, outbox và hướng dẫn dùng chung guard/hook trong tài liệu T03.
-Có [HTTPS staging local cho T01](backend/docs/t01-staging.md) tại
-https://localhost:8443, khởi tạo bằng `npm run staging:setup` rồi `npm run staging:up`.
 Kết quả test, PR và giới hạn bàn giao xem [báo cáo T01](backend/docs/t01-delivery-report.md).
 Staging công khai của nhóm cần hạ tầng/domain deployment riêng.
