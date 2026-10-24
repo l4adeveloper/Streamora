@@ -13,7 +13,7 @@ coverage
 docs
 backend/test
 frontend/AGENTS.md
-infra/docker/staging/tls
+backend/infra/docker/staging/tls
 **/*.log
 .vscode
 .claude

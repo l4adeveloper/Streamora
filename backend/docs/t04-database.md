@@ -64,7 +64,7 @@ Database kiểm tra hình dạng dữ liệu, không tự quyết định quyề
 
 ## Contracts
 
-`packages/contracts/src/class-sessions.ts` được export từ `@streamora/contracts`:
+`backend/contracts/src/class-sessions.ts` được export từ `@streamora/contracts`:
 
 - ClassSession là union GROUP/MEET; GROUP có groupId/scheduledAt bắt buộc, MEET
   có groupId null. Có request/response cho tạo, sửa, danh sách và chi tiết.

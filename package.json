@@ -6,13 +6,13 @@
     "frontend",
     "backend",
     "backend/realtime",
-    "packages/*"
+    "backend/contracts"
   ],
   "scripts": {
-    "setup:env": "node scripts/setup-env.mjs",
-    "staging:setup": "node scripts/setup-staging.mjs",
-    "staging:up": "docker compose --env-file infra/docker/staging/.env -f infra/docker/staging/compose.yml up -d --build --wait --wait-timeout 180",
-    "staging:down": "docker compose --env-file infra/docker/staging/.env -f infra/docker/staging/compose.yml down",
+    "setup:env": "node backend/scripts/setup-env.mjs",
+    "staging:setup": "node backend/scripts/setup-staging.mjs",
+    "staging:up": "docker compose --env-file backend/infra/docker/staging/.env -f backend/infra/docker/staging/compose.yml up -d --build --wait --wait-timeout 180",
+    "staging:down": "docker compose --env-file backend/infra/docker/staging/.env -f backend/infra/docker/staging/compose.yml down",
     "staging:smoke": "node backend/scripts/staging-smoke.cjs",
     "dev": "npm run build:contracts && npm run dev --workspace=@streamora/web",
     "build": "npm run build:contracts && npm run build --workspaces --if-present",
