@@ -34,7 +34,7 @@ export class PrismaService
     } catch {
       await this.$disconnect();
       throw new Error(
-        "Không thể kết nối PostgreSQL. Kiểm tra Docker và DATABASE_URL trong backend/.env.",
+        "Không thể kết nối PostgreSQL. Kiểm tra DATABASE_URL trong backend/.env và kết nối mạng tới server.",
       );
     }
   }
