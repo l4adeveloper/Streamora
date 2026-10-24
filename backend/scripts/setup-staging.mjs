@@ -29,7 +29,7 @@ try {
   const cert = resolve(tls, "cert.pem");
   if (existsSync(key) !== existsSync(cert)) {
     throw new Error(
-      "Cặp TLS chưa đầy đủ; kiểm tra thư mục infra/docker/staging/tls.",
+      "Cặp TLS chưa đầy đủ; kiểm tra thư mục backend/infra/docker/staging/tls.",
     );
   }
   if (!existsSync(key)) {
@@ -70,7 +70,7 @@ try {
   );
 } catch {
   console.error(
-    "Không chuẩn bị được staging. Cần OpenSSL (Git for Windows) và quyền ghi infra/docker/staging; không in secrets.",
+    "Không chuẩn bị được staging. Cần OpenSSL (Git for Windows) và quyền ghi backend/infra/docker/staging; không in secrets.",
   );
   process.exitCode = 1;
 }
