@@ -9,5 +9,4 @@ dist/
 coverage/
 .preview/
 backend/src/generated/prisma/
-backend/infra/docker/staging/tls/
 .DS_Store
