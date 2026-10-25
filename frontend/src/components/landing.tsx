@@ -28,7 +28,7 @@ export function Landing() {
             Một câu hỏi hay. Một góc nhìn mới.
             <br /> Một hành trình học tập có nhau.
           </p>
-          <Link href="/login" className="button entry-start">
+          <Link href="/auth" className="button entry-start">
             <span className="entry-start-label">Bắt đầu</span>
             <ArrowUpRight size={21} aria-hidden="true" />
           </Link>

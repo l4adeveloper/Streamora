@@ -360,6 +360,115 @@ a.group-section-box:hover {
   color: var(--muted);
 }
 
+/* Workspace group picker */
+.groups-overlay-backdrop {
+  padding: clamp(16px, 3vw, 40px);
+}
+
+.groups-overlay-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 100%);
+  height: min(760px, calc(100dvh - 40px));
+  max-height: calc(100dvh - 40px);
+  overflow: hidden;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-dialog);
+  box-shadow: var(--shadow-dialog);
+  animation: material-dialog-enter var(--motion-standard) var(--ease-standard);
+}
+
+.groups-overlay-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: 28px 32px 22px;
+  border-bottom: 1px solid var(--border);
+}
+
+.groups-overlay-header > div {
+  min-width: 0;
+}
+
+.groups-overlay-header .eyebrow {
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+.groups-overlay-header h2 {
+  margin: 0 0 var(--space-2);
+  color: var(--text);
+  font-size: var(--type-page);
+  line-height: var(--line-page);
+  font-weight: 500;
+}
+
+.groups-overlay-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--type-body);
+  line-height: var(--line-body);
+}
+
+.groups-overlay-header .modal-close {
+  flex: 0 0 auto;
+}
+
+.groups-overlay-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 32px 32px;
+}
+
+.groups-overlay-content .groups-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+}
+
+@media (max-width: 650px) {
+  .groups-overlay-backdrop {
+    padding: 0;
+  }
+
+  .groups-overlay-dialog {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .groups-overlay-header {
+    padding: 20px 18px 16px;
+  }
+
+  .groups-overlay-header h2 {
+    font-size: var(--type-section);
+    line-height: var(--line-section);
+  }
+
+  .groups-overlay-content {
+    padding: 18px;
+  }
+
+  .groups-overlay-content .groups-toolbar,
+  .groups-overlay-content .groups-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .groups-overlay-content .groups-search-box {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .groups-overlay-content .groups-actions > .button {
+    flex: 1;
+  }
+}
+
 /* Modal styles */
 .modal-overlay {
   position: fixed;

@@ -21,7 +21,15 @@ import {
 import type { Group } from "@streamora/contracts";
 import "./groups.css";
 
-export function GroupsListPage() {
+export function GroupsListPage({
+  embedded = false,
+  onClose,
+  onGroupsChanged,
+}: {
+  embedded?: boolean;
+  onClose?: () => void;
+  onGroupsChanged?: () => void;
+} = {}) {
   const { notify } = useToast();
   const [groups, setGroups] = useState<Group[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -106,6 +114,7 @@ export function GroupsListPage() {
   ) => {
     const res = await createGroup(data, key);
     await fetchGroups();
+    onGroupsChanged?.();
     notify(`Đã tạo nhóm "${res.group.name}" thành công!`, { tone: "success" });
   };
 
@@ -113,6 +122,7 @@ export function GroupsListPage() {
     if (!editingGroup) return;
     const res = await updateGroup(editingGroup.id, data);
     await fetchGroups();
+    onGroupsChanged?.();
     notify(`Đã cập nhật nhóm "${res.group.name}".`, { tone: "success" });
   };
 
@@ -120,16 +130,12 @@ export function GroupsListPage() {
     if (!deletingGroup) return;
     await deleteGroup(deletingGroup.id);
     await fetchGroups();
+    onGroupsChanged?.();
     notify(`Đã xóa nhóm "${deletingGroup.name}".`, { tone: "info" });
   };
 
-  return (
-    <PageShell
-      title="Nhóm học tập của bạn"
-      description="Tạo và quản lý các nhóm học tập, lịch học trực tiếp và tài liệu cộng tác."
-      eyebrow="KHÔNG GIAN NHÓM"
-      breadcrumb="Nhóm học tập"
-    >
+  const content = (
+    <>
       <div className="groups-page-container">
         <div className="groups-toolbar">
           <div className="groups-search-box">
@@ -266,6 +272,43 @@ export function GroupsListPage() {
           onConfirm={handleDelete}
         />
       )}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <>
+        <header className="groups-overlay-header">
+          <div>
+            <span className="eyebrow">KHÔNG GIAN NHÓM</span>
+            <h2 id="groups-overlay-title">Nhóm học tập của bạn</h2>
+            <p>
+              Tạo và quản lý các nhóm học tập, lịch học trực tiếp và tài liệu
+              cộng tác.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Đóng danh sách nhóm học tập"
+          >
+            <X size={20} />
+          </button>
+        </header>
+        <div className="groups-overlay-content">{content}</div>
+      </>
+    );
+  }
+
+  return (
+    <PageShell
+      title="Nhóm học tập của bạn"
+      description="Tạo và quản lý các nhóm học tập, lịch học trực tiếp và tài liệu cộng tác."
+      eyebrow="KHÔNG GIAN NHÓM"
+      breadcrumb="Nhóm học tập"
+    >
+      {content}
     </PageShell>
   );
 }
