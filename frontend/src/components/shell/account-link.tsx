@@ -8,6 +8,13 @@ import { usePathname } from "next/navigation";
 
 export function SessionIdentity() {
   const { user, phase } = useAuth();
+  const name =
+    user?.fullName ??
+    (phase === "anonymous"
+      ? "Khách"
+      : phase === "checking"
+        ? "Đang tải…"
+        : "Chưa xác minh");
   const initials =
     user?.fullName
       .trim()
@@ -15,12 +22,12 @@ export function SessionIdentity() {
       .slice(-2)
       .map((part) => Array.from(part)[0])
       .join("")
-      .toUpperCase() || "KH";
+      .toUpperCase() || (phase === "anonymous" ? "KH" : "…");
   return (
     <>
       <Avatar initials={initials} small />
-      <div className="session-identity">
-        <b>{user?.fullName ?? "Khách"}</b>
+      <div className="session-identity" aria-busy={phase === "checking"}>
+        <b>{name}</b>
         <small>
           {user && <span className="status-dot" />}{" "}
           {phase === "checking"

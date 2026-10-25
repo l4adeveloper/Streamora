@@ -9,6 +9,8 @@ import { UsersService } from "../users/users.service";
 import { AccessTokenService } from "./access-token.service";
 import { PasswordService } from "./password.service";
 import { SessionStore } from "./session-store.service";
+import { AUTH_POLICY } from "../../config/auth-policy";
+import { openRefreshToken, sealRefreshToken } from "./refresh-recovery";
 import type { LoginRequest, RegisterRequest } from "@streamora/contracts";
 
 type Failure = { error: { status: number; code: string; message: string } };
@@ -176,9 +178,53 @@ export class AuthService {
         )
           return refreshExpired();
         if (previous.consumedAt) {
+          // A reload may discard Set-Cookie after the rotation has committed.
+          // Recover the current generation, including when another tab has since
+          // rotated it. The presented token's original consumption time bounds
+          // recovery: retries never extend its window or create another branch.
+          const age = now.getTime() - previous.consumedAt.getTime();
+          if (
+            age >= 0 &&
+            age < AUTH_POLICY.refreshRecoveryWindowMs &&
+            session.refreshRecoveryToken &&
+            session.refreshRecoveryUntil &&
+            session.refreshRecoveryUntil > now
+          ) {
+            const recovered = openRefreshToken(
+              session.refreshRecoveryToken,
+              this.config.auth.accessTokenSecret,
+              session.id,
+            );
+            if (recovered && this.validRefreshToken(recovered)) {
+              const current = await tx.authRefreshToken.findUnique({
+                where: { tokenHash: tokenHash(recovered) },
+              });
+              if (
+                current &&
+                current.sessionId === session.id &&
+                current.generation > previous.generation &&
+                !current.consumedAt &&
+                current.expiresAt > now
+              ) {
+                const { disabledAt: _disabledAt, ...user } = session.user;
+                return this.grant(
+                  user,
+                  session.id,
+                  session.expiresAt,
+                  now,
+                  recovered,
+                );
+              }
+            }
+          }
           await tx.authSession.update({
             where: { id: session.id },
-            data: { revokedAt: now, revocationReason: "REFRESH_REUSED" },
+            data: {
+              revokedAt: now,
+              revocationReason: "REFRESH_REUSED",
+              refreshRecoveryToken: null,
+              refreshRecoveryUntil: null,
+            },
           });
           // Return the failure so the transaction COMMITS the revocation before throwing.
           return failure(
@@ -194,7 +240,12 @@ export class AuthService {
         if (consumed.count !== 1) {
           await tx.authSession.update({
             where: { id: session.id },
-            data: { revokedAt: now, revocationReason: "REFRESH_REUSED" },
+            data: {
+              revokedAt: now,
+              revocationReason: "REFRESH_REUSED",
+              refreshRecoveryToken: null,
+              refreshRecoveryUntil: null,
+            },
           });
           return failure(
             401,
@@ -214,7 +265,20 @@ export class AuthService {
         });
         await tx.authSession.update({
           where: { id: session.id },
-          data: { lastUsedAt: now },
+          data: {
+            lastUsedAt: now,
+            refreshRecoveryToken: sealRefreshToken(
+              refreshToken,
+              this.config.auth.accessTokenSecret,
+              session.id,
+            ),
+            refreshRecoveryUntil: new Date(
+              Math.min(
+                now.getTime() + AUTH_POLICY.refreshRecoveryWindowMs,
+                session.expiresAt.getTime(),
+              ),
+            ),
+          },
         });
         const { disabledAt: _disabledAt, ...user } = session.user;
         return this.grant(
@@ -240,7 +304,12 @@ export class AuthService {
       const now = await this.sessions.now(tx);
       await tx.authSession.updateMany({
         where: { id: known.sessionId, revokedAt: null },
-        data: { revokedAt: now, revocationReason: "LOGOUT" },
+        data: {
+          revokedAt: now,
+          revocationReason: "LOGOUT",
+          refreshRecoveryToken: null,
+          refreshRecoveryUntil: null,
+        },
       });
     });
   }

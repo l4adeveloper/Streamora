@@ -8,14 +8,27 @@ các hành vi đó bằng trình duyệt thật. Không có migration mới.
 
 - Refresh token ngẫu nhiên 32 byte, cookie tên `refreshToken`, HttpOnly, host-only
   (không có Domain), Path `/api/v1/auth`. Không trả refresh token trong JSON.
-- Database chỉ lưu SHA-256 của token. Mật khẩu dùng Argon2id riêng; không dùng
-  SHA-256 để hash mật khẩu. API public không trả passwordHash hoặc dữ liệu phiên.
+- Lịch sử refresh token chỉ lưu SHA-256. Session lưu thêm token hiện tại được mã hóa
+  AES-256-GCM để phục hồi response bị mất; không lưu token thô. Khóa được HKDF từ
+  ACCESS_TOKEN_SECRET với nhãn riêng, ciphertext được ràng buộc với session ID.
+  Mật khẩu dùng Argon2id riêng. API public không trả passwordHash hoặc dữ liệu phiên.
 - Local HTTP: Secure=false, SameSite=Lax. Staging HTTPS: Secure=true, SameSite=Lax
   khi FE/API cùng site. Max-Age/Expires bám theo hạn tuyệt đối của phiên, mặc định
   7 ngày. Refresh không gia hạn phiên.
 - Mỗi refresh đánh dấu token cũ đã dùng rồi tạo hash token mới trong cùng transaction.
-  Khóa user và unique index bảo đảm một token không sinh hai nhánh hợp lệ. Reuse
-  thu hồi cả family rồi trả 401 REFRESH_REUSED, kể cả hai request đồng thời hợp lệ.
+  Khóa user và unique index bảo đảm một token không sinh hai nhánh hợp lệ.
+- Trong 10 giây tính từ consumedAt của token được gửi, retry được nhận lại cookie
+  hiện tại nếu session còn hiệu lực và dữ liệu phục hồi chưa hết hạn. Nếu tab khác
+  đã xoay tiếp, trả generation hiện tại thay vì cookie đã bị dùng. Retry không tạo
+  generation mới, không đổi consumedAt và không kéo dài hạn phiên/cửa sổ phục hồi.
+  Ngoài cửa sổ, hoặc dữ liệu phục hồi hỏng/thiếu, reuse thu hồi family và trả 401
+  REFRESH_REUSED. Đây là đánh đổi có chủ đích: token cũ bị đánh cắp cũng có thể
+  được dùng trong cửa sổ ngắn này; Web Locks phía frontend vẫn được giữ.
+- Dữ liệu phục hồi nằm trong PostgreSQL nên dùng chung giữa các API instance và
+  qua restart. refreshRecoveryUntil là hạn sử dụng logic; ciphertext quá hạn có
+  thể còn trong DB tới lần xoay tiếp/xóa session nhưng không được cấp lại.
+  Logout/khóa tài khoản/reuse ngoài cửa sổ xóa ciphertext. Mọi instance phải dùng
+  cùng ACCESS_TOKEN_SECRET; không đưa khóa/ciphertext vào log hoặc frontend.
 - Logout thu hồi phiên hiện tại; access token đã cấp của phiên cũng bị guard từ chối.
   Cookie được xóa với cùng name, host/path và các thuộc tính như khi đặt.
 - Refresh lỗi 401/403 xóa cookie. Origin sai bị chặn trước xử lý và không xóa cookie
@@ -46,7 +59,8 @@ cùng Origin guard. API dùng Bearer không tự lấy danh tính từ refresh c
 
 Frontend mục 7 đã gom refresh trong tab và dùng Web Locks giữa các tab cùng origin;
 xem [hướng dẫn tích hợp phiên](../../frontend/docs/session.md).
-Nếu tự gửi hai refresh với cùng cookie, policy hiện tại chủ động thu hồi family.
+Hai refresh với cùng cookie trong cửa sổ phục hồi nhận cùng generation hiện tại.
+Token đã dùng ngoài cửa sổ vẫn thu hồi family.
 
 ## Local
 
@@ -133,7 +147,8 @@ Test xác nhận:
 3. Refresh thay cookie, giữ hạn tuyệt đối và lưu đúng hash phía server; reload vẫn refresh được.
 4. Origin khác port cùng site cũng bị chặn; form/simple request không logout/refresh được,
    JSON preflight bị chặn trước POST và response không được CORS chia sẻ.
-5. Hai refresh đồng thời chỉ một lần thành công rồi family bị thu hồi.
+5. Hai refresh đồng thời đều thành công và không tạo hai nhánh; token cũ ngoài
+   cửa sổ 10 giây vẫn khiến family bị thu hồi.
 6. HTTPS khác host cùng site dùng Secure/Lax; cookie không dùng cho HTTP hoặc host FE.
 7. Logout, hết phiên và khóa user xóa đúng cookie; bearer cũ bị từ chối.
 
