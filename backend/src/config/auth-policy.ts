@@ -7,6 +7,7 @@ export const AUTH_POLICY = Object.freeze({
   ...AUTH_CONSTRAINTS,
   accessTokenTtlSeconds: 900,
   refreshTokenTtlSeconds: 604800,
+  refreshRecoveryWindowMs: 10000,
   accessTokenIssuer: "streamora-api",
   accessTokenAudience: "streamora-web",
   refreshCookieName: "refreshToken",
