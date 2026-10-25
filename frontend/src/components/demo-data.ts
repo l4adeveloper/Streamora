@@ -13,45 +13,6 @@ export type LibraryFile = {
   size: string;
   date: string;
 };
-export const initialMessages: ChatMessage[] = [
-  {
-    name: "Minh Anh",
-    initials: "MA",
-    color: "pink",
-    text: "Mọi người đã nghe rõ chưa ạ? 👋",
-    time: "14:02",
-  },
-  {
-    name: "Nguyễn Hoàng",
-    initials: "NH",
-    color: "violet",
-    text: "Hôm nay mình sẽ cùng tìm hiểu về kiến trúc hệ thống phân tán nhé!",
-    time: "14:03",
-    host: true,
-  },
-  {
-    name: "Tuấn Phạm",
-    initials: "TP",
-    color: "blue",
-    text: "Em vừa vào muộn, có xem lại phần đầu được không thầy?",
-    time: "14:18",
-  },
-  {
-    name: "Nguyễn Hoàng",
-    initials: "NH",
-    color: "violet",
-    text: "Được em nhé. Kéo thanh thời gian về trước là xem được, buổi học vẫn tiếp tục bình thường ✨",
-    time: "14:19",
-    host: true,
-  },
-  {
-    name: "Linh Nguyễn",
-    initials: "LN",
-    color: "green",
-    text: "Tính năng này tiện quá, không sợ bỏ lỡ bài nữa 🙌",
-    time: "14:20",
-  },
-];
 export const initialFiles: LibraryFile[] = [
   {
     name: "Buổi 04 — Kiến trúc hệ thống phân tán",

@@ -19,6 +19,7 @@ interface AuthState extends SessionSnapshot {
   retry(): void;
 }
 const AuthContext = createContext<AuthState | null>(null);
+const LOGOUT_SUCCESS_NOTICE = "Bạn đã đăng xuất thành công.";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const current = useSyncExternalStore(
@@ -28,7 +29,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
   const path = usePathname();
   useEffect(() => authSession.start(), []);
-  const formNotice = path === "/" || path === "/login" || path === "/register";
+  useEffect(() => {
+    if (current.notice !== LOGOUT_SUCCESS_NOTICE) return;
+    const timeout = window.setTimeout(
+      () => authSession.clearNotice(LOGOUT_SUCCESS_NOTICE),
+      3000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [current.notice]);
+  const formNotice =
+    path === "/" ||
+    path === "/auth" ||
+    path === "/login" ||
+    path === "/register";
   return (
     <AuthContext.Provider
       value={{
@@ -48,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               Thử lại
             </button>
           ) : (
-            <Link href="/login">Đăng nhập</Link>
+            <Link href="/auth">Đăng nhập</Link>
           )}
         </aside>
       )}

@@ -428,6 +428,10 @@ export const authSession = {
       });
     });
   },
+  clearNotice(expected?: string) {
+    if (!snapshot.notice || (expected && snapshot.notice !== expected)) return;
+    setSnapshot({ ...snapshot, notice: "" });
+  },
   retry() {
     if (snapshot.user) void refreshAccess().catch(backgroundFailure);
     else {

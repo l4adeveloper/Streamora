@@ -52,17 +52,14 @@ import { useToast } from "./common/toast-provider";
 import { useAuth } from "./auth/auth-provider";
 import { LoadingState, RequestError } from "./common/feedback";
 import { MembersPanel, NoGroupSelected } from "./memberships/members-panel";
+import { GroupsListPage } from "./groups/groups-list-page";
+import { MeetHub } from "./class-sessions/meet-hub";
 import { useWorkspaceGroup } from "@/lib/memberships/use-workspace-group";
 import { useGroupPermissions } from "@/lib/memberships/use-group-permissions";
 
 import { LivePlayer } from "./live-player";
 import { WorkspaceChat } from "./workspace-chat";
-import {
-  initialMessages,
-  initialFiles,
-  membersInitial,
-  portrait,
-} from "./demo-data";
+import { initialFiles, membersInitial, portrait } from "./demo-data";
 import type { View, ChatMessage } from "./demo-data";
 function ArrowUpRight() {
   return <ExternalLink size={15} />;
@@ -112,7 +109,7 @@ export function Workspace({
           ? "Chưa tải được nhóm"
           : "Chưa có nhóm học tập"
       : "Không gian trải nghiệm");
-  const [messages, setMessages] = useState(initialMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const members = membersInitial;
@@ -146,7 +143,8 @@ export function Workspace({
   const fileInput = useRef<HTMLInputElement>(null);
   const [customChannels, setCustomChannels] = useState<string[]>([]);
   const [activeRoomName, setActiveRoomName] = useState("Phòng học nhóm");
-  const chatStorageKey = `streamora-chat:${channel}`;
+  const chatStorageKey = `streamora-chat-v2:${channel}`;
+  const legacyChatStorageKey = `streamora-chat:${channel}`;
   const cameraStream = useRef<MediaStream | null>(null);
   const screenStream = useRef<MediaStream | null>(null);
   const micStream = useRef<MediaStream | null>(null);
@@ -194,13 +192,20 @@ export function Workspace({
   useEffect(() => {
     try {
       const stored = localStorage.getItem(chatStorageKey);
-      setMessages(
-        stored
-          ? JSON.parse(stored)
-          : channel === "trò-chuyện-chung"
-            ? initialMessages
-            : [],
-      );
+      if (stored) setMessages(JSON.parse(stored));
+      else {
+        const legacy = localStorage.getItem(legacyChatStorageKey);
+        const legacyMessages = legacy ? JSON.parse(legacy) : [];
+        const userMessages = Array.isArray(legacyMessages)
+          ? legacyMessages.filter(
+              (message): message is ChatMessage => message?.name === "Bạn",
+            )
+          : [];
+        setMessages(userMessages);
+        if (userMessages.length)
+          localStorage.setItem(chatStorageKey, JSON.stringify(userMessages));
+        localStorage.removeItem(legacyChatStorageKey);
+      }
       const storedFiles = localStorage.getItem("streamora-files");
       if (storedFiles) setFiles(JSON.parse(storedFiles));
       const storedChannels = localStorage.getItem("streamora-channels");
@@ -211,20 +216,26 @@ export function Workspace({
         setFilter("Bản ghi");
       if (matchMedia("(max-width: 900px)").matches) setPanel(false);
     } catch {}
-  }, [channel, chatStorageKey]);
+  }, [channel, chatStorageKey, legacyChatStorageKey]);
   useEffect(() => {
     if (!modal) return;
     const previous = document.activeElement as HTMLElement | null;
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const dialog = document.querySelector<HTMLElement>(
+      '[data-workspace-dialog="true"]',
+    );
+    const activeDialog = () =>
+      dialog?.querySelector<HTMLElement>('.modal-overlay[role="dialog"]') ??
+      dialog;
     const focusable = () =>
       Array.from(
-        dialog?.querySelectorAll<HTMLElement>(
+        activeDialog()?.querySelectorAll<HTMLElement>(
           'button, a[href], input, select, [tabindex="0"]',
         ) || [],
       ).filter((element) => !element.hasAttribute("disabled"));
     focusable()[0]?.focus();
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (dialog?.querySelector('.modal-overlay[role="dialog"]')) return;
         const pickerOpen =
           CSS.supports("selector(select:open)") &&
           document.querySelector("select:open");
@@ -431,7 +442,6 @@ export function Workspace({
     draft,
     onDraftChange: setDraft,
     onSubmit: sendMessage,
-    onReaction: () => notify("Đã gửi lời cảm ơn đến Linh Nguyễn."),
   };
   return (
     <div className={`app-shell ${mobileNav ? "nav-open" : ""}`}>
@@ -492,14 +502,15 @@ export function Workspace({
                 <Users size={20} />
               </Link>
             )}
-          <Link
+          <button
+            type="button"
             className="add-community"
-            href="/groups"
             title="Thêm nhóm học tập"
             aria-label="Thêm nhóm học tập"
+            onClick={() => setModal("groups")}
           >
             <Plus size={22} />
-          </Link>
+          </button>
         </nav>
         <div className="rail-bottom">
           <IconButton label="Hướng dẫn" onClick={() => setModal("help")}>
@@ -529,9 +540,6 @@ export function Workspace({
             <div className="section-label">
               <ChevronDown size={12} /> Tổng quan
             </div>
-            <Link href="/" className="channel" onClick={navigateWorkspace}>
-              <LayoutGrid size={18} /> Trang chủ <ArrowUpRight />
-            </Link>
             <button
               className={`channel ${membersView ? "selected" : ""}`}
               onClick={() => {
@@ -591,13 +599,13 @@ export function Workspace({
           <div className="channel-section">
             <div className="section-label">
               <ChevronDown size={12} /> Phòng học{" "}
-              <Link
-                href="/meet"
+              <button
+                type="button"
                 aria-label="Tạo phòng học"
-                onClick={navigateWorkspace}
+                onClick={() => setModal("meet")}
               >
                 <Plus size={14} />
-              </Link>
+              </button>
             </div>
             {workspaceGroup.groupId && (
               <Link
@@ -632,13 +640,13 @@ export function Workspace({
             >
               <Volume2 size={19} /> Phòng học nhóm <small>4</small>
             </Link>
-            <Link
-              href="/meet"
-              onClick={navigateWorkspace}
+            <button
+              type="button"
+              onClick={() => setModal("meet")}
               className={`channel ${!membersView && view === "meet" ? "selected" : ""}`}
             >
               <Video size={19} /> Tạo cuộc họp <Plus size={14} />
-            </Link>
+            </button>
           </div>
           <div className="channel-section">
             <div className="section-label">
@@ -670,7 +678,7 @@ export function Workspace({
       <div className="sidebar-user workspace-identity">
         <Link
           className="workspace-account"
-          href={user ? "/account" : "/login"}
+          href={user ? "/account" : "/auth"}
           title={user ? `Tài khoản của ${user.fullName}` : "Đăng nhập"}
           aria-label={user ? `Tài khoản của ${user.fullName}` : "Đăng nhập"}
         >
@@ -761,7 +769,7 @@ export function Workspace({
                 <div className="membership-empty">
                   <Users size={30} />
                   <h2>Đăng nhập để xem thành viên</h2>
-                  <Link className="button primary" href="/login">
+                  <Link className="button primary" href="/auth">
                     Đăng nhập
                   </Link>
                 </div>
@@ -901,19 +909,6 @@ export function Workspace({
                         </span>
                       </div>
                     )}
-                    <div className="rewind-tip">
-                      <div className="tip-icon">
-                        <Clock3 size={21} />
-                      </div>
-                      <div>
-                        <b>Đến muộn cũng không bỏ lỡ.</b>
-                        <p>
-                          Kéo thanh thời gian để xem lại. Buổi học vẫn tiếp tục,
-                          theo nhịp của bạn.
-                        </p>
-                      </div>
-                      <span className="tip-tag">TUA LẠI TRỰC TIẾP</span>
-                    </div>
                     <div className="session-bottom">
                       <div className="section-heading">
                         <h2>Trong buổi học này</h2>
@@ -1405,7 +1400,7 @@ export function Workspace({
               ) : !user ? (
                 <div className="membership-empty">
                   <p>Đăng nhập để xem thành viên.</p>
-                  <Link href="/login" className="button primary">
+                  <Link href="/auth" className="button primary">
                     Đăng nhập
                   </Link>
                 </div>
@@ -1441,13 +1436,52 @@ export function Workspace({
           )}
         </div>
       </div>
-      {modal && (
+      {modal === "groups" && (
+        <div
+          className="modal-backdrop groups-overlay-backdrop"
+          onClick={() => setModal(null)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="groups-overlay-title"
+            className="groups-overlay-dialog"
+            data-workspace-dialog="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <GroupsListPage
+              embedded
+              onClose={() => setModal(null)}
+              onGroupsChanged={workspaceGroup.reload}
+            />
+          </section>
+        </div>
+      )}
+      {modal === "meet" && (
+        <div
+          className="modal-backdrop groups-overlay-backdrop meet-overlay-backdrop"
+          onClick={() => setModal(null)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="meet-overlay-title"
+            className="groups-overlay-dialog meet-overlay-dialog"
+            data-workspace-dialog="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <MeetHub embedded onClose={() => setModal(null)} />
+          </section>
+        </div>
+      )}
+      {modal && modal !== "groups" && modal !== "meet" && (
         <div className="modal-backdrop" onClick={() => setModal(null)}>
           <section
             role="dialog"
             aria-modal="true"
             aria-label="Hộp thao tác"
             className="modal"
+            data-workspace-dialog="true"
             onClick={(e) => e.stopPropagation()}
           >
             <IconButton label="Đóng" onClick={() => setModal(null)}>

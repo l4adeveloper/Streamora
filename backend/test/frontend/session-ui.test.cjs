@@ -303,8 +303,8 @@ test("revocation ends the session in every tab and protected pages return to log
     await page.getByLabel("Họ và tên", { exact: true }).fill("Không được lưu");
     await page.getByRole("button", { name: "Lưu thay đổi" }).click();
     await Promise.all([
-      page.waitForURL("**/login"),
-      second.waitForURL("**/login"),
+      page.waitForURL("**/auth"),
+      second.waitForURL("**/auth"),
     ]);
     await page
       .getByRole("status")
@@ -350,8 +350,8 @@ test("disabling an active account removes protected UI in every tab and never co
       .fill("Không lưu khi bị khóa");
     await page.getByRole("button", { name: "Lưu thay đổi" }).click();
     await Promise.all([
-      page.waitForURL("**/login"),
-      second.waitForURL("**/login"),
+      page.waitForURL("**/auth"),
+      second.waitForURL("**/auth"),
     ]);
     await page
       .getByRole("status")
@@ -395,7 +395,7 @@ test("disabling an active account removes protected UI in every tab and never co
     await page.goto(`${fixture.webOrigin}/account`, {
       waitUntil: "domcontentloaded",
     });
-    await page.waitForURL("**/login");
+    await page.waitForURL("**/auth");
     assert.equal(
       await page.getByRole("button", { name: "Lưu thay đổi" }).count(),
       0,
@@ -433,7 +433,7 @@ test("absolute refresh expiry signs every tab out without a refresh loop or a su
         document.querySelector('[data-testid="phase"]')?.textContent ===
         "anonymous",
     );
-    await second.waitForURL("**/login");
+    await second.waitForURL("**/auth");
     await second
       .getByRole("status")
       .filter({ hasText: "Vui lòng đăng nhập lại." })
@@ -496,7 +496,7 @@ test("several tabs restoring simultaneously serialize cookie rotation without to
       .getByRole("button", { name: "Đăng xuất", exact: true })
       .click();
     await Promise.all(
-      [page, ...pages].map((other) => other.waitForURL("**/login")),
+      [page, ...pages].map((other) => other.waitForURL("**/auth")),
     );
   });
 });
@@ -527,7 +527,7 @@ test("logout queued behind an in-flight refresh cannot resurrect the session", a
       .click();
     await second.getByRole("button", { name: "Đang đăng xuất…" }).waitFor();
     release.resolve();
-    await second.waitForURL("**/login");
+    await second.waitForURL("**/auth");
     await page.waitForFunction(
       () =>
         document.querySelector('[data-testid="user"]')?.textContent === "guest",
@@ -574,7 +574,7 @@ test("account switching discards old in-flight results and never replays a mutat
     await second
       .getByRole("button", { name: "Đăng xuất", exact: true })
       .click();
-    await second.waitForURL("**/login");
+    await second.waitForURL("**/auth");
     await login(second, next);
     await page.waitForFunction(
       (email) =>
@@ -611,7 +611,7 @@ test("storage events synchronize logout without BroadcastChannel and preserve on
       await page
         .getByRole("button", { name: "Đăng xuất", exact: true })
         .click();
-      await second.waitForURL("**/login");
+      await second.waitForURL("**/auth");
       const persisted = await page.evaluate(() => ({
         local: { ...localStorage },
         session: { ...sessionStorage },
@@ -679,7 +679,7 @@ test("a tab with delayed notifications cancels old-account mutations before disp
     await second
       .getByRole("button", { name: "Đăng xuất", exact: true })
       .click();
-    await second.waitForURL("**/login");
+    await second.waitForURL("**/auth");
     await login(second, next);
     assert.equal(await page.getByTestId("user").textContent(), first.email);
     let mutations = 0;
@@ -765,7 +765,7 @@ test("BroadcastChannel still synchronizes logout when localStorage is blocked", 
       await page
         .getByRole("button", { name: "Đăng xuất", exact: true })
         .click();
-      await second.waitForURL("**/login");
+      await second.waitForURL("**/auth");
     },
     () => {
       Storage.prototype.getItem = () => {
@@ -828,8 +828,8 @@ test("failed BroadcastChannel postMessage cannot turn successful login/logout in
         .getByRole("button", { name: "Đăng xuất", exact: true })
         .click();
       await Promise.all([
-        page.waitForURL("**/login"),
-        second.waitForURL("**/login"),
+        page.waitForURL("**/auth"),
+        second.waitForURL("**/auth"),
       ]);
       await page
         .getByRole("status")
