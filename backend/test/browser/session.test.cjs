@@ -302,17 +302,16 @@ test("untrusted same-site origins cannot mutate sessions through simple requests
   });
 });
 
-test("concurrent browser refreshes cannot create two valid branches of a session", async () => {
+test("concurrent browser refreshes recover without creating two valid branches", async () => {
   await withPage(local, async (page) => {
     await login(page, local, await register(page, local));
     const results = await Promise.all([
       api(page, local, "/auth/refresh"),
       api(page, local, "/auth/refresh"),
     ]);
-    assert.deepEqual(results.map((result) => result.status).sort(), [200, 401]);
-    assert.equal(
-      results.find((result) => result.status === 401).body.error.code,
-      "REFRESH_REUSED",
+    assert.deepEqual(
+      results.map((result) => result.status),
+      [200, 200],
     );
     const winner = results.find((result) => result.status === 200);
     assert.equal(
@@ -322,9 +321,9 @@ test("concurrent browser refreshes cannot create two valid branches of a session
           token: winner.body.accessToken,
         })
       ).status,
-      401,
+      200,
     );
-    assert.equal((await api(page, local, "/auth/refresh")).status, 401);
+    assert.equal((await api(page, local, "/auth/refresh")).status, 200);
   });
 });
 

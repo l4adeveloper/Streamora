@@ -12,7 +12,7 @@ export function createT01Document(app: INestApplication) {
     .setTitle("Streamora T01 — tài khoản và phiên")
     .setVersion("1.0.0")
     .setDescription(
-      "Sáu API T01. Mở Swagger qua frontend tại /api/v1/docs để Try it out cả Auth và Users trên cùng Origin. POST auth yêu cầu Origin=WEB_ORIGIN; browser tự gửi Origin và cookie HttpOnly. Login/refresh trả accessToken để nhập vào Authorize cho GET/PATCH. Refresh xoay vòng, hạn tuyệt đối, reuse thu hồi family. Swagger không tự refresh hay tự Authorize và không giữ token sau reload.",
+      "Sáu API T01. Mở Swagger qua frontend tại /api/v1/docs để Try it out cả Auth và Users trên cùng Origin. POST auth yêu cầu Origin=WEB_ORIGIN; browser tự gửi Origin và cookie HttpOnly. Login/refresh trả accessToken để nhập vào Authorize cho GET/PATCH. Refresh xoay vòng, hạn tuyệt đối, phục hồi retry trong 10 giây; reuse ngoài cửa sổ thu hồi family. Swagger không tự refresh hay tự Authorize và không giữ token sau reload.",
     )
     .addServer("/", "Host API đang phục vụ tài liệu; paths đã bao gồm /api/v1.")
     .addTag("Auth", "Đăng ký, đăng nhập và quản lý refresh session.")

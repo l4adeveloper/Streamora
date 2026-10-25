@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { ToastProvider } from "@/components/common/toast-provider";
 import { InteractionFeedback } from "@/components/common/interaction-feedback";
@@ -33,12 +34,13 @@ export default function RootLayout({
           type="font/woff2"
           crossOrigin="anonymous"
         />
-        <script
-          id="theme-init"
-          dangerouslySetInnerHTML={{ __html: themeInitScript }}
-        />
       </head>
       <body>
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: themeInitScript }}
+        />
         <InteractionFeedback />
         <AuthProvider>
           <ToastProvider>{children}</ToastProvider>

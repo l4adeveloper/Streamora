@@ -31,7 +31,12 @@ export class SessionStore {
   async revokeDisabledUser(tx: AuthTransaction, userId: string, now: Date) {
     const result = await tx.authSession.updateMany({
       where: { userId, revokedAt: null },
-      data: { revokedAt: now, revocationReason: "USER_DISABLED" },
+      data: {
+        revokedAt: now,
+        revocationReason: "USER_DISABLED",
+        refreshRecoveryToken: null,
+        refreshRecoveryUntil: null,
+      },
     });
     await revokeDisabledClassAccess(tx, userId, now);
     return result;

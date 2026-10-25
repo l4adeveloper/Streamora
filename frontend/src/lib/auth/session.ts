@@ -73,7 +73,7 @@ function endMessage(reason?: string) {
     ? "Tài khoản đã bị khóa. Vui lòng liên hệ người quản trị."
     : reason === "logout"
       ? "Bạn đã đăng xuất ở tab khác."
-      : "Phiên đăng nhập đã hết hạn hoặc bị thu hồi. Vui lòng đăng nhập lại.";
+      : "";
 }
 function kickRestore() {
   queueMicrotask(() => {
