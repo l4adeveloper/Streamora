@@ -8,6 +8,7 @@ import {
   type FormEvent,
 } from "react";
 import { useRouter } from "next/navigation";
+import { X } from "lucide-react";
 import type { ClassSession } from "@streamora/contracts";
 import { PageShell } from "@/components/shell/page-shell";
 import { FormField } from "@/components/common/form-field";
@@ -28,7 +29,13 @@ import { SessionCard } from "./session-card";
 import { SessionForm } from "./session-form";
 import "./sessions.css";
 
-export function MeetHub() {
+export function MeetHub({
+  embedded = false,
+  onClose,
+}: {
+  embedded?: boolean;
+  onClose?: () => void;
+} = {}) {
   const router = useRouter();
   const [code, setCode] = useState(""),
     [codeError, setCodeError] = useState("");
@@ -58,6 +65,140 @@ export function MeetHub() {
     setCodeError("");
     router.push(`/meet/${result}`);
   }
+  const content = (
+    <div className="class-page">
+      <div className="class-grid class-hub-grid">
+        <section className="class-panel">
+          <h2>Tạo cuộc họp</h2>
+          <p className="class-muted">
+            Bạn quản lý cuộc họp mình tạo và có thể bắt đầu ngay.
+          </p>
+          {created && (
+            <InlineNotice>
+              Cuộc họp đã được tạo. Nếu bước bắt đầu chưa thành công, bấm tiếp
+              tục hoặc{" "}
+              <Link href={sessionHref(created)}>mở cuộc họp đã tạo</Link>.
+            </InlineNotice>
+          )}
+          <SessionForm
+            label={created ? "Tiếp tục mở cuộc họp" : "Tạo và bắt đầu"}
+            locked={!!created}
+            onSave={async (body, key) => {
+              if (!saved.current) {
+                const { session } = await createMeet(
+                  {
+                    title: body.title,
+                    description: body.description ?? undefined,
+                    ...(body.scheduledAt
+                      ? { scheduledAt: body.scheduledAt }
+                      : {}),
+                  },
+                  key,
+                );
+                saved.current = session;
+                setCreated(session);
+                setRevision((x) => x + 1);
+              }
+              startKey.current ??= crypto.randomUUID();
+              await changeClassStatus(
+                saved.current.id,
+                "start",
+                startKey.current,
+              );
+              router.push(sessionHref(saved.current));
+            }}
+          />
+        </section>
+        <section className="class-panel">
+          <h2>Tham gia cuộc họp</h2>
+          <p className="class-muted">
+            Dán mã hoặc liên kết được chủ phòng chia sẻ.
+          </p>
+          <form className="ui-form" onSubmit={join} noValidate>
+            <FormField
+              id="meet-code"
+              label="Mã hoặc liên kết cuộc họp"
+              value={code}
+              onChange={(e) => {
+                setCode(e.target.value);
+                setCodeError("");
+              }}
+              error={codeError}
+              required
+            />
+            <button className="button primary" type="submit">
+              Mở cuộc họp
+            </button>
+          </form>
+          <div className="class-hub-note">
+            <h3>Học cùng nhóm của bạn</h3>
+            <p>
+              Lịch học trong nhóm được quản lý riêng, cùng quyền thành viên của
+              nhóm đó.
+            </p>
+            <Link href="/groups" className="button secondary">
+              Đến nhóm học tập
+            </Link>
+          </div>
+        </section>
+      </div>
+      <h2>Cuộc họp do bạn tạo</h2>
+      {!!list.error && (
+        <RequestError error={list.error} onRetry={list.refresh} />
+      )}
+      <div className="class-grid">
+        {list.items.map((session) => (
+          <SessionCard key={session.id} session={session} />
+        ))}
+      </div>
+      {list.loading && <LoadingState message="Đang tải cuộc họp…" />}
+      {!list.loading && !list.error && !list.items.length && (
+        <EmptyState
+          title="Chưa có cuộc họp"
+          description="Cuộc họp bạn tạo sẽ được lưu ở đây để mở lại và xem trạng thái."
+        />
+      )}
+      {list.cursor && (
+        <button
+          type="button"
+          className="button secondary"
+          disabled={list.loading}
+          onClick={() => void list.more()}
+        >
+          Xem thêm cuộc họp
+        </button>
+      )}
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <>
+        <header className="groups-overlay-header">
+          <div>
+            <span className="eyebrow">MEET</span>
+            <h2 id="meet-overlay-title">Gặp nhau, bắt đầu học</h2>
+            <p>
+              Tạo cuộc họp độc lập hoặc mở liên kết được chia sẻ. Chủ phòng sẽ
+              duyệt người xin vào.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Đóng trang cuộc họp"
+          >
+            <X size={20} />
+          </button>
+        </header>
+        <div className="groups-overlay-content meet-overlay-content">
+          {content}
+        </div>
+      </>
+    );
+  }
+
   return (
     <PageShell
       title="Gặp nhau, bắt đầu học"
@@ -65,109 +206,7 @@ export function MeetHub() {
       eyebrow="MEET"
       breadcrumb="Cuộc họp"
     >
-      <div className="class-page">
-        <div className="class-grid class-hub-grid">
-          <section className="class-panel">
-            <h2>Tạo cuộc họp</h2>
-            <p className="class-muted">
-              Bạn quản lý cuộc họp mình tạo và có thể bắt đầu ngay.
-            </p>
-            {created && (
-              <InlineNotice>
-                Cuộc họp đã được tạo. Nếu bước bắt đầu chưa thành công, bấm tiếp
-                tục hoặc{" "}
-                <Link href={sessionHref(created)}>mở cuộc họp đã tạo</Link>.
-              </InlineNotice>
-            )}
-            <SessionForm
-              label={created ? "Tiếp tục mở cuộc họp" : "Tạo và bắt đầu"}
-              locked={!!created}
-              onSave={async (body, key) => {
-                if (!saved.current) {
-                  const { session } = await createMeet(
-                    {
-                      title: body.title,
-                      description: body.description ?? undefined,
-                      ...(body.scheduledAt
-                        ? { scheduledAt: body.scheduledAt }
-                        : {}),
-                    },
-                    key,
-                  );
-                  saved.current = session;
-                  setCreated(session);
-                  setRevision((x) => x + 1);
-                }
-                startKey.current ??= crypto.randomUUID();
-                await changeClassStatus(
-                  saved.current.id,
-                  "start",
-                  startKey.current,
-                );
-                router.push(sessionHref(saved.current));
-              }}
-            />
-          </section>
-          <section className="class-panel">
-            <h2>Tham gia cuộc họp</h2>
-            <p className="class-muted">
-              Dán mã hoặc liên kết được chủ phòng chia sẻ.
-            </p>
-            <form className="ui-form" onSubmit={join} noValidate>
-              <FormField
-                id="meet-code"
-                label="Mã hoặc liên kết cuộc họp"
-                value={code}
-                onChange={(e) => {
-                  setCode(e.target.value);
-                  setCodeError("");
-                }}
-                error={codeError}
-                required
-              />
-              <button className="button primary" type="submit">
-                Mở cuộc họp
-              </button>
-            </form>
-            <div className="class-hub-note">
-              <h3>Học cùng nhóm của bạn</h3>
-              <p>
-                Lịch học trong nhóm được quản lý riêng, cùng quyền thành viên
-                của nhóm đó.
-              </p>
-              <Link href="/groups" className="button secondary">
-                Đến nhóm học tập
-              </Link>
-            </div>
-          </section>
-        </div>
-        <h2>Cuộc họp do bạn tạo</h2>
-        {!!list.error && (
-          <RequestError error={list.error} onRetry={list.refresh} />
-        )}
-        <div className="class-grid">
-          {list.items.map((session) => (
-            <SessionCard key={session.id} session={session} />
-          ))}
-        </div>
-        {list.loading && <LoadingState message="Đang tải cuộc họp…" />}
-        {!list.loading && !list.error && !list.items.length && (
-          <EmptyState
-            title="Chưa có cuộc họp"
-            description="Cuộc họp bạn tạo sẽ được lưu ở đây để mở lại và xem trạng thái."
-          />
-        )}
-        {list.cursor && (
-          <button
-            type="button"
-            className="button secondary"
-            disabled={list.loading}
-            onClick={() => void list.more()}
-          >
-            Xem thêm cuộc họp
-          </button>
-        )}
-      </div>
+      {content}
     </PageShell>
   );
 }

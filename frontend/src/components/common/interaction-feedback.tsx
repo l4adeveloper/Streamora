@@ -10,7 +10,6 @@ const controls = [
   ".round-control",
   ".auth-tabs > button",
   ".file-filters > button",
-  ".reaction",
   ".chat-form button",
   ".community-icon",
   ".add-community",

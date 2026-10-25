@@ -422,9 +422,9 @@ test("workspace rail lists accessible groups and switches actual permissions, wi
     );
     assert.equal(
       await page
-        .getByRole("link", { name: "Thêm nhóm học tập", exact: true })
-        .getAttribute("href"),
-      "/groups",
+        .getByRole("button", { name: "Thêm nhóm học tập", exact: true })
+        .count(),
+      1,
     );
 
     await page.waitForFunction(() =>
@@ -488,6 +488,51 @@ test("workspace rail lists accessible groups and switches actual permissions, wi
     await page.screenshot({
       path: join(fixture.previewRoot, "workspace-groups-desktop.png"),
     });
+    const workspaceUrl = page.url();
+    await page
+      .getByRole("button", { name: "Thêm nhóm học tập", exact: true })
+      .click();
+    const groupsDialog = page.getByRole("dialog", {
+      name: "Nhóm học tập của bạn",
+      exact: true,
+    });
+    await groupsDialog.waitFor();
+    assert.equal(page.url(), workspaceUrl);
+    assert.equal(
+      await groupsDialog.locator(".site-header, .page-breadcrumb").count(),
+      0,
+    );
+    await groupsDialog
+      .getByRole("heading", { name: "Nhóm học tập của bạn", exact: true })
+      .waitFor();
+    await groupsDialog
+      .getByRole("button", {
+        name: "Đóng danh sách nhóm học tập",
+        exact: true,
+      })
+      .click();
+    await groupsDialog.waitFor({ state: "hidden" });
+
+    await page
+      .getByRole("button", { name: "Tạo cuộc họp", exact: true })
+      .click();
+    const meetDialog = page.getByRole("dialog", {
+      name: "Gặp nhau, bắt đầu học",
+      exact: true,
+    });
+    await meetDialog.waitFor();
+    assert.equal(page.url(), workspaceUrl);
+    assert.equal(
+      await meetDialog.locator(".site-header, .page-breadcrumb").count(),
+      0,
+    );
+    await meetDialog
+      .getByRole("heading", { name: "Tạo cuộc họp", exact: true })
+      .waitFor();
+    await meetDialog
+      .getByRole("button", { name: "Đóng trang cuộc họp", exact: true })
+      .click();
+    await meetDialog.waitFor({ state: "hidden" });
   } finally {
     await context.close();
   }
@@ -653,7 +698,7 @@ test("chat history scrolls independently while composing and sending stays fixed
   );
   await context.addInitScript(() => {
     localStorage.setItem(
-      "streamora-chat:trò-chuyện-chung",
+      "streamora-chat-v2:trò-chuyện-chung",
       JSON.stringify(
         Array.from({ length: 60 }, (_, index) => ({
           name: "Thành viên thử nghiệm",

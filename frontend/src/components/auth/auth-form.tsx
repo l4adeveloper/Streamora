@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Fragment,
@@ -12,7 +11,6 @@ import {
 } from "react";
 import {
   ArrowRight,
-  Check,
   CircleCheck,
   LockKeyhole,
   Mail,
@@ -49,32 +47,20 @@ function AuthModeAction({
   active,
 }: {
   mode: AuthMode;
-  onModeChange?: (mode: AuthMode) => void;
+  onModeChange: (mode: AuthMode) => void;
   children: ReactNode;
   className?: string;
   active?: boolean;
 }) {
-  const [destination, setDestination] = useState("/workspace");
-  useEffect(() => setDestination(loginDestination()), []);
-  if (onModeChange)
-    return (
-      <button
-        type="button"
-        className={className}
-        aria-pressed={active}
-        onClick={() => onModeChange(mode)}
-      >
-        {children}
-      </button>
-    );
   return (
-    <Link
-      href={`${mode === "login" ? "/login" : "/register"}${destination !== "/workspace" ? `?next=${encodeURIComponent(destination)}` : ""}`}
+    <button
+      type="button"
       className={className}
-      aria-current={active ? "page" : undefined}
+      aria-pressed={active}
+      onClick={() => onModeChange(mode)}
     >
       {children}
-    </Link>
+    </button>
   );
 }
 
@@ -88,7 +74,9 @@ export function AuthForm({
   onModeChange?: (mode: AuthMode) => void;
 }) {
   const Frame = embedded ? Fragment : AuthFrame;
-  const registering = mode === "register";
+  const [localMode, setLocalMode] = useState(mode);
+  const activeMode = onModeChange ? mode : localMode;
+  const registering = activeMode === "register";
   const router = useRouter();
   const auth = useAuth();
   const [email, setEmail] = useState("");
@@ -101,9 +89,33 @@ export function AuthForm({
   const busy = useRef(false);
   const form = useRef<HTMLFormElement>(null);
   const alert = useRef<HTMLDivElement>(null);
+  useEffect(() => setLocalMode(mode), [mode]);
+  useEffect(() => {
+    if (
+      !embedded &&
+      (window.location.pathname === "/login" ||
+        window.location.pathname === "/register")
+    )
+      window.history.replaceState(null, "", `/auth${window.location.search}`);
+  }, [embedded]);
+  useEffect(() => {
+    if (!embedded)
+      document.title = `${registering ? "Đăng ký" : "Đăng nhập"} — Streamora`;
+  }, [embedded, registering]);
   useEffect(() => {
     if (auth.phase === "authenticated") router.replace(loginDestination());
   }, [auth.phase, router]);
+  function changeMode(nextMode: AuthMode) {
+    if (nextMode === activeMode) return;
+    setErrors({});
+    setMessage("");
+    setRegistered(false);
+    if (onModeChange) {
+      onModeChange(nextMode);
+      return;
+    }
+    setLocalMode(nextMode);
+  }
   function edit(field: keyof FieldErrors, value: string) {
     ({ email: setEmail, password: setPassword, fullName: setFullName })[field](
       value,
@@ -172,7 +184,7 @@ export function AuthForm({
           </p>
           <AuthModeAction
             mode="login"
-            onModeChange={onModeChange}
+            onModeChange={changeMode}
             className="button primary auth-submit"
           >
             Đăng nhập ngay <ArrowRight size={17} />
@@ -195,7 +207,7 @@ export function AuthForm({
         <div className="auth-tabs" aria-label="Tài khoản">
           <AuthModeAction
             mode="login"
-            onModeChange={onModeChange}
+            onModeChange={changeMode}
             className={!registering ? "active" : ""}
             active={!registering}
           >
@@ -203,7 +215,7 @@ export function AuthForm({
           </AuthModeAction>
           <AuthModeAction
             mode="register"
-            onModeChange={onModeChange}
+            onModeChange={changeMode}
             className={registering ? "active" : ""}
             active={registering}
           >
@@ -243,7 +255,7 @@ export function AuthForm({
               />
             )}
             <FormField
-              id={`${mode}-email`}
+              id={`${activeMode}-email`}
               name="email"
               label="Email"
               type="email"
@@ -258,7 +270,7 @@ export function AuthForm({
               required
             />
             <FormField
-              id={`${mode}-password`}
+              id={`${activeMode}-password`}
               name="password"
               label="Mật khẩu"
               type="password"
@@ -289,19 +301,11 @@ export function AuthForm({
             </SubmitButton>
           </fieldset>
         </form>
-        <div className="auth-form-footer">
-          <Check size={15} />
-          <span>
-            {registering
-              ? "Một bước nhỏ cho những kết nối mới."
-              : "Không gian của bạn luôn ở đây."}
-          </span>
-        </div>
         <p className="auth-switch">
           {registering ? "Đã có tài khoản?" : "Chưa có tài khoản?"}{" "}
           <AuthModeAction
             mode={registering ? "login" : "register"}
-            onModeChange={onModeChange}
+            onModeChange={changeMode}
           >
             {registering ? "Đăng nhập" : "Đăng ký ngay"}
             <ArrowRight size={13} />
