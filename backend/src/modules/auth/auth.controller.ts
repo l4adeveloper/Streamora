@@ -130,7 +130,7 @@ export class AuthController {
   @ApiOperation({
     summary: "T01-03 — Xoay refresh token",
     description:
-      "Không gửi body. Cookie hiện tại chỉ dùng một lần. Reuse thu hồi cả family, kể cả refresh đồng thời. Không kéo dài hạn tuyệt đối của phiên. Lỗi 401/403 từ dịch vụ phiên xóa cookie; Origin sai không thay đổi cookie.",
+      "Không gửi body. Xoay cookie; gửi lại token vừa dùng trong 10 giây được phục hồi cookie hiện tại, không tạo nhánh token mới và không gia hạn cửa sổ phục hồi. Reuse ngoài cửa sổ thu hồi cả family. Không kéo dài hạn tuyệt đối của phiên. Lỗi 401/403 từ dịch vụ phiên xóa cookie; Origin sai không thay đổi cookie.",
     security: [{ refreshCookie: [] }],
   })
   @ApiSuccess(200, AccessTokenResponseDto, true)

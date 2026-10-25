@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const { createApplication } = require("../../dist/app");
 const { PrismaService } = require("../../dist/database/prisma.service");
 const { createTestDatabase } = require("./database-fixture.cjs");
+const { AUTH_POLICY } = require("../../dist/config/auth-policy");
 
 const ORIGIN = "http://127.0.0.1:3000";
 const PASSWORD = "Test-only-password-123!";
@@ -251,12 +252,27 @@ test("refresh rotates hashed tokens and keeps the original absolute expiry", asy
   );
 });
 
-test("reuse of an old refresh token commits family revocation", async () => {
+test("reuse outside the recovery window commits family revocation", async () => {
   const initial = await login();
   const refreshed = await api("POST", "/auth/refresh", {
     cookie: initial.cookie,
   });
   assert.equal(refreshed.status, 200);
+  await prisma.authRefreshToken.update({
+    where: {
+      tokenHash: createHash("sha256")
+        .update(initial.cookie.split("=")[1])
+        .digest("hex"),
+    },
+    data: {
+      createdAt: new Date(
+        Date.now() - AUTH_POLICY.refreshRecoveryWindowMs - 2000,
+      ),
+      consumedAt: new Date(
+        Date.now() - AUTH_POLICY.refreshRecoveryWindowMs - 1000,
+      ),
+    },
+  });
   const reused = await api("POST", "/auth/refresh", { cookie: initial.cookie });
   expectError(reused, 401, "REFRESH_REUSED");
   assert.match(reused.setCookie, /Expires=Thu, 01 Jan 1970/i);
@@ -393,30 +409,147 @@ test("expired sessions and malformed or missing refresh cookies are rejected", a
   );
 });
 
-test("two concurrent uses of one refresh token produce one success and revoke the family", async () => {
+test("concurrent refresh retries return the same cookie without branching or revocation", async () => {
   const initial = await login();
   const responses = await Promise.all([
     api("POST", "/auth/refresh", { cookie: initial.cookie }),
     api("POST", "/auth/refresh", { cookie: initial.cookie }),
   ]);
-  assert.deepEqual(responses.map((r) => r.status).sort(), [200, 401]);
-  expectError(
-    responses.find((r) => r.status === 401),
-    401,
-    "REFRESH_REUSED",
+  assert.deepEqual(
+    responses.map((r) => r.status),
+    [200, 200],
   );
-  const successful = responses.find((r) => r.status === 200);
-  expectError(
-    await api("GET", "/users/me", { token: successful.body.accessToken }),
-    401,
-    "UNAUTHENTICATED",
-  );
+  assert.equal(responses[0].cookie, responses[1].cookie);
+  for (const response of responses) {
+    assert.equal(
+      (await api("GET", "/users/me", { token: response.body.accessToken }))
+        .status,
+      200,
+    );
+  }
   assert.equal(
     await prisma.authRefreshToken.count({
       where: { sessionId: jwt.decode(initial.body.accessToken).sid },
     }),
     2,
   );
+});
+
+test("lost refresh responses recover across API instances without extending expiry or the retry window", async () => {
+  const initial = await login();
+  const sid = jwt.decode(initial.body.accessToken).sid;
+  const rotated = await api("POST", "/auth/refresh", {
+    cookie: initial.cookie,
+  });
+  const before = await prisma.authSession.findUnique({ where: { id: sid } });
+  assert.ok(before.refreshRecoveryToken);
+  assert.ok(
+    !before.refreshRecoveryToken.includes(rotated.cookie.split("=")[1]),
+  );
+  const second = await createApplication(config);
+  try {
+    await second.listen(0, "127.0.0.1");
+    const recovered = await api("POST", "/auth/refresh", {
+      cookie: initial.cookie,
+      base: await second.getUrl(),
+    });
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.cookie, rotated.cookie);
+    const after = await prisma.authSession.findUnique({ where: { id: sid } });
+    assert.equal(after.expiresAt.getTime(), before.expiresAt.getTime());
+    assert.equal(
+      after.refreshRecoveryUntil.getTime(),
+      before.refreshRecoveryUntil.getTime(),
+    );
+    assert.equal(after.revokedAt, null);
+    assert.equal(
+      await prisma.authRefreshToken.count({ where: { sessionId: sid } }),
+      2,
+    );
+  } finally {
+    await second.close();
+  }
+});
+
+test("a recent ancestor recovers the current token after another tab rotates again", async () => {
+  const initial = await login();
+  const first = await api("POST", "/auth/refresh", { cookie: initial.cookie });
+  const second = await api("POST", "/auth/refresh", { cookie: first.cookie });
+  const recovered = await api("POST", "/auth/refresh", {
+    cookie: initial.cookie,
+  });
+  assert.equal(recovered.status, 200);
+  assert.equal(recovered.cookie, second.cookie);
+  assert.equal(
+    await prisma.authRefreshToken.count({
+      where: { sessionId: jwt.decode(initial.body.accessToken).sid },
+    }),
+    3,
+  );
+});
+
+test("recovery never resurrects logout, disabled users or expired sessions", async () => {
+  for (const reason of ["logout", "disabled", "expired"]) {
+    const initial = await login();
+    const rotated = await api("POST", "/auth/refresh", {
+      cookie: initial.cookie,
+    });
+    const sid = jwt.decode(initial.body.accessToken).sid;
+    try {
+      if (reason === "logout")
+        await api("POST", "/auth/logout", { cookie: rotated.cookie });
+      if (reason === "disabled")
+        await prisma.user.update({
+          where: { id: primary.id },
+          data: { disabledAt: new Date() },
+        });
+      if (reason === "expired")
+        await prisma.authSession.update({
+          where: { id: sid },
+          data: {
+            createdAt: new Date(Date.now() - 2000),
+            expiresAt: new Date(Date.now() - 1000),
+          },
+        });
+      const result = await api("POST", "/auth/refresh", {
+        cookie: initial.cookie,
+      });
+      expectError(
+        result,
+        reason === "disabled" ? 403 : 401,
+        reason === "disabled" ? "USER_DISABLED" : "REFRESH_EXPIRED",
+      );
+      if (reason !== "expired") {
+        const saved = await prisma.authSession.findUnique({
+          where: { id: sid },
+        });
+        assert.equal(saved.refreshRecoveryToken, null);
+      }
+    } finally {
+      if (reason === "disabled")
+        await prisma.user.update({
+          where: { id: primary.id },
+          data: { disabledAt: null },
+        });
+    }
+  }
+});
+
+test("expired or corrupted recovery data cannot issue a refresh grant", async () => {
+  for (const data of [
+    { refreshRecoveryUntil: new Date(0) },
+    { refreshRecoveryToken: "tampered-ciphertext" },
+  ]) {
+    const initial = await login();
+    await api("POST", "/auth/refresh", { cookie: initial.cookie });
+    const sid = jwt.decode(initial.body.accessToken).sid;
+    await prisma.authSession.update({ where: { id: sid }, data });
+    expectError(
+      await api("POST", "/auth/refresh", { cookie: initial.cookie }),
+      401,
+      "REFRESH_REUSED",
+    );
+  }
 });
 
 test("cookie endpoints require the exact configured Origin", async () => {

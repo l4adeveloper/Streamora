@@ -64,8 +64,10 @@ Sau khi sửa lỗi, chạy lại bộ bị ảnh hưởng; chạy toàn bộ kh
 
 3. **Refresh rotation và phát hiện reuse.**
    Integration kiểm tra hash token trong DB, chỉ một token hiện tại, xoay vòng
-   không kéo dài hạn tuyệt đối và reuse thu hồi cả family. Hai refresh đồng thời
-   không tạo hai nhánh hợp lệ. Cookie/browser kiểm tra cùng hành vi qua fetch thật.
+   không kéo dài hạn tuyệt đối; retry trong 10 giây phục hồi cookie hiện tại,
+   reuse ngoài cửa sổ thu hồi cả family. Hai refresh đồng thời không tạo hai nhánh
+   hợp lệ. UI test reload sau khi backend commit nhưng trước khi nhận Set-Cookie
+   phải giữ đăng nhập. Logout/khóa tài khoản/hết hạn không được phục hồi phiên.
 
 4. **Logout vô hiệu phiên.**
    Integration kiểm tra bearer/cookie cũ bị từ chối, logout lặp an toàn và không

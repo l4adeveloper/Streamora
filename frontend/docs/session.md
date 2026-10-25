@@ -86,9 +86,15 @@ Landing và sidebar workspace hiển thị trạng thái user từ provider chun
 - Refresh 401/reuse/hết hạn, 401 sau một lần retry hoặc USER_DISABLED kết thúc state,
   thông báo các tab và đưa trang bảo vệ về đăng nhập. Server xóa cookie ở refresh lỗi;
   các lỗi xác thực từ resource có bước logout tốt nhất có thể để xóa cookie auth-path.
+  Hết hạn/thu hồi phiên không hiện banner; thông báo tài khoản bị khóa và đăng xuất
+  ở tab khác vẫn được giữ.
 - Lỗi mạng/503 giữ phiên để thử lại. Refresh nền có backoff 30 giây để tránh vòng lặp;
   người dùng có thể thử lại chủ động. Logout do người dùng yêu cầu chỉ xóa state sau
   khi server xác nhận thành công.
+- Backend cho phục hồi cookie hiện tại trong 10 giây từ lúc token cũ được dùng,
+  để reload hủy response sau khi rotation đã commit không làm mất phiên. Retry
+  không tạo generation mới hoặc gia hạn cửa sổ; token cũ ngoài cửa sổ vẫn bị thu hồi.
+  Frontend vẫn giữ single-flight và Web Locks để giảm tranh chấp.
 
 ## Đồng bộ và tránh ghi nhầm tài khoản
 
