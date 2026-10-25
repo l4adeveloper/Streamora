@@ -447,7 +447,7 @@ test("T04 independent meet invitations survive login, admit outsiders after appr
     const path = `/meet/${session.joinCode}`;
     await host.page.goto(fixture.webOrigin + path);
     await page.goto(fixture.webOrigin + path);
-    await page.waitForURL("**/login?next=*");
+    await page.waitForURL("**/auth?next=*");
     await login(page, viewer, fixture.webOrigin + path);
     await page
       .getByRole("heading", { name: session.title, exact: true })
@@ -770,7 +770,7 @@ test("T04 logout in another tab clears the protected room and preserves its dest
     await accountPage
       .getByRole("button", { name: "Đăng xuất", exact: true })
       .click();
-    await page.waitForURL("**/login?next=*");
+    await page.waitForURL("**/auth?next=*");
     assert.equal(
       await page
         .getByRole("heading", { name: session.title, exact: true })

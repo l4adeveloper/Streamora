@@ -311,26 +311,6 @@ body:has(.app-shell) {
   margin: 0;
   gap: var(--space-2);
 }
-.app-shell .view-live > .rewind-tip {
-  flex: 0 1 auto;
-  min-height: 0;
-  max-height: 88px;
-  padding: var(--space-2) var(--space-3);
-  overflow-y: auto;
-}
-.app-shell .view-live .tip-icon {
-  width: 24px;
-  height: 24px;
-}
-.app-shell .view-live .rewind-tip b {
-  font-size: var(--type-secondary);
-  line-height: var(--line-secondary);
-}
-.app-shell .view-live .rewind-tip p {
-  margin-top: 0;
-  font-size: var(--type-meta);
-  line-height: var(--line-meta);
-}
 .app-shell .view-live > .session-bottom {
   flex: 0 1 auto;
   min-height: 0;
