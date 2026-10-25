@@ -61,11 +61,7 @@ export function AccountLink({
         Đang kiểm tra phiên…
       </span>
     );
-  const href = user
-    ? "/account"
-    : variant === "button"
-      ? "/register"
-      : "/login";
+  const href = user ? "/account" : "/auth";
   return (
     <Link
       className={variant === "button" ? "button secondary" : undefined}

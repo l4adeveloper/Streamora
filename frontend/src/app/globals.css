@@ -1499,53 +1499,6 @@ small {
 .text-cyan {
   color: var(--cyan) !important;
 }
-.rewind-tip {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-3);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-small);
-  color: var(--on-secondary-soft);
-  border-color: var(--border);
-}
-.tip-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-small);
-  display: grid;
-  place-items: center;
-  background: transparent;
-  color: var(--accent);
-  flex-shrink: 0;
-}
-.rewind-tip b {
-  display: block;
-  font-size: var(--type-body);
-  line-height: var(--line-heading);
-  color: var(--text);
-  font-weight: 500;
-}
-.rewind-tip p {
-  margin: var(--space-1) 0 0;
-  font-size: var(--type-secondary);
-  color: var(--muted);
-  line-height: var(--line-secondary);
-}
-.tip-tag {
-  font-size: var(--type-meta);
-  line-height: var(--line-meta);
-  letter-spacing: normal;
-  white-space: nowrap;
-  color: var(--muted);
-  padding: var(--space-1) var(--space-2);
-  background: var(--surface-container);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-badge);
-  margin-left: auto;
-  border-color: transparent;
-}
 .session-bottom {
   margin-top: var(--space-6);
 }
@@ -1774,17 +1727,6 @@ small {
   color: var(--text);
   margin: var(--space-1) 0 0;
   overflow-wrap: anywhere;
-}
-.reaction {
-  margin-top: var(--space-2);
-  font-size: var(--type-secondary);
-  line-height: var(--line-secondary);
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border);
-  color: var(--muted);
-  padding: 3px var(--space-2);
-  background: var(--bg);
-  border-color: var(--border);
 }
 .chat-form {
   padding: var(--space-3) var(--space-4) var(--space-4);
@@ -3497,22 +3439,6 @@ small {
     padding: 8px;
     min-height: 36px;
   }
-  .rewind-tip {
-    padding: 20px;
-    background: var(--panel);
-  }
-  .rewind-tip b {
-    font-size: var(--type-body);
-    line-height: var(--line-heading);
-  }
-  .rewind-tip p {
-    font-size: var(--type-secondary);
-    line-height: var(--line-secondary);
-  }
-  .tip-tag {
-    font-size: var(--type-meta);
-    line-height: var(--line-meta);
-  }
   .section-heading h2 {
     font-size: var(--type-section);
     line-height: var(--line-section);
@@ -3778,22 +3704,6 @@ small {
     line-height: var(--line-secondary);
     padding: 8px;
     min-height: 36px;
-  }
-  .tip-tag {
-    display: none;
-  }
-  .rewind-tip {
-    gap: var(--space-2);
-    padding: var(--space-3);
-    background: var(--panel);
-  }
-  .rewind-tip p {
-    font-size: var(--type-secondary);
-    line-height: var(--line-secondary);
-  }
-  .rewind-tip b {
-    font-size: var(--type-body);
-    line-height: var(--line-heading);
   }
   .panel-tabs {
     gap: var(--space-3);
@@ -4186,14 +4096,6 @@ small {
     margin-bottom: 20px;
     flex-wrap: wrap;
   }
-  .rewind-tip p {
-    font-size: var(--type-secondary);
-    line-height: var(--line-secondary);
-  }
-  .rewind-tip b {
-    font-size: var(--type-body);
-    line-height: var(--line-heading);
-  }
   .lesson-resource {
     gap: var(--space-2);
     padding: var(--space-3);
@@ -4432,14 +4334,6 @@ small {
     line-height: var(--line-secondary);
     min-height: 36px;
     padding: 8px;
-  }
-  .rewind-tip b {
-    font-size: var(--type-body);
-    line-height: var(--line-heading);
-  }
-  .rewind-tip p {
-    font-size: var(--type-secondary);
-    line-height: var(--line-secondary);
   }
   .lesson-resource b {
     font-size: var(--type-body);
@@ -4911,27 +4805,6 @@ small {
   }
   .leave-button > svg {
     width: 14px;
-  }
-  .rewind-tip {
-    padding: var(--space-3) var(--space-2);
-    gap: var(--space-2);
-    background: var(--panel);
-  }
-  .tip-icon {
-    width: 27px;
-    height: 29px;
-    border-radius: var(--radius-small);
-  }
-  .tip-icon > svg {
-    width: 18px;
-  }
-  .rewind-tip b {
-    font-size: var(--type-body);
-    line-height: var(--line-heading);
-  }
-  .rewind-tip p {
-    font-size: var(--type-secondary);
-    line-height: var(--line-secondary);
   }
   .session-bottom {
     margin-top: 20px;
@@ -5673,13 +5546,6 @@ small {
 .app-shell .channel.selected:hover {
   background: var(--accent-soft);
   color: var(--on-accent-soft);
-}
-.app-shell .rewind-tip {
-  background: var(--panel);
-}
-.app-shell .rewind-tip p,
-.app-shell .rewind-tip .tip-tag {
-  color: var(--muted);
 }
 .files-banner p,
 .files-banner .eyebrow {

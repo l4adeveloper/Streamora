@@ -10,14 +10,12 @@ export function WorkspaceChat({
   draft,
   onDraftChange,
   onSubmit,
-  onReaction,
   welcome,
 }: {
   messages: ChatMessage[];
   draft: string;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
-  onReaction: () => void;
   welcome?: ReactNode;
 }) {
   const history = useRef<HTMLDivElement>(null);
@@ -46,9 +44,11 @@ export function WorkspaceChat({
           <ShieldCheck size={14} />
           <span>Cuộc trò chuyện được lưu trong cộng đồng</span>
         </div>
-        <div className="chat-date">
-          <span /> Hôm nay, 17 tháng 10 <span />
-        </div>
+        {messages.length > 0 && (
+          <div className="chat-date">
+            <span /> Hôm nay <span />
+          </div>
+        )}
         <div className="messages">
           {messages.map((message, index) => (
             <div className="message" key={index}>
@@ -62,11 +62,6 @@ export function WorkspaceChat({
                   <time>{message.time}</time>
                 </div>
                 <p>{message.text}</p>
-                {index === 4 && (
-                  <button className="reaction" onClick={onReaction}>
-                    💜 3
-                  </button>
-                )}
               </div>
             </div>
           ))}

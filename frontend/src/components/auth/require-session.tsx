@@ -19,8 +19,8 @@ export function RequireSession({
     if (auth.phase === "anonymous")
       router.replace(
         preserveDestination
-          ? `/login?next=${encodeURIComponent(window.location.pathname)}`
-          : "/login",
+          ? `/auth?next=${encodeURIComponent(window.location.pathname)}`
+          : "/auth",
       );
   }, [auth.phase, router, preserveDestination]);
   if (auth.phase === "checking" || auth.phase === "anonymous")
@@ -32,7 +32,7 @@ export function RequireSession({
         description={auth.notice ?? "Vui lòng kiểm tra kết nối và thử lại."}
         onRetry={auth.retry}
       >
-        <Link href="/login" className="button secondary">
+        <Link href="/auth" className="button secondary">
           Đến trang đăng nhập
         </Link>
       </ErrorState>

@@ -94,11 +94,15 @@ test("home poster stays in one viewport and Start opens login before workspace",
       0,
     );
     assert.equal(
-      await page.locator(".entry-page form, .landing-preview, .preview-body, .app-shell").count(),
+      await page
+        .locator(
+          ".entry-page form, .landing-preview, .preview-body, .app-shell",
+        )
+        .count(),
       0,
     );
     const start = page.getByRole("link", { name: "Bắt đầu", exact: true });
-    assert.equal(await start.getAttribute("href"), "/login");
+    assert.equal(await start.getAttribute("href"), "/auth");
     for (const viewport of [
       { width: 1440, height: 900 },
       { width: 1366, height: 768 },
@@ -119,7 +123,7 @@ test("home poster stays in one viewport and Start opens login before workspace",
       assert.ok(button.y >= 0 && button.y + button.height <= viewport.height);
     }
     await start.click();
-    await page.waitForURL("**/login");
+    await page.waitForURL("**/auth");
     await waitForButton(page, "Đăng nhập");
     await fillLogin(page, account.email);
     await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
@@ -132,6 +136,69 @@ test("home poster stays in one viewport and Start opens login before workspace",
     await open(page, "/");
     await page.getByRole("link", { name: "Bắt đầu", exact: true }).click();
     await page.waitForURL("**/workspace");
+  });
+});
+test("login and register tabs swap forms on one auth URL without a document navigation", async () => {
+  await withPage(async (page) => {
+    await open(page, "/auth");
+    await waitForButton(page, "Đăng nhập");
+    assert.equal(await page.locator(".auth-story").count(), 0);
+    const panel = await page.locator(".auth-panel").boundingBox();
+    assert.ok(panel);
+    assert.ok(Math.abs(panel.x + panel.width / 2 - 720) <= 1);
+    await fillLogin(page, "kept@example.test", "kept-password-123!");
+    await page.evaluate(() => {
+      window.__authTabMarker = "still-here";
+    });
+    let documentRequests = 0;
+    page.on("request", (request) => {
+      if (request.resourceType() === "document") documentRequests++;
+    });
+
+    await page
+      .locator(".auth-tabs")
+      .getByRole("button", { name: "Tạo tài khoản", exact: true })
+      .click();
+    await page.getByLabel("Họ và tên", { exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/auth");
+    await page.getByLabel("Họ và tên", { exact: true }).fill("Nguyễn Minh Anh");
+    assert.equal(
+      await page.getByLabel("Email", { exact: true }).inputValue(),
+      "kept@example.test",
+    );
+    assert.equal(
+      await page.getByLabel("Mật khẩu", { exact: true }).inputValue(),
+      "kept-password-123!",
+    );
+
+    await page
+      .locator(".auth-tabs")
+      .getByRole("button", { name: "Đăng nhập", exact: true })
+      .click();
+    assert.equal(await page.getByLabel("Họ và tên").count(), 0);
+    assert.equal(new URL(page.url()).pathname, "/auth");
+    assert.equal(
+      await page.getByLabel("Email", { exact: true }).inputValue(),
+      "kept@example.test",
+    );
+    assert.equal(
+      await page.getByLabel("Mật khẩu", { exact: true }).inputValue(),
+      "kept-password-123!",
+    );
+    assert.equal(
+      await page.evaluate(() => window.__authTabMarker),
+      "still-here",
+    );
+    await page
+      .locator(".auth-tabs")
+      .getByRole("button", { name: "Tạo tài khoản", exact: true })
+      .click();
+    assert.equal(
+      await page.getByLabel("Họ và tên", { exact: true }).inputValue(),
+      "Nguyễn Minh Anh",
+    );
+    assert.equal(new URL(page.url()).pathname, "/auth");
+    assert.equal(documentRequests, 0);
   });
 });
 test("real UI registers once, logs in, loads/updates the profile, restores after reload and logs out", async () => {
@@ -168,7 +235,7 @@ test("real UI registers once, logs in, loads/updates the profile, restores after
       .waitFor();
     assert.equal(registrations, 1);
     assert.equal(await fixture.prisma.user.count({ where: { email } }), 1);
-    await page.getByRole("link", { name: "Đăng nhập ngay" }).click();
+    await page.getByRole("button", { name: "Đăng nhập ngay" }).click();
     await waitForButton(page, "Đăng nhập");
     await fillLogin(page, email);
     const loginResponse = page.waitForResponse(`${fixture.apiUrl}/auth/login`);
@@ -211,11 +278,12 @@ test("real UI registers once, logs in, loads/updates the profile, restores after
     for (const privateValue of [oldToken, PASSWORD, email])
       assert.ok(!JSON.stringify(storage).includes(privateValue));
     await page.getByRole("button", { name: "Đăng xuất", exact: true }).click();
-    await page.waitForURL("**/login");
-    await page
+    await page.waitForURL("**/auth");
+    const logoutNotice = page
       .getByRole("status")
-      .filter({ hasText: "Bạn đã đăng xuất thành công." })
-      .waitFor();
+      .filter({ hasText: "Bạn đã đăng xuất thành công." });
+    await logoutNotice.waitFor();
+    await logoutNotice.waitFor({ state: "hidden", timeout: 5000 });
     assert.equal(
       (
         await fetch(`${fixture.apiUrl}/users/me`, {
@@ -225,7 +293,7 @@ test("real UI registers once, logs in, loads/updates the profile, restores after
       401,
     );
     await open(page, "/account");
-    await page.waitForURL("**/login");
+    await page.waitForURL("**/auth");
     assert.equal(
       await page
         .getByRole("heading", { name: "Họ tên đã cập nhật", exact: true })
@@ -266,7 +334,7 @@ test("forms show field errors, duplicate-email errors and incorrect-login errors
       "true",
     );
     await page
-      .getByRole("link", { name: "Đăng nhập", exact: true })
+      .getByRole("button", { name: "Đăng nhập", exact: true })
       .first()
       .click();
     await waitForButton(page, "Đăng nhập");
@@ -276,7 +344,7 @@ test("forms show field errors, duplicate-email errors and incorrect-login errors
       .getByRole("alert")
       .filter({ hasText: "Email hoặc mật khẩu không đúng" })
       .waitFor();
-    assert.ok(page.url().endsWith("/login"));
+    assert.ok(page.url().endsWith("/auth"));
   });
 });
 
@@ -357,7 +425,7 @@ test("account validates name changes and keeps the session available when logout
     );
     await page.unroute(`${fixture.apiUrl}/auth/logout`);
     await page.getByRole("button", { name: "Đăng xuất", exact: true }).click();
-    await page.waitForURL("**/login");
+    await page.waitForURL("**/auth");
   });
 });
 
@@ -596,7 +664,7 @@ test("account changes clear shared toasts so private notices do not follow logou
       1,
     );
     await page.getByRole("button", { name: "Đăng xuất", exact: true }).click();
-    await page.waitForURL("**/login");
+    await page.waitForURL("**/auth");
     assert.equal(
       await page
         .getByRole("alert")
