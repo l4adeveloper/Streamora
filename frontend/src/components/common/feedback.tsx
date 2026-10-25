@@ -128,7 +128,7 @@ export function RequestError({
       }
     >
       {failure.status === 401 && (
-        <Link href="/login" className="button secondary">
+        <Link href="/auth" className="button secondary">
           Đăng nhập
         </Link>
       )}

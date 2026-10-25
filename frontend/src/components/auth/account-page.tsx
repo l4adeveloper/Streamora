@@ -65,7 +65,7 @@ export function AccountPage() {
     setMessage("");
     try {
       await auth.logout();
-      router.replace("/login");
+      router.replace("/auth");
     } catch (error) {
       setMessage(asAuthError(error).message);
     } finally {
