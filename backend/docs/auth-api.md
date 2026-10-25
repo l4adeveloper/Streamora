@@ -20,7 +20,9 @@ Kiểu dữ liệu import từ `@streamora/contracts`; xem [quy ước dùng chu
    đồng thời Set-Cookie refreshToken. Sai thông tin trả 401 INVALID_CREDENTIALS;
    tài khoản bị khóa trả 403 USER_DISABLED sau khi kiểm tra đúng mật khẩu.
 3. `POST /auth/refresh`: không body; gửi refresh cookie. Trả 200 `{accessToken,expiresIn}`
-   và thay cookie. Token cũ bị dùng lại trả 401 REFRESH_REUSED và thu hồi cả family;
+   và thay cookie. Token vừa dùng được phục hồi cookie hiện tại trong 10 giây,
+   không tạo generation mới hoặc gia hạn cửa sổ. Dùng lại ngoài cửa sổ trả
+   401 REFRESH_REUSED và thu hồi cả family;
    token sai/hết hạn hoặc phiên đã thu hồi trả 401 REFRESH_EXPIRED.
 4. `POST /auth/logout`: không body; gửi refresh cookie. Trả 204, thu hồi phiên hiện tại,
    xóa cookie. Gọi lại hoặc không có cookie vẫn 204; phiên ở thiết bị khác còn hoạt động.
@@ -79,8 +81,17 @@ Invoke-RestMethod -Method Post -Uri "$api/auth/logout" -Headers $originHeaders -
 Sau logout, gọi lại GET `/users/me` bằng `$bearer` cũ sẽ trả 401 UNAUTHENTICATED.
 Để xem đủ trường thay vì bảng bị rút gọn, dùng `Invoke-RestMethod -Uri "$api/users/me" -Headers $bearer | ConvertTo-Json -Depth 3` khi phiên còn hiệu lực.
 Chạy lại register với cùng email trả 409; bỏ qua bước đăng ký nếu tài khoản đã có.
-Các request refresh đồng thời phải được frontend gom thành một; hiện policy thu hồi
-cả family nếu một token bị dùng hai lần, kể cả do hai tab/request cùng gửi.
+Frontend vẫn gom/khóa refresh để giảm request. Backend cho phục hồi token vừa dùng
+trong 10 giây để reload hủy response không làm mất phiên; retry không gia hạn cửa
+sổ. Token cũ ngoài cửa sổ vẫn thu hồi family.
+
+### Cập nhật cho fix/t01: phục hồi refresh bị gián đoạn
+
+Chạy `npm run db:migrate` trước khi khởi động backend mới để thêm hai cột nullable
+`refresh_recovery_token` và `refresh_recovery_until` vào `auth_sessions`.
+Migration không thay đổi token hiện có; lần refresh đầu tiên sẽ tạo dữ liệu phục hồi.
+Mọi API instance dùng cùng ACCESS_TOKEN_SECRET. Không cần thay đổi frontend hoặc
+thêm middleware. Chi tiết mã hóa và đánh đổi cửa sổ phục hồi: [session-security.md](session-security.md).
 
 ## Kiểm thử tự động
 

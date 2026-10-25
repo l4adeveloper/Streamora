@@ -72,7 +72,10 @@ async function login(page, account) {
   await page.getByLabel("Email", { exact: true }).fill(account.email);
   await page.getByLabel("Mật khẩu", { exact: true }).fill(PASSWORD);
   const response = page.waitForResponse(`${fixture.apiUrl}/auth/login`);
-  await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
+  await page
+    .locator("form")
+    .getByRole("button", { name: "Đăng nhập", exact: true })
+    .click();
   const body = await (await response).json();
   await page.waitForURL("**/workspace");
   await page
@@ -306,10 +309,13 @@ test("revocation ends the session in every tab and protected pages return to log
       page.waitForURL("**/auth"),
       second.waitForURL("**/auth"),
     ]);
-    await page
-      .getByRole("status")
-      .filter({ hasText: "Vui lòng đăng nhập lại." })
-      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("status")
+        .filter({ hasText: "Vui lòng đăng nhập lại." })
+        .count(),
+      0,
+    );
     assert.equal(
       (await fixture.prisma.user.findUnique({ where: { id: account.user.id } }))
         .fullName,
@@ -434,10 +440,13 @@ test("absolute refresh expiry signs every tab out without a refresh loop or a su
         "anonymous",
     );
     await second.waitForURL("**/auth");
-    await second
-      .getByRole("status")
-      .filter({ hasText: "Vui lòng đăng nhập lại." })
-      .waitFor();
+    assert.equal(
+      await second
+        .getByRole("status")
+        .filter({ hasText: "Vui lòng đăng nhập lại." })
+        .count(),
+      0,
+    );
     assert.equal(refreshes(), 1);
     assert.equal(await tokens(sid), before);
     assert.equal(await page.getByTestId("user").textContent(), "guest");
@@ -462,6 +471,75 @@ test("absolute refresh expiry signs every tab out without a refresh loop or a su
       await page.getByRole("button", { name: "Gửi cập nhật" }).isDisabled(),
       true,
     );
+  });
+});
+
+test("reloading after a committed refresh loses its response recovers the session", async () => {
+  const account = await seed();
+  await withContext(async (context, page) => {
+    const sid = await login(page, account);
+    await page.goto(`${fixture.webOrigin}/workspace`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForFunction(
+      () =>
+        document.querySelector(".sidebar-user b")?.textContent ===
+        "Người dùng phiên",
+    );
+    const baseline = await tokens(sid);
+    const committed = deferred(),
+      release = deferred();
+    let intercept = true,
+      replacement;
+    await page.route(`${fixture.apiUrl}/auth/refresh`, async (route) => {
+      if (!intercept) return route.continue();
+      intercept = false;
+      // Node fetch deliberately keeps Set-Cookie out of the browser cookie jar.
+      const headers = await route.request().allHeaders();
+      const response = await fetch(`${fixture.apiUrl}/auth/refresh`, {
+        method: "POST",
+        headers: { Origin: fixture.webOrigin, Cookie: headers.cookie },
+      });
+      assert.equal(response.status, 200);
+      replacement = response.headers
+        .get("set-cookie")
+        .split(";")[0]
+        .split("=")[1];
+      committed.resolve();
+      await release.promise;
+      await route.abort().catch(() => {});
+    });
+    try {
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await committed.promise;
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".sidebar-user b")?.textContent ===
+          "Người dùng phiên",
+      );
+      assert.equal(await tokens(sid), baseline + 1);
+      assert.equal(
+        (await fixture.prisma.authSession.findUnique({ where: { id: sid } }))
+          .revokedAt,
+        null,
+      );
+      assert.equal(
+        (await context.cookies(`${fixture.apiUrl}/auth/refresh`)).find(
+          (c) => c.name === "refreshToken",
+        ).value,
+        replacement,
+      );
+      assert.equal(
+        await page.evaluate(
+          () =>
+            JSON.parse(localStorage.getItem("streamora.auth.revision")).action,
+        ),
+        "changed",
+      );
+    } finally {
+      release.resolve();
+    }
   });
 });
 
@@ -798,6 +876,7 @@ test("a browser without Web Locks gets a clear error instead of an unsafe cookie
         .fill("browser@example.test");
       await page.getByLabel("Mật khẩu", { exact: true }).fill(PASSWORD);
       await page
+        .locator("form")
         .getByRole("button", { name: "Đăng nhập", exact: true })
         .click();
       await page

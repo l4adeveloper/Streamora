@@ -55,6 +55,9 @@ model AuthSession {
   lastUsedAt          DateTime?                @map("last_used_at") @db.Timestamptz(3)
   revokedAt           DateTime?                @map("revoked_at") @db.Timestamptz(3)
   revocationReason    SessionRevocationReason? @map("revocation_reason")
+  // Encrypted current refresh token, usable only during the recovery window.
+  refreshRecoveryToken String?                  @map("refresh_recovery_token") @db.Text
+  refreshRecoveryUntil DateTime?                @map("refresh_recovery_until") @db.Timestamptz(3)
   user                User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokens       AuthRefreshToken[]
   classPresenceLeases ClassPresenceLease[]
