@@ -645,9 +645,10 @@ test("overview members can navigate to every workspace section and adding member
         })
         .click();
     }
+    assert.equal(await sidebarMembers.locator(".panel-tabs").count(), 0);
     await sidebarMembers
-      .getByRole("button", { name: "Thành viên", exact: true })
-      .click();
+      .getByRole("button", { name: "Đóng bảng bên", exact: true })
+      .waitFor();
     await sidebarMembers.locator(".membership-person b").first().waitFor();
     assert.equal(await sidebarMembers.locator(".membership-add").count(), 0);
     await sidebarMembers.getByText(viewer.email, { exact: true }).waitFor();
@@ -688,6 +689,144 @@ test("overview members can navigate to every workspace section and adding member
   }
 });
 
+test("authenticated group chat sends through the backend and reloads durable history", async () => {
+  const { owner, viewer, group } = await seed();
+  assert.equal(
+    (
+      await api(owner, "POST", `/groups/${group.id}/members`, {
+        userId: viewer.id,
+        role: "VIEWER",
+      })
+    ).status,
+    201,
+  );
+  const ownerSession = await contextFor(owner);
+  const viewerSession = await contextFor(viewer);
+  try {
+    await Promise.all([
+      ownerSession.page.goto(
+        `${fixture.webOrigin}/community?groupId=${group.id}`,
+      ),
+      viewerSession.page.goto(
+        `${fixture.webOrigin}/community?groupId=${group.id}`,
+      ),
+    ]);
+    const ownerComposer = ownerSession.page.locator(
+      ".community-chat .chat-form",
+    );
+    const viewerHistory = viewerSession.page.locator(
+      ".community-chat .chat-history",
+    );
+    const input = ownerComposer.getByRole("textbox", {
+      name: "Tin nhắn",
+      exact: true,
+    });
+    await ownerSession.page.waitForFunction(() => {
+      const field = document.querySelector(".community-chat .chat-form input");
+      return field && !field.disabled;
+    });
+    const text = `Tin nhắn backend ${randomUUID()}`;
+    await input.fill(text);
+    await ownerComposer
+      .getByRole("button", { name: "Gửi tin nhắn", exact: true })
+      .click();
+    await viewerHistory.getByText(text, { exact: true }).waitFor();
+    await viewerHistory.getByText(owner.fullName, { exact: true }).waitFor();
+    assert.equal(
+      await fixture.prisma.groupChatMessage.count({
+        where: { groupId: group.id, senderId: owner.id, text },
+      }),
+      1,
+    );
+
+    const ownerMessage = ownerSession.page
+      .locator(".community-chat .message")
+      .filter({ hasText: text });
+    await ownerMessage.hover();
+    await ownerMessage
+      .getByRole("button", { name: "Sửa tin nhắn", exact: true })
+      .click();
+    const editedText = `${text} đã sửa`;
+    await ownerMessage
+      .getByRole("textbox", { name: "Sửa nội dung tin nhắn", exact: true })
+      .fill(editedText);
+    await ownerMessage
+      .getByRole("button", { name: "Lưu thay đổi", exact: true })
+      .click();
+    await viewerHistory.getByText(editedText, { exact: true }).waitFor();
+
+    const viewerOriginal = viewerHistory
+      .locator(".message")
+      .filter({ hasText: editedText });
+    await viewerOriginal.hover();
+    assert.equal(
+      await viewerOriginal
+        .getByRole("button", { name: "Sửa tin nhắn", exact: true })
+        .count(),
+      0,
+    );
+    await viewerOriginal
+      .getByRole("button", {
+        name: `Trả lời tin nhắn của ${owner.fullName}`,
+        exact: true,
+      })
+      .click();
+    await viewerSession.page
+      .getByText("Đang trả lời", { exact: false })
+      .waitFor();
+    const replyText = `Trả lời ${randomUUID()}`;
+    const viewerComposer = viewerSession.page.locator(
+      ".community-chat .chat-form",
+    );
+    await viewerComposer
+      .getByRole("textbox", { name: "Tin nhắn", exact: true })
+      .fill(replyText);
+    await viewerComposer
+      .getByRole("button", { name: "Gửi tin nhắn", exact: true })
+      .click();
+    await ownerSession.page
+      .locator(".community-chat .chat-history")
+      .getByText(replyText, { exact: true })
+      .waitFor();
+    const viewerReply = viewerHistory
+      .locator(".message")
+      .filter({ hasText: replyText });
+    await viewerReply.hover();
+    viewerSession.page.once("dialog", (dialog) => dialog.accept());
+    await viewerReply
+      .getByRole("button", { name: "Xóa tin nhắn", exact: true })
+      .click();
+    await viewerReply.waitFor({ state: "detached" });
+
+    await viewerSession.page.reload();
+    await viewerSession.page
+      .locator(".community-chat .chat-history")
+      .getByText(editedText, { exact: true })
+      .waitFor();
+    assert.equal(
+      await viewerSession.page.getByText(replyText, { exact: true }).count(),
+      0,
+    );
+
+    const channelName = `kenh-${randomUUID().slice(0, 8)}`;
+    await ownerSession.page.getByTitle("Thêm kênh", { exact: true }).click();
+    const channelDialog = ownerSession.page.getByRole("dialog");
+    await channelDialog
+      .getByLabel("Tên kênh", { exact: true })
+      .fill(channelName);
+    await channelDialog
+      .getByRole("button", { name: "Tạo kênh", exact: false })
+      .click();
+    await ownerSession.page.waitForURL(`**/community/${channelName}`);
+    await viewerSession.page
+      .getByRole("link", { name: channelName, exact: true })
+      .waitFor();
+  } finally {
+    await ownerSession.context.close();
+    await viewerSession.context.close();
+  }
+});
+
 test("chat history scrolls independently while composing and sending stays fixed on desktop and mobile", async () => {
   const context = await browser.newContext({
     reducedMotion: "reduce",
@@ -701,10 +840,12 @@ test("chat history scrolls independently while composing and sending stays fixed
       "streamora-chat-v2:trò-chuyện-chung",
       JSON.stringify(
         Array.from({ length: 60 }, (_, index) => ({
-          name: "Thành viên thử nghiệm",
-          initials: "TV",
+          senderId: index === 30 ? "other-member" : "test-member",
+          name: index === 30 ? "Thành viên khác" : "Thành viên thử nghiệm",
+          initials: index === 30 ? "TK" : "TV",
           color: "blue",
           time: "10:00",
+          createdAt: new Date(Date.now() - (60 - index) * 1000).toISOString(),
           text: `Tin nhắn lịch sử ${index + 1}`,
         })),
       ),
@@ -718,6 +859,8 @@ test("chat history scrolls independently while composing and sending stays fixed
     const history = shell.locator(".community-chat .chat-history");
     const composer = shell.locator(".community-chat .chat-form");
     await history.getByText("Tin nhắn lịch sử 60", { exact: true }).waitFor();
+    assert.equal(await history.locator(".message-meta").count(), 3);
+    assert.equal(await history.locator(".message.continuation").count(), 57);
     await page.waitForFunction(() => {
       const element = document.querySelector(".community-chat .chat-history");
       return element && element.scrollTop > 0;

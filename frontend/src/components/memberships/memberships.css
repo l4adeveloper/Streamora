@@ -16,6 +16,24 @@
   margin: 0 0 var(--space-1);
   font-weight: 500;
 }
+.membership-heading-copy {
+  flex: 1;
+  min-width: 0;
+}
+.membership-heading-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.membership-heading-title h2 {
+  margin: 0;
+}
+.membership-heading-title > .icon-button {
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .membership-heading p,
 .membership-footnote {
   color: var(--muted, var(--text));

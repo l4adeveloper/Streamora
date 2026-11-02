@@ -426,6 +426,19 @@ test("T03-07 only notifies the affected user, evicts online sockets and rejects 
       true,
     );
     await waitUntil(() => messages.length === 1);
+    assert.equal(messages[0].senderId, host.id);
+    assert.equal(messages[0].senderName, host.fullName);
+    assert.equal(messages[0].senderRole, "HOST");
+    assert.equal(messages[0].channel, "trò-chuyện-chung");
+    assert.equal(
+      await prisma.groupChatMessage.count({
+        where: { groupId: id, text: "Trước khi xóa" },
+      }),
+      1,
+    );
+    const history = await ack(observer, "channel:join", { groupId: id });
+    assert.equal(history.ok, true);
+    assert.equal(history.messages.at(-1).id, messages[0].id);
     assert.equal(
       (
         await api(owner, "PATCH", `/groups/${id}/members/${viewer.id}`, {
@@ -470,6 +483,142 @@ test("T03-07 only notifies the affected user, evicts online sockets and rejects 
   } finally {
     for (const socket of [learner, teacher, observer, stranger])
       socket.disconnect();
+  }
+});
+
+test("group chat replies, edits and soft-deletes only the author's messages in real time", async () => {
+  const id = await group();
+  await member(id, viewer);
+  const author = await connect(owner);
+  const reader = await connect(viewer);
+  const created = [],
+    updated = [],
+    deleted = [],
+    channels = [];
+  reader.on("chat:message", (value) => created.push(value));
+  reader.on("chat:message.updated", (value) => updated.push(value));
+  reader.on("chat:message.deleted", (value) => deleted.push(value));
+  reader.on("chat:channel.created", (value) => channels.push(value));
+  try {
+    assert.equal((await ack(author, "channel:join", { groupId: id })).ok, true);
+    assert.equal((await ack(reader, "channel:join", { groupId: id })).ok, true);
+
+    const channelName = `thao-luan-${randomUUID().slice(0, 8)}`;
+    const channel = await ack(author, "chat:channel.create", {
+      groupId: id,
+      name: channelName,
+    });
+    assert.equal(channel.ok, true);
+    assert.equal(channel.channel.name, channelName);
+    await waitUntil(() =>
+      channels.some((candidate) => candidate.id === channel.channel.id),
+    );
+    assert.equal(
+      (
+        await ack(reader, "chat:channel.create", {
+          groupId: id,
+          name: channelName,
+        })
+      ).ok,
+      false,
+    );
+    const joinedAgain = await ack(reader, "channel:join", { groupId: id });
+    assert.equal(
+      joinedAgain.channels.some(
+        (candidate) => candidate.id === channel.channel.id,
+      ),
+      true,
+    );
+
+    const clientId = randomUUID();
+    const original = await ack(author, "chat:send", {
+      groupId: id,
+      text: "Tin nhắn gốc",
+      clientId,
+    });
+    assert.equal(original.ok, true);
+    await waitUntil(() =>
+      created.some((message) => message.id === original.id),
+    );
+    assert.equal(
+      created.find((message) => message.id === original.id).clientId,
+      clientId,
+    );
+
+    const reply = await ack(reader, "chat:send", {
+      groupId: id,
+      text: "Tin nhắn trả lời",
+      replyToId: original.id,
+    });
+    assert.equal(reply.ok, true);
+    await waitUntil(() => created.some((message) => message.id === reply.id));
+    assert.equal(
+      created.find((message) => message.id === reply.id).replyToId,
+      original.id,
+    );
+
+    assert.equal(
+      (
+        await ack(reader, "chat:edit", {
+          groupId: id,
+          id: original.id,
+          text: "Không được phép",
+        })
+      ).ok,
+      false,
+    );
+    assert.equal(
+      (
+        await ack(reader, "chat:delete", {
+          groupId: id,
+          id: original.id,
+        })
+      ).ok,
+      false,
+    );
+
+    const edited = await ack(author, "chat:edit", {
+      groupId: id,
+      id: original.id,
+      text: "Tin nhắn đã sửa",
+    });
+    assert.equal(edited.ok, true);
+    await waitUntil(() =>
+      updated.some((message) => message.id === original.id),
+    );
+    const update = updated.find((message) => message.id === original.id);
+    assert.equal(update.text, "Tin nhắn đã sửa");
+    assert.ok(update.editedAt);
+
+    const removed = await ack(author, "chat:delete", {
+      groupId: id,
+      id: original.id,
+    });
+    assert.equal(removed.ok, true);
+    await waitUntil(() =>
+      deleted.some((message) => message.id === original.id),
+    );
+    const history = await ack(reader, "channel:join", { groupId: id });
+    assert.equal(history.ok, true);
+    assert.equal(
+      history.messages.some((message) => message.id === original.id),
+      false,
+    );
+    assert.equal(
+      history.messages.find((message) => message.id === reply.id).replyToId,
+      original.id,
+    );
+    assert.ok(
+      (
+        await prisma.groupChatMessage.findUnique({
+          where: { id: original.id },
+          select: { deletedAt: true },
+        })
+      ).deletedAt,
+    );
+  } finally {
+    author.disconnect();
+    reader.disconnect();
   }
 });
 
