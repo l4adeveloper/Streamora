@@ -7,7 +7,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { Crown, Plus, Search, Trash2, Users } from "lucide-react";
+import { Crown, Plus, Search, Trash2, Users, X } from "lucide-react";
 import type {
   AssignableRole,
   GroupPermissions,
@@ -22,6 +22,7 @@ import {
   removeMember,
 } from "@/lib/memberships/api";
 import { useToast } from "@/components/common/toast-provider";
+import { IconButton } from "@/components/ui";
 import {
   InlineNotice,
   LoadingState,
@@ -35,11 +36,13 @@ export function MembersPanel({
   permissions,
   revision = 0,
   allowManagement = false,
+  onClose,
 }: {
   groupId: string;
   permissions: GroupPermissions;
   revision?: number;
   allowManagement?: boolean;
+  onClose?: () => void;
 }) {
   const canManage = allowManagement && permissions.canManageMembers;
   const { notify } = useToast();
@@ -57,22 +60,33 @@ export function MembersPanel({
   const [removing, setRemoving] = useState<Membership | null>(null);
   const sequence = useRef(0);
   const alive = useRef(true);
-  const load = useCallback(async () => {
-    const request = ++sequence.current;
-    setLoading(true);
-    setMoreLoading(false);
-    setError(null);
-    try {
-      const page = await listMembers(groupId, { q: queryRef.current.trim() });
-      if (request !== sequence.current || !alive.current) return;
-      setMembers(page.items);
-      setCursor(page.nextCursor);
-    } catch (cause) {
-      if (request === sequence.current && alive.current) setError(cause);
-    } finally {
-      if (request === sequence.current && alive.current) setLoading(false);
-    }
-  }, [groupId]);
+  const hasLoaded = useRef(false);
+  const previousRevision = useRef(revision);
+  const load = useCallback(
+    async (background = false) => {
+      const request = ++sequence.current;
+      const silent = background && hasLoaded.current;
+      if (!silent) setLoading(true);
+      setMoreLoading(false);
+      if (!silent) setError(null);
+      try {
+        const page = await listMembers(groupId, {
+          q: queryRef.current.trim(),
+        });
+        if (request !== sequence.current || !alive.current) return;
+        setMembers(page.items);
+        setCursor(page.nextCursor);
+        hasLoaded.current = true;
+      } catch (cause) {
+        if (request === sequence.current && alive.current && !silent)
+          setError(cause);
+      } finally {
+        if (request === sequence.current && alive.current && !silent)
+          setLoading(false);
+      }
+    },
+    [groupId],
+  );
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -86,7 +100,12 @@ export function MembersPanel({
       clearTimeout(timer);
       sequence.current++;
     };
-  }, [query, load, revision]);
+  }, [query, load]);
+  useEffect(() => {
+    if (previousRevision.current === revision) return;
+    previousRevision.current = revision;
+    void load(true);
+  }, [revision, load]);
   async function loadMore() {
     if (!cursor || loading || moreLoading) return;
     const request = ++sequence.current;
@@ -125,7 +144,7 @@ export function MembersPanel({
       notify(success, { tone: "success" });
       setRemoving(null);
       if (id === "add") setEmail("");
-      await load();
+      await load(true);
     } catch (cause) {
       if (alive.current) setActionError(asApiError(cause).message);
     } finally {
@@ -158,8 +177,15 @@ export function MembersPanel({
         <span className="membership-icon">
           <Users size={22} />
         </span>
-        <div>
-          <h2>Thành viên</h2>
+        <div className="membership-heading-copy">
+          <div className="membership-heading-title">
+            <h2>Thành viên</h2>
+            {onClose && (
+              <IconButton label="Đóng bảng bên" onClick={onClose}>
+                <X size={16} />
+              </IconButton>
+            )}
+          </div>
           <p>Cùng học tập trong không gian của nhóm.</p>
         </div>
       </div>
