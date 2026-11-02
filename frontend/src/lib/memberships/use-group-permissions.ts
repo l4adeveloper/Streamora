@@ -18,6 +18,7 @@ export function useGroupPermissions(groupId: string | null) {
   }>({ key: "", permissions: null, error: null, loading: true });
   const sequence = useRef(0);
   const [revision, setRevision] = useState(0);
+  const [membershipRevision, setMembershipRevision] = useState(0);
   const refresh = useCallback(async () => {
     const request = ++sequence.current;
     if (!user || !groupId) {
@@ -54,9 +55,14 @@ export function useGroupPermissions(groupId: string | null) {
   useEffect(() => {
     if (!user || !groupId) return;
     let latestVersion = 0n;
-    const base = (
-      process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4000/api/v1"
-    ).replace(/\/api\/v1\/?$/, "");
+    const base = (process.env.NEXT_PUBLIC_API_URL || "").replace(
+      /\/api\/v1\/?$/,
+      "",
+    );
+    if (base === "")
+      console.warn(
+        "[Streamora] NEXT_PUBLIC_API_URL is empty; realtime will use the current site origin.",
+      );
     const socket = io(
       `${process.env.NEXT_PUBLIC_REALTIME_URL ?? base}/classroom`,
       {
@@ -95,6 +101,7 @@ export function useGroupPermissions(groupId: string | null) {
       setState({ key, permissions: null, error: null, loading: true });
       void refresh();
       setRevision((value) => value + 1);
+      setMembershipRevision((value) => value + 1);
     });
     return () => {
       clearInterval(renew);
@@ -105,5 +112,5 @@ export function useGroupPermissions(groupId: string | null) {
     state.key === key
       ? state
       : { permissions: null, error: null, loading: Boolean(user && groupId) };
-  return { ...current, refresh, revision };
+  return { ...current, refresh, revision, membershipRevision };
 }
