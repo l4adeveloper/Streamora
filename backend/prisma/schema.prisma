@@ -41,6 +41,8 @@ model User {
   classJoinDecisions   ClassJoinRequest[]    @relation("ClassJoinReviewer")
   classParticipations  ClassParticipation[]
   classSessionCommands ClassSessionCommand[]
+  groupChatMessages    GroupChatMessage[]
+  createdChatChannels  GroupChatChannel[]
 
   @@map("users")
 }
@@ -48,19 +50,19 @@ model User {
 // A session is also the refresh-token family. Its id stays stable during rotation
 // and becomes the access token's sid. Revoking it invalidates the whole family.
 model AuthSession {
-  id                  String                   @id @default(uuid()) @db.Uuid
-  userId              String                   @map("user_id") @db.Uuid
-  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
-  expiresAt           DateTime                 @map("expires_at") @db.Timestamptz(3)
-  lastUsedAt          DateTime?                @map("last_used_at") @db.Timestamptz(3)
-  revokedAt           DateTime?                @map("revoked_at") @db.Timestamptz(3)
-  revocationReason    SessionRevocationReason? @map("revocation_reason")
+  id                   String                   @id @default(uuid()) @db.Uuid
+  userId               String                   @map("user_id") @db.Uuid
+  createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt            DateTime                 @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt           DateTime?                @map("last_used_at") @db.Timestamptz(3)
+  revokedAt            DateTime?                @map("revoked_at") @db.Timestamptz(3)
+  revocationReason     SessionRevocationReason? @map("revocation_reason")
   // Encrypted current refresh token, usable only during the recovery window.
   refreshRecoveryToken String?                  @map("refresh_recovery_token") @db.Text
   refreshRecoveryUntil DateTime?                @map("refresh_recovery_until") @db.Timestamptz(3)
-  user                User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  refreshTokens       AuthRefreshToken[]
-  classPresenceLeases ClassPresenceLease[]
+  user                 User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens        AuthRefreshToken[]
+  classPresenceLeases  ClassPresenceLease[]
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
@@ -97,17 +99,19 @@ enum GroupMemberRole {
 // Soft-delete: deletedAt non-null means the group is archived.
 // Active sessions block delete (checked at application layer by T04).
 model Group {
-  id            String         @id @default(uuid()) @db.Uuid
-  name          String         @db.VarChar(100)
-  description   String?        @db.VarChar(500)
-  ownerId       String         @map("owner_id") @db.Uuid
-  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  deletedAt     DateTime?      @map("deleted_at") @db.Timestamptz(3)
+  id            String             @id @default(uuid()) @db.Uuid
+  name          String             @db.VarChar(100)
+  description   String?            @db.VarChar(500)
+  ownerId       String             @map("owner_id") @db.Uuid
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt     DateTime?          @map("deleted_at") @db.Timestamptz(3)
   members       GroupMember[]
-  owner         User           @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  owner         User               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   rooms         GroupRoom[]
   classSessions ClassSession[]
+  chatMessages  GroupChatMessage[]
+  chatChannels  GroupChatChannel[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -176,6 +180,46 @@ model MembershipLookupWindow {
   attempts    Int
 
   @@map("membership_lookup_windows")
+}
+
+// Durable group chat. Channel is an application key, not a client-trusted
+// group identifier; access is always resolved from groupId on the server.
+model GroupChatMessage {
+  id         String             @id @default(uuid()) @db.Uuid
+  groupId    String             @map("group_id") @db.Uuid
+  senderId   String             @map("sender_id") @db.Uuid
+  senderName String             @map("sender_name") @db.VarChar(100)
+  senderRole String             @map("sender_role") @db.VarChar(16)
+  channel    String             @db.VarChar(100)
+  text       String             @db.VarChar(4000)
+  replyToId  String?            @map("reply_to_id") @db.Uuid
+  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  editedAt   DateTime?          @map("edited_at") @db.Timestamptz(3)
+  deletedAt  DateTime?          @map("deleted_at") @db.Timestamptz(3)
+  group      Group              @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender     User               @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  replyTo    GroupChatMessage?  @relation("GroupChatReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies    GroupChatMessage[] @relation("GroupChatReplies")
+
+  @@index([groupId, channel, createdAt, id])
+  @@index([senderId, createdAt])
+  @@index([replyToId])
+  @@map("group_chat_messages")
+}
+
+model GroupChatChannel {
+  id          String   @id @default(uuid()) @db.Uuid
+  groupId     String   @map("group_id") @db.Uuid
+  name        String   @db.VarChar(40)
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, name])
+  @@index([groupId, createdAt, id])
+  @@index([createdById])
+  @@map("group_chat_channels")
 }
 
 // T04: application sessions/admission only; independent of LiveKit and auth sessions.
