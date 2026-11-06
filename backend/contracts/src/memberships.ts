@@ -32,3 +32,51 @@ export interface MembershipChanged {
   // Decimal string: a PostgreSQL bigint must never be rounded by JSON/JS.
   version: string;
 }
+
+export interface GroupChatMessage {
+  id: string;
+  clientId: string | null;
+  groupId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: MembershipRole | "ADMIN";
+  channel: string;
+  text: string;
+  replyToId: string | null;
+  createdAt: string;
+  editedAt: string | null;
+}
+
+export interface GroupChatChannel {
+  id: string;
+  groupId: string;
+  name: string;
+  createdById: string;
+  createdAt: string;
+}
+
+export type GroupChatJoinAck =
+  | {
+      ok: true;
+      groupId: string;
+      channel: string;
+      messages: GroupChatMessage[];
+      channels: GroupChatChannel[];
+    }
+  | { ok: false; error: { code: string; message: string } };
+
+export type GroupChatSendAck =
+  | { ok: true; id: string }
+  | { ok: false; error: { code: string; message: string } };
+
+export type GroupChatActionAck = GroupChatSendAck;
+
+export type GroupChatChannelAck =
+  | { ok: true; channel: GroupChatChannel }
+  | { ok: false; error: { code: string; message: string } };
+
+export interface GroupChatDeleted {
+  id: string;
+  groupId: string;
+  channel: string;
+}

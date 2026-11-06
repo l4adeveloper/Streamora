@@ -1683,6 +1683,18 @@ small {
   display: flex;
   gap: var(--space-2);
   margin-bottom: var(--space-6);
+  position: relative;
+}
+.messages > .message.continues {
+  margin-bottom: 2px;
+}
+.messages > .message.continuation > .avatar {
+  height: 0;
+  border: 0;
+  visibility: hidden;
+}
+.messages > .message.continuation p {
+  margin-top: 0;
 }
 .message > .avatar {
   width: 27px;
@@ -1691,7 +1703,7 @@ small {
   line-height: 14px;
   border-radius: var(--radius-full);
 }
-.message > div {
+.message > .message-content {
   flex: 1;
   min-width: 0;
 }
@@ -1699,19 +1711,25 @@ small {
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 .message-meta > b {
   font-size: var(--type-secondary);
   line-height: var(--line-secondary);
   color: var(--text);
   font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .message-meta > time {
   font-size: var(--type-meta);
   line-height: var(--line-meta);
   color: var(--muted);
   margin-left: auto;
+  flex-shrink: 0;
 }
 .host-label {
   font-size: 11px;
@@ -1720,6 +1738,7 @@ small {
   border-radius: var(--radius-badge);
   background: var(--surface-container);
   color: var(--muted);
+  flex-shrink: 0;
 }
 .message p {
   font-size: var(--type-body);
@@ -1728,11 +1747,126 @@ small {
   margin: var(--space-1) 0 0;
   overflow-wrap: anywhere;
 }
+.message-actions {
+  position: absolute;
+  z-index: 2;
+  top: -14px;
+  right: 0;
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  box-shadow: var(--shadow-popover);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.message:hover > .message-actions,
+.message:focus-within > .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.message-actions > button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  border-radius: var(--radius-small);
+  color: var(--muted);
+}
+.message-actions > button:hover:not(:disabled) {
+  background: var(--surface-container);
+  color: var(--text);
+}
+.message-actions > button[aria-label="Xóa tin nhắn"]:hover:not(:disabled) {
+  color: var(--danger);
+}
+.message-reply-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  min-width: 0;
+  margin-top: var(--space-1);
+  color: var(--muted);
+  font-size: var(--type-meta);
+  line-height: var(--line-meta);
+  text-align: left;
+}
+.message-reply-preview > b {
+  flex-shrink: 0;
+  color: var(--text);
+  font-weight: 500;
+}
+.message-reply-preview > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.message-reply-preview:not(:disabled):hover {
+  color: var(--text);
+}
+.message-edited {
+  color: var(--muted);
+  font-size: var(--type-meta);
+  white-space: nowrap;
+}
+.message-text {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.message-text > p {
+  min-width: 0;
+}
+.message-edit-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.message-edit-form > input {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px var(--space-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: var(--surface-container);
+  color: var(--text);
+}
+.message-edit-form > button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  color: var(--muted);
+}
+.message-edit-form > button[type="submit"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.message-edit-form > button:hover:not(:disabled) {
+  background: var(--surface-container-high);
+}
+.message-edit-form > button[type="submit"]:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
 .chat-form {
   padding: var(--space-3) var(--space-4) var(--space-4);
   flex-shrink: 0;
 }
-.chat-form > div {
+.chat-form > .chat-composer-row {
   display: flex;
   align-items: center;
   gap: var(--space-1);
@@ -1765,6 +1899,37 @@ small {
 .chat-form button > svg {
   width: 16px;
   height: 16px;
+}
+.chat-replying {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) var(--space-2);
+  color: var(--muted);
+  font-size: var(--type-meta);
+  line-height: var(--line-meta);
+}
+.chat-replying > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-replying b {
+  color: var(--text);
+  font-weight: 500;
+}
+.chat-form .chat-replying > button {
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.chat-form .chat-replying > button:hover:not(:disabled) {
+  background: var(--surface-container);
+  color: var(--text);
 }
 .chat-form > small {
   display: flex;
@@ -2392,7 +2557,7 @@ small {
   line-height: var(--line-secondary);
 }
 .community-chat .message-meta > time {
-  margin-left: var(--space-3);
+  margin-left: auto;
   font-size: var(--type-meta);
   line-height: var(--line-meta);
 }
@@ -5588,6 +5753,10 @@ small {
 .app-shell .community-chat .message p {
   font-size: 15px;
   line-height: 24px;
+}
+.app-shell .message.pending p {
+  color: var(--muted);
+  opacity: 0.65;
 }
 .app-shell .community-chat .message-meta > b {
   font-size: var(--type-body);

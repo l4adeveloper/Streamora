@@ -56,6 +56,7 @@ import { GroupsListPage } from "./groups/groups-list-page";
 import { MeetHub } from "./class-sessions/meet-hub";
 import { useWorkspaceGroup } from "@/lib/memberships/use-workspace-group";
 import { useGroupPermissions } from "@/lib/memberships/use-group-permissions";
+import { useGroupChat } from "@/lib/memberships/use-group-chat";
 
 import { LivePlayer } from "./live-player";
 import { WorkspaceChat } from "./workspace-chat";
@@ -109,7 +110,9 @@ export function Workspace({
           ? "Chưa tải được nhóm"
           : "Chưa có nhóm học tập"
       : "Không gian trải nghiệm");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  const [pendingMessages, setPendingMessages] = useState<ChatMessage[]>([]);
+  const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const members = membersInitial;
@@ -141,10 +144,75 @@ export function Workspace({
   } | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [customChannels, setCustomChannels] = useState<string[]>([]);
+  const [localCustomChannels, setLocalCustomChannels] = useState<string[]>([]);
   const [activeRoomName, setActiveRoomName] = useState("Phòng học nhóm");
   const chatStorageKey = `streamora-chat-v2:${channel}`;
   const legacyChatStorageKey = `streamora-chat:${channel}`;
+  const groupChat = useGroupChat(workspaceGroup.groupId, channel);
+  const customChannels = workspaceGroup.groupId
+    ? groupChat.channels.map((item) => item.name)
+    : localCustomChannels;
+  const confirmedMessages: ChatMessage[] = groupChat.messages.map(
+    (message) => ({
+      id: message.id,
+      clientId: message.clientId,
+      senderId: message.senderId,
+      name: message.senderId === user?.id ? "Bạn" : message.senderName,
+      initials: groupInitials(message.senderName),
+      color: message.senderId === user?.id ? "violet" : "blue",
+      text: message.text,
+      time: new Date(message.createdAt).toLocaleTimeString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      createdAt: message.createdAt,
+      replyToId: message.replyToId,
+      editedAt: message.editedAt,
+      host: message.senderRole !== "VIEWER",
+    }),
+  );
+  const confirmedMessageIds = new Set(
+    confirmedMessages.map((message) => message.id),
+  );
+  const confirmedClientIds = new Set(
+    confirmedMessages.flatMap((message) =>
+      message.clientId ? [message.clientId] : [],
+    ),
+  );
+  const visibleConfirmedMessages = confirmedMessages.filter((message) => {
+    if (message.clientId) return true;
+    const confirmedAt = Date.parse(message.createdAt ?? "");
+    return !pendingMessages.some((pending) => {
+      const pendingAt = Date.parse(pending.createdAt ?? "");
+      return (
+        pending.pending &&
+        pending.senderId === message.senderId &&
+        pending.text === message.text &&
+        (pending.replyToId ?? null) === (message.replyToId ?? null) &&
+        Number.isFinite(confirmedAt) &&
+        Number.isFinite(pendingAt) &&
+        Math.abs(confirmedAt - pendingAt) < 30_000
+      );
+    });
+  });
+  const messages: ChatMessage[] = workspaceGroup.groupId
+    ? [
+        ...visibleConfirmedMessages,
+        ...pendingMessages.filter(
+          (message) =>
+            !confirmedMessageIds.has(message.id) &&
+            !confirmedClientIds.has(message.clientId ?? ""),
+        ),
+      ].sort((left, right) => {
+        const leftTime = Date.parse(left.createdAt ?? "");
+        const rightTime = Date.parse(right.createdAt ?? "");
+        if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return 0;
+        return leftTime - rightTime;
+      })
+    : localMessages;
+  const replyingTo = replyingToId
+    ? messages.find((message) => message.id === replyingToId)
+    : undefined;
   const cameraStream = useRef<MediaStream | null>(null);
   const screenStream = useRef<MediaStream | null>(null);
   const micStream = useRef<MediaStream | null>(null);
@@ -154,9 +222,14 @@ export function Workspace({
     const showMembers =
       new URLSearchParams(location.search).get("tab") === "members";
     setMembersView(showMembers);
+    if (view === "chat") setPanelTab("members");
     if (showMembers) setPanel(false);
     setMobileNav(false);
   }, [view, channel]);
+  useEffect(() => {
+    setPendingMessages([]);
+    setReplyingToId(null);
+  }, [workspaceGroup.groupId, channel]);
   useEffect(() => {
     setModal(null);
     setRecording(false);
@@ -191,32 +264,35 @@ export function Workspace({
   }, [workspaceGroup.groupId, permissions, groupAccess.loading]);
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(chatStorageKey);
-      if (stored) setMessages(JSON.parse(stored));
+      if (user) setLocalMessages([]);
       else {
-        const legacy = localStorage.getItem(legacyChatStorageKey);
-        const legacyMessages = legacy ? JSON.parse(legacy) : [];
-        const userMessages = Array.isArray(legacyMessages)
-          ? legacyMessages.filter(
-              (message): message is ChatMessage => message?.name === "Bạn",
-            )
-          : [];
-        setMessages(userMessages);
-        if (userMessages.length)
-          localStorage.setItem(chatStorageKey, JSON.stringify(userMessages));
-        localStorage.removeItem(legacyChatStorageKey);
+        const stored = localStorage.getItem(chatStorageKey);
+        if (stored) setLocalMessages(JSON.parse(stored));
+        else {
+          const legacy = localStorage.getItem(legacyChatStorageKey);
+          const legacyMessages = legacy ? JSON.parse(legacy) : [];
+          const userMessages = Array.isArray(legacyMessages)
+            ? legacyMessages.filter(
+                (message): message is ChatMessage => message?.name === "Bạn",
+              )
+            : [];
+          setLocalMessages(userMessages);
+          if (userMessages.length)
+            localStorage.setItem(chatStorageKey, JSON.stringify(userMessages));
+          localStorage.removeItem(legacyChatStorageKey);
+        }
       }
       const storedFiles = localStorage.getItem("streamora-files");
       if (storedFiles) setFiles(JSON.parse(storedFiles));
       const storedChannels = localStorage.getItem("streamora-channels");
-      if (storedChannels) setCustomChannels(JSON.parse(storedChannels));
+      if (storedChannels) setLocalCustomChannels(JSON.parse(storedChannels));
       const roomId = location.pathname.split("/").pop() || "";
       setActiveRoomName(sessionStorage.getItem(roomId) || "Phòng học nhóm");
       if (new URLSearchParams(location.search).get("type") === "recordings")
         setFilter("Bản ghi");
       if (matchMedia("(max-width: 900px)").matches) setPanel(false);
     } catch {}
-  }, [channel, chatStorageKey, legacyChatStorageKey]);
+  }, [user?.id, channel, chatStorageKey, legacyChatStorageKey]);
   useEffect(() => {
     if (!modal) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -345,10 +421,62 @@ export function Workspace({
       );
     }
   }
-  function sendMessage(event: React.FormEvent) {
+  async function sendMessage(event: React.FormEvent) {
     event.preventDefault();
     if (!draft.trim()) return;
+    if (workspaceGroup.groupId) {
+      const text = draft.trim();
+      const replyToId = replyingTo?.id;
+      const clientId = crypto.randomUUID();
+      const optimisticId = `pending:${clientId}`;
+      const optimisticMessage: ChatMessage = {
+        id: optimisticId,
+        clientId,
+        senderId: user?.id,
+        name: "Bạn",
+        initials: groupInitials(user?.fullName ?? "Bạn"),
+        color: "violet",
+        text,
+        time: new Date().toLocaleTimeString("vi-VN", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        createdAt: new Date().toISOString(),
+        replyToId,
+        editedAt: null,
+        host: Boolean(permissions && permissions.role !== "VIEWER"),
+        pending: true,
+      };
+      setPendingMessages((current) => [...current, optimisticMessage]);
+      setDraft("");
+      setReplyingToId(null);
+      try {
+        const id = await groupChat.send(text, replyToId, clientId);
+        setPendingMessages((current) =>
+          current.map((message) =>
+            message.id === optimisticId
+              ? { ...message, id, pending: false }
+              : message,
+          ),
+        );
+      } catch (error) {
+        setPendingMessages((current) =>
+          current.filter((message) => message.id !== optimisticId),
+        );
+        setDraft((current) => current || text);
+        if (replyToId) setReplyingToId((current) => current ?? replyToId);
+        notify(
+          error instanceof Error ? error.message : "Không thể gửi tin nhắn.",
+        );
+      }
+      return;
+    }
+    if (user) {
+      notify("Hãy chọn một nhóm trước khi gửi tin nhắn.");
+      return;
+    }
     const message: ChatMessage = {
+      senderId: "local-user",
       name: "Bạn",
       initials: "BA",
       color: "violet",
@@ -357,11 +485,33 @@ export function Workspace({
         hour: "2-digit",
         minute: "2-digit",
       }),
+      createdAt: new Date().toISOString(),
     };
-    const next = [...messages, message];
-    setMessages(next);
+    const next = [...localMessages, message];
+    setLocalMessages(next);
     localStorage.setItem(chatStorageKey, JSON.stringify(next));
     setDraft("");
+  }
+  async function editMessage(id: string, text: string) {
+    try {
+      await groupChat.edit(id, text);
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Không thể sửa tin nhắn.",
+      );
+      throw error;
+    }
+  }
+  async function removeMessage(id: string) {
+    try {
+      await groupChat.remove(id);
+      if (replyingToId === id) setReplyingToId(null);
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Không thể xóa tin nhắn.",
+      );
+      throw error;
+    }
   }
   const inviteUrl =
     typeof location === "undefined"
@@ -442,6 +592,22 @@ export function Workspace({
     draft,
     onDraftChange: setDraft,
     onSubmit: sendMessage,
+    currentUserId: user?.id,
+    replyingTo,
+    onReply: workspaceGroup.groupId
+      ? (message: ChatMessage) => setReplyingToId(message.id ?? null)
+      : undefined,
+    onCancelReply: () => setReplyingToId(null),
+    onEdit: workspaceGroup.groupId ? editMessage : undefined,
+    onDelete: workspaceGroup.groupId ? removeMessage : undefined,
+    infoText: workspaceGroup.groupId
+      ? "Cuộc trò chuyện được lưu trong cộng đồng"
+      : user
+        ? "Chọn một nhóm để tham gia cuộc trò chuyện"
+        : "Bản trải nghiệm được lưu trên thiết bị này",
+    disabled: workspaceGroup.groupId
+      ? groupChat.status !== "connected"
+      : Boolean(user),
   };
   return (
     <div className={`app-shell ${mobileNav ? "nav-open" : ""}`}>
@@ -794,7 +960,7 @@ export function Workspace({
                   key={`${user.id}:${workspaceGroup.groupId}`}
                   groupId={workspaceGroup.groupId}
                   permissions={permissions}
-                  revision={groupAccess.revision}
+                  revision={groupAccess.membershipRevision}
                   allowManagement
                 />
               ) : null
@@ -1375,27 +1541,29 @@ export function Workspace({
           </main>
           {panel && !membersView && (
             <aside className="right-panel">
-              <div className="panel-tabs">
-                <button
-                  className={panelTab === "chat" ? "selected" : ""}
-                  onClick={() => setPanelTab("chat")}
-                >
-                  Trò chuyện <span>{messages.length}</span>
-                </button>
-                <button
-                  className={panelTab === "members" ? "selected" : ""}
-                  onClick={() => setPanelTab("members")}
-                >
-                  Thành viên
-                </button>
-                <IconButton
-                  label="Đóng bảng bên"
-                  onClick={() => setPanel(false)}
-                >
-                  <X size={16} />
-                </IconButton>
-              </div>
-              {panelTab === "chat" ? (
+              {view !== "chat" && (
+                <div className="panel-tabs">
+                  <button
+                    className={panelTab === "chat" ? "selected" : ""}
+                    onClick={() => setPanelTab("chat")}
+                  >
+                    Trò chuyện <span>{messages.length}</span>
+                  </button>
+                  <button
+                    className={panelTab === "members" ? "selected" : ""}
+                    onClick={() => setPanelTab("members")}
+                  >
+                    Thành viên
+                  </button>
+                  <IconButton
+                    label="Đóng bảng bên"
+                    onClick={() => setPanel(false)}
+                  >
+                    <X size={16} />
+                  </IconButton>
+                </div>
+              )}
+              {view !== "chat" && panelTab === "chat" ? (
                 <WorkspaceChat {...chatProps} />
               ) : !user ? (
                 <div className="membership-empty">
@@ -1425,13 +1593,10 @@ export function Workspace({
                   key={`${user.id}:${workspaceGroup.groupId}`}
                   groupId={workspaceGroup.groupId}
                   permissions={permissions}
-                  revision={groupAccess.revision}
+                  revision={groupAccess.membershipRevision}
+                  onClose={view === "chat" ? () => setPanel(false) : undefined}
                 />
               ) : null}
-              <div className="panel-footer">
-                <span className="status-dot" /> Mọi ý tưởng đều đáng được lắng
-                nghe.
-              </div>
             </aside>
           )}
         </div>
@@ -1507,7 +1672,7 @@ export function Workspace({
             )}
             {modal === "poll" && (
               <form
-                onSubmit={(e) => {
+                onSubmit={async (e) => {
                   e.preventDefault();
                   setPoll(true);
                   setVote(null);
@@ -1731,7 +1896,7 @@ export function Workspace({
             )}
             {modal === "channel" && (
               <form
-                onSubmit={(e) => {
+                onSubmit={async (e) => {
                   e.preventDefault();
                   const name = String(
                     new FormData(e.currentTarget).get("name") || "",
@@ -1742,17 +1907,30 @@ export function Workspace({
                   if (!name) return;
                   if (
                     customChannels.includes(name) ||
-                    name === "trò-chuyện-chung"
+                    ["trò-chuyện-chung", "hỏi-đáp", "thông-báo"].includes(name)
                   ) {
                     notify("Tên kênh đã tồn tại.");
                     return;
                   }
-                  const next = [...customChannels, name];
-                  setCustomChannels(next);
-                  localStorage.setItem(
-                    "streamora-channels",
-                    JSON.stringify(next),
-                  );
+                  if (workspaceGroup.groupId) {
+                    try {
+                      await groupChat.createChannel(name);
+                    } catch (error) {
+                      notify(
+                        error instanceof Error
+                          ? error.message
+                          : "Không thể tạo kênh.",
+                      );
+                      return;
+                    }
+                  } else {
+                    const next = [...localCustomChannels, name];
+                    setLocalCustomChannels(next);
+                    localStorage.setItem(
+                      "streamora-channels",
+                      JSON.stringify(next),
+                    );
+                  }
                   location.href = `/community/${encodeURIComponent(name)}`;
                 }}
               >
@@ -1760,7 +1938,11 @@ export function Workspace({
                   <Hash />
                 </div>
                 <h2>Thêm một cuộc trò chuyện.</h2>
-                <p>Kênh và tin nhắn được lưu riêng trên trình duyệt này.</p>
+                <p>
+                  {workspaceGroup.groupId
+                    ? "Kênh sẽ hiển thị cho mọi thành viên trong nhóm."
+                    : "Kênh được lưu riêng trên trình duyệt này."}
+                </p>
                 <label htmlFor="channel-name">Tên kênh</label>
                 <input
                   name="name"

@@ -1,11 +1,18 @@
 export type View = "live" | "meet" | "files" | "chat" | "room";
 export type ChatMessage = {
+  id?: string;
+  clientId?: string | null;
+  senderId?: string;
   name: string;
   initials: string;
   color: string;
   text: string;
   time: string;
+  createdAt?: string;
+  replyToId?: string | null;
+  editedAt?: string | null;
   host?: boolean;
+  pending?: boolean;
 };
 export type LibraryFile = {
   name: string;
