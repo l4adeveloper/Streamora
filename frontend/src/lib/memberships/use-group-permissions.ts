@@ -42,12 +42,8 @@ export function useGroupPermissions(groupId: string | null) {
     };
     window.addEventListener("focus", revalidate);
     window.addEventListener("online", revalidate);
-    // Reconcile missed events, revoked sessions and group deletion, including
-    // when a proxy temporarily blocks sockets.
-    const interval = setInterval(revalidate, 15000);
     return () => {
       sequence.current++;
-      clearInterval(interval);
       window.removeEventListener("focus", revalidate);
       window.removeEventListener("online", revalidate);
     };
