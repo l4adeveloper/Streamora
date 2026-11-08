@@ -21,6 +21,8 @@ test("local defaults resolve prefix cookie scope and token lifetimes", () => {
   assert.equal(config.port, 4000);
   assert.equal(config.auth.accessTokenTtlSeconds, 900);
   assert.equal(config.auth.refreshTokenTtlSeconds, 604800);
+  assert.equal(config.files.driver, "local");
+  assert.equal(config.files.publicBaseUrl, "http://127.0.0.1:4000");
   assert.deepEqual(config.auth.cookie, {
     name: "refreshToken",
     path: "/api/v1/auth",
@@ -28,6 +30,34 @@ test("local defaults resolve prefix cookie scope and token lifetimes", () => {
     secure: false,
     sameSite: "lax",
   });
+});
+
+test("local downloads validate their public origin while production defaults to S3", () => {
+  assert.throws(
+    () => readEnvironment(environment({ FILES_STORAGE_DRIVER: "other" })),
+    /FILES_STORAGE_DRIVER/,
+  );
+  for (const url of [
+    "file:///tmp/data",
+    "https://example.test/api/v1",
+    "https://user:password@example.test",
+  ])
+    assert.throws(
+      () => readEnvironment(environment({ FILES_PUBLIC_BASE_URL: url })),
+      /FILES_PUBLIC_BASE_URL/,
+    );
+  const production = {
+    NODE_ENV: "production",
+    WEB_ORIGIN: "https://example.test",
+  };
+  assert.equal(readEnvironment(environment(production)).files.driver, "s3");
+  assert.throws(
+    () =>
+      readEnvironment(
+        environment({ ...production, FILES_STORAGE_DRIVER: "local" }),
+      ),
+    /FILES_PUBLIC_BASE_URL/,
+  );
 });
 
 test("invalid configuration fails without disclosing its supplied value", () => {
