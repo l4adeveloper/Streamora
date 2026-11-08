@@ -1,0 +1,8 @@
+{
+  "Rules": [{
+    "ID": "AbortUnfinishedStreamoraMultipart",
+    "Status": "Enabled",
+    "Filter": { "Prefix": "groups/" },
+    "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 2 }
+  }]
+}

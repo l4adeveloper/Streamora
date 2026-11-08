@@ -47,10 +47,11 @@ async function createTestDatabase() {
       timeout: 90000,
     });
     return { url: url.toString(), config, cleanup };
-  } catch {
+  } catch (error) {
     await cleanup();
     throw new Error(
       "Không tạo được database kiểm thử hoặc chạy migration. Kiểm tra kết nối PostgreSQL và quyền CREATEDB của user trong DATABASE_URL.",
+      { cause: error },
     );
   }
 }

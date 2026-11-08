@@ -78,9 +78,9 @@ test("T15 unavailable storage fails closed, signer uses real SigV4 and short TTL
   const before = Date.now();
   const response = await service.download("files/a b.pdf", "Bài giảng.pdf");
   const url = new URL(response.url);
-  assert.equal(url.searchParams.get("X-Amz-Expires"), "120");
-  assert.ok(Date.parse(response.expiresAt) >= before + 120000);
-  assert.ok(Date.parse(response.expiresAt) <= Date.now() + 120000);
+  assert.equal(url.searchParams.get("X-Amz-Expires"), "60");
+  assert.ok(Date.parse(response.expiresAt) >= before + 60000);
+  assert.ok(Date.parse(response.expiresAt) <= Date.now() + 60000);
   assert.match(
     url.searchParams.get("response-content-disposition"),
     /filename\*=UTF-8''B%C3%A0i/,
@@ -97,6 +97,15 @@ test("T15 unavailable storage fails closed, signer uses real SigV4 and short TTL
   assert.equal(
     preview.searchParams.get("response-content-type"),
     "application/pdf",
+  );
+  const image = new URL(
+    (await service.download("files/image.png", "Ảnh.png", true, "image/png"))
+      .url,
+  );
+  assert.equal(image.searchParams.get("response-content-type"), "image/png");
+  assert.match(
+    image.searchParams.get("response-content-disposition"),
+    /^inline;/,
   );
   client.destroy();
 });
@@ -136,10 +145,18 @@ test("T15 cleanup retains failed jobs and retries successfully", async () => {
     $executeRaw: async (sql) => {
       if (String(sql).includes("SET attempts")) attempts++;
     },
-    $queryRaw: async () =>
-      completed || attempts > 0
-        ? []
-        : [{ file_id: "id", object_key: "key", attempts: 0 }],
+    $queryRaw: async () => {
+      if (completed || attempts > 0) return [];
+      attempts++;
+      return [
+        {
+          file_id: "id",
+          object_key: "key",
+          storage_location_id: "location",
+          attempts,
+        },
+      ];
+    },
     fileObjectDeletion: {
       update: async ({ data }) => {
         if (data.attempts) attempts++;
@@ -149,7 +166,9 @@ test("T15 cleanup retains failed jobs and retries successfully", async () => {
   };
   const prisma = { ...db, $transaction: async (fn) => fn(db) };
   const storage = {
-    delete: async () => {
+    delete: async (key, location) => {
+      assert.equal(key, "key");
+      assert.equal(location, "location");
       if (!deleted) throw Error("offline");
     },
   };

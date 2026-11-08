@@ -4,6 +4,7 @@ import {
   Download,
   Eye,
   FileText,
+  ImageIcon,
   Pencil,
   RefreshCw,
   Search,
@@ -24,12 +25,26 @@ import {
 import { useToast } from "../common/toast-provider";
 import { LoadingState, RequestError } from "../common/feedback";
 import "./files.css";
+import { FileUploader } from "./file-uploader";
+import { VideoPreview } from "./video-preview";
 
 const sources = {
   DOCUMENT: "Tài liệu tải lên",
   LOCAL_RECORDING: "Bản ghi cục bộ",
   CLOUD_RECORDING: "Bản ghi cloud",
 };
+const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const videoTypes = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const previewLabel = (file: LibraryFile) =>
+  videoTypes.has(file.mimeType)
+    ? "Xem trước video"
+    : imageTypes.has(file.mimeType)
+      ? "Xem trước ảnh"
+      : "Xem trước PDF";
+const canPreview = (file: LibraryFile) =>
+  file.mimeType === "application/pdf" ||
+  imageTypes.has(file.mimeType) ||
+  videoTypes.has(file.mimeType);
 function sizeLabel(size: number) {
   if (size < 1024) return `${size} B`;
   const unit = Math.min(3, Math.floor(Math.log(size) / Math.log(1024)));
@@ -121,7 +136,11 @@ export function FilesPanel({
     if (!selected && dialog.current?.open) dialog.current.close();
   }, [selected]);
   useEffect(() => {
-    if (action !== "preview" || !selected) {
+    if (
+      action !== "preview" ||
+      !selected ||
+      videoTypes.has(selected.mimeType)
+    ) {
       setPreview({ loading: false });
       return;
     }
@@ -222,6 +241,13 @@ export function FilesPanel({
   }
   return (
     <div className="files-page">
+      {permissions.canUpload && (
+        <FileUploader
+          key={groupId}
+          groupId={groupId}
+          onUploaded={() => void load()}
+        />
+      )}
       <div className="library-toolbar">
         <button
           type="button"
@@ -287,6 +313,8 @@ export function FilesPanel({
                   >
                     {file.mimeType.startsWith("video/") ? (
                       <Video size={22} />
+                    ) : imageTypes.has(file.mimeType) ? (
+                      <ImageIcon size={22} />
                     ) : (
                       <FileText size={22} />
                     )}
@@ -306,10 +334,10 @@ export function FilesPanel({
                   {new Date(file.createdAt).toLocaleDateString("vi-VN")}
                 </span>
                 <span className="library-actions">
-                  {file.mimeType === "application/pdf" && (
+                  {canPreview(file) && (
                     <button
                       type="button"
-                      title="Xem trước PDF"
+                      title={previewLabel(file)}
                       aria-label={`Xem trước ${file.name}`}
                       disabled={busy || file.status !== "AVAILABLE"}
                       onClick={() => void open(file, "preview")}
@@ -403,7 +431,7 @@ export function FilesPanel({
                   : action === "delete"
                     ? "Xóa tài liệu"
                     : action === "preview"
-                      ? "Xem trước PDF"
+                      ? previewLabel(selected)
                       : "Chi tiết tài liệu"}
               </h3>
               <button
@@ -454,34 +482,74 @@ export function FilesPanel({
                 <dd>{new Date(selected.createdAt).toLocaleString("vi-VN")}</dd>
               </dl>
             )}
-            {action === "preview" && (
-              <div className="library-preview-body">
-                {preview.loading && <LoadingState message="Đang mở PDF…" />}
-                {preview.error && (
-                  <p role="alert" className="library-error">
-                    {preview.error}
-                  </p>
-                )}
-                {preview.url && (
-                  <iframe
-                    key={preview.url}
-                    src={preview.url}
-                    title={`Xem trước PDF: ${selected.name}`}
-                    referrerPolicy="no-referrer"
-                    onLoad={() =>
-                      setPreview((current) => ({ ...current, loading: false }))
-                    }
-                    onError={() =>
-                      setPreview({
-                        loading: false,
-                        error:
-                          "Chưa mở được PDF. Hãy thử tải lại hoặc tải file xuống.",
-                      })
-                    }
-                  />
-                )}
-              </div>
-            )}
+            {action === "preview" &&
+              (videoTypes.has(selected.mimeType) ? (
+                <VideoPreview
+                  key={`${selected.id}:${previewRevision}`}
+                  fileId={selected.id}
+                  name={selected.name}
+                />
+              ) : (
+                <div className="library-preview-body">
+                  {preview.loading && (
+                    <LoadingState
+                      message={
+                        imageTypes.has(selected.mimeType)
+                          ? "Đang mở ảnh…"
+                          : "Đang mở PDF…"
+                      }
+                    />
+                  )}
+                  {preview.error && (
+                    <p role="alert" className="library-error">
+                      {preview.error}
+                    </p>
+                  )}
+                  {preview.url &&
+                    (imageTypes.has(selected.mimeType) ? (
+                      <img
+                        key={preview.url}
+                        className="library-preview-image"
+                        src={preview.url}
+                        alt={`Xem trước ảnh: ${selected.name}`}
+                        referrerPolicy="no-referrer"
+                        onLoad={() =>
+                          setPreview((current) => ({
+                            ...current,
+                            loading: false,
+                          }))
+                        }
+                        onError={() =>
+                          setPreview({
+                            loading: false,
+                            error:
+                              "Chưa mở được ảnh. Hãy thử tải lại hoặc tải file xuống.",
+                          })
+                        }
+                      />
+                    ) : (
+                      <iframe
+                        key={preview.url}
+                        src={preview.url}
+                        title={`Xem trước PDF: ${selected.name}`}
+                        referrerPolicy="no-referrer"
+                        onLoad={() =>
+                          setPreview((current) => ({
+                            ...current,
+                            loading: false,
+                          }))
+                        }
+                        onError={() =>
+                          setPreview({
+                            loading: false,
+                            error:
+                              "Chưa mở được PDF. Hãy thử tải lại hoặc tải file xuống.",
+                          })
+                        }
+                      />
+                    ))}
+                </div>
+              ))}
             {actionError && (
               <p role="alert" className="library-error">
                 {actionError}
@@ -496,18 +564,17 @@ export function FilesPanel({
               >
                 Đóng
               </button>
-              {action === "detail" &&
-                selected.mimeType === "application/pdf" && (
-                  <button
-                    type="button"
-                    className="button secondary"
-                    disabled={busy || selected.status !== "AVAILABLE"}
-                    onClick={() => setAction("preview")}
-                  >
-                    <Eye size={16} /> Xem trước PDF
-                  </button>
-                )}
-              {action === "preview" && (
+              {action === "detail" && canPreview(selected) && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={busy || selected.status !== "AVAILABLE"}
+                  onClick={() => setAction("preview")}
+                >
+                  <Eye size={16} /> {previewLabel(selected)}
+                </button>
+              )}
+              {action === "preview" && !videoTypes.has(selected.mimeType) && (
                 <button
                   type="button"
                   className="button secondary"

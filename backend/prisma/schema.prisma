@@ -45,6 +45,7 @@ model User {
   createdChatChannels  GroupChatChannel[]
   libraryFiles         LibraryFile[]
 
+  uploads UploadSession[]
   @@map("users")
 }
 
@@ -118,6 +119,7 @@ model Group {
   @@index([ownerId])
   @@index([deletedAt])
   @@index([deletedAt, createdAt, id])
+  uploads UploadSession[]
   @@map("groups")
 }
 
@@ -289,6 +291,7 @@ model ClassSession {
   @@index([groupId, scheduledAt, id], map: "class_sessions_group_schedule_idx")
   @@index([groupId, status, scheduledAt, id], map: "class_sessions_group_status_schedule_idx")
   @@index([createdById, kind, createdAt, id], map: "class_sessions_creator_kind_created_idx")
+  uploads UploadSession[]
   @@map("class_sessions")
 }
 
@@ -442,8 +445,44 @@ model LibraryFile {
   recording   RecordingAsset? @relation(fields: [recordingId], references: [id], onDelete: Restrict)
   usages      FileUsage[]
   deletion    FileObjectDeletion?
+  upload      UploadSession?
+  storageLocationId String? @map("storage_location_id") @db.Char(64)
+  storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
   @@index([groupId, status, createdAt, id])
   @@map("files")
+}
+
+model UploadSession {
+  id            String @id @default(uuid()) @db.Uuid
+  groupId       String @map("group_id") @db.Uuid
+  userId        String @map("user_id") @db.Uuid
+  filename      String @db.VarChar(255)
+  size          BigInt
+  mimeType      String @map("mime_type") @db.VarChar(255)
+  fingerprint   String @db.VarChar(200)
+  source        FileSource
+  sessionId     String? @map("session_id") @db.Uuid
+  objectKey     String @unique @map("object_key") @db.VarChar(1024)
+  storageId     String @map("storage_id") @db.Text
+  driver        String @db.VarChar(10)
+  partSize      Int @map("part_size")
+  totalParts    Int @map("total_parts")
+  status        String @default("ACTIVE") @db.VarChar(20)
+  expiresAt     DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  storageLocationId String? @map("storage_location_id") @db.Char(64)
+  storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+  operationToken String? @map("operation_token") @db.Uuid
+  operationUntil DateTime? @map("operation_until") @db.Timestamptz(3)
+  fileId        String? @unique @map("file_id") @db.Uuid
+  file          LibraryFile? @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  group         Group @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  user          User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  session       ClassSession? @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  @@index([status, expiresAt])
+  @@index([userId, status, expiresAt])
+  @@index([groupId, status, expiresAt])
+  @@map("upload_sessions")
 }
 
 // Minimal authoritative asset registry for T11. T11 writes this before
@@ -473,7 +512,20 @@ model FileObjectDeletion {
   attempts Int @default(0)
   nextAttemptAt DateTime @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
   completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  storageLocationId String? @map("storage_location_id") @db.Char(64)
+  storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
   file LibraryFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
   @@index([completedAt, nextAttemptAt])
   @@map("file_object_deletions")
+}
+
+model StorageLocation {
+  id String @id @db.Char(64)
+  driver String @db.VarChar(10)
+  config Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  files LibraryFile[]
+  uploads UploadSession[]
+  deletions FileObjectDeletion[]
+  @@map("storage_locations")
 }
