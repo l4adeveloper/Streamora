@@ -8,6 +8,7 @@ import type { Response } from "express";
 import type { ApiErrorDetails, ApiErrorResponse } from "@streamora/contracts";
 import { Prisma } from "../generated/prisma/client";
 import { requestId, type ApiRequest } from "./http-context";
+import { safeErrorCode } from "./safe-error-code";
 
 export class ApiError extends HttpException {
   constructor(
@@ -54,6 +55,17 @@ function errorStatus(error: unknown): number {
     const status = error.getStatus();
     return status >= 400 && status <= 599 ? status : 500;
   }
+  if (
+    [
+      "CONNECTION_TIMEOUT",
+      "DATABASE_QUERY_TIMEOUT",
+      "57014",
+      "ECONNREFUSED",
+      "ECONNRESET",
+      "ETIMEDOUT",
+    ].includes(safeErrorCode(error))
+  )
+    return 503;
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (
       ["P1001", "P1002", "P1008", "P1017", "P2024", "P2037"].includes(
@@ -74,6 +86,15 @@ export class ApiErrorFilter implements ExceptionFilter {
     if (response.headersSent) return;
     const request = host.switchToHttp().getRequest<ApiRequest>();
     const status = errorStatus(error);
+    if (status >= 500 && !(error instanceof HttpException)) {
+      console.warn(
+        JSON.stringify({
+          event: "request_failed",
+          requestId: requestId(request, response),
+          code: safeErrorCode(error),
+        }),
+      );
+    }
     const payload =
       error instanceof ApiError
         ? (error.getResponse() as Pick<ApiErrorResponse, "error">)

@@ -16,7 +16,7 @@ thật trong tài liệu.
 | Nhập file hoặc toàn bộ thư mục để thử local | Đã có lệnh nội bộ |
 | Xóa mềm và dọn nội dung nền, retry khi lỗi | Đã triển khai |
 | Giao diện thư viện tinh gọn | Đã bỏ banner giới thiệu và ô tìm kiếm không gian ở thanh bên |
-| Upload S3 trực tiếp, multipart, resume của T16/T17 | Chưa triển khai |
+| Upload S3 trực tiếp, multipart | Đã bổ sung tại [T16](t16-handoff.md); resume sau reload thuộc T17 |
 | Chuyển dữ liệu local lên S3 tự động | Chưa có công cụ tự động |
 | Pipeline ghi hình T11 và xử lý video | Chỉ có điểm tích hợp nội bộ; chưa phải pipeline hoàn chỉnh |
 
@@ -45,11 +45,12 @@ tải/xem trước. Danh sách không trả file `DELETED`.
 - Không xóa file `PENDING`, file còn `recordingId` hoặc còn `file_usages`.
 - Đổi tên chỉ sửa tên hiển thị, không đổi `objectKey`.
 
-Một cấu hình `FILES_STORAGE_DRIVER` áp dụng cho toàn bộ thư viện của một deployment.
-Hiện chưa lưu driver/bucket theo từng file và chưa có cơ chế tự tìm ở cả local lẫn S3.
-Các instance dùng cùng database phải dùng cùng driver, bucket và region. Nếu dùng
-local nhiều instance thì cần cùng vùng lưu trữ; ổ đĩa riêng của từng instance không
-đáp ứng điều này.
+Từ bản [T16](t16-handoff.md), `FILES_STORAGE_DRIVER` chọn vị trí cho upload mới;
+file, phiên upload và job xóa giữ `storage_location_id` riêng. Registry lưu driver
+và bucket/region hoặc thư mục local, nên đổi cấu hình không tự chuyển nơi đọc file
+cũ. Khi nâng cấp phải khởi động một lần với cấu hình cũ để gắn dữ liệu legacy;
+chi tiết ở mục 6 tài liệu T16. Local adapter chưa được nghiệm thu cho nhiều API
+instance dùng ổ đĩa riêng; các vị trí cũ vẫn phải truy cập được.
 
 Worker chạy mỗi 30 giây, xử lý tối đa 20 job mỗi lượt; có khóa nhận job và retry.
 Xóa khỏi giao diện xảy ra trước khi nội dung được dọn. Khi bật S3 Versioning,
@@ -74,7 +75,7 @@ npm run setup:env
 FILES_STORAGE_DRIVER=local
 FILES_LOCAL_DIRECTORY=.local-storage/files
 FILES_PUBLIC_BASE_URL=http://127.0.0.1:4000
-FILES_DOWNLOAD_TTL_SECONDS=120
+FILES_DOWNLOAD_TTL_SECONDS=60
 FILES_CLEANUP_ENABLED=true
 ```
 
@@ -304,12 +305,18 @@ uploads sau **7 ngày**. Không chọn hết hạn toàn bộ object đang sử 
 Rule chỉ dọn phần upload dở, không xóa object upload hoàn chỉnh.
 [Hướng dẫn lifecycle multipart](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpu-abort-incomplete-mpu-lifecycle-config.html).
 
-CORS/lifecycle chưa tạo ra chức năng upload. T16/T17 còn cần thiết kế API khởi tạo,
-ký part, complete/abort, resume; xác minh key/kích thước/MIME/quyền trước khi chuyển
-metadata sang AVAILABLE; và cấp thêm quyền AWS tương ứng. Policy T15 ở mục 6
-chưa cho phép upload/multipart. Chưa có endpoint HTTP upload trong code bàn giao.
+CORS/lifecycle cần đi cùng API upload. [T16](t16-handoff.md) đã bổ sung khởi tạo,
+ký part, complete/abort và xác minh trước khi tạo file AVAILABLE. Resume thuộc T17.
+Policy T15 ở mục 6 chỉ dành cho thư viện; quyền upload/multipart bổ sung nằm trong
+`backend/infra/aws/uploads-iam.json`.
 
 ## 8. Chuyển dữ liệu local lên S3 và đổi cấu hình
+
+**Lưu ý khi đã nhận T16:** các bước bên dưới mô tả việc chép nội dung của T15.
+T16 định tuyến file theo `storage_location_id`; giữ nguyên objectKey rồi đổi .env
+không tự chuyển liên kết file cũ sang S3. Cần quy trình xác minh dữ liệu và cập nhật
+liên kết vị trí có kiểm soát; chưa có công cụ tự động. Nếu chỉ muốn upload mới vào
+S3 và tiếp tục đọc local cũ, làm theo mục 6 và 8 của [bàn giao T16](t16-handoff.md).
 
 ### 8.1. Chuẩn bị và chốt dữ liệu
 
@@ -365,7 +372,7 @@ Trong `backend/.env` hoặc môi trường deployment:
 FILES_STORAGE_DRIVER=s3
 FILES_S3_BUCKET=streamora-storage
 FILES_S3_REGION=ap-southeast-1
-FILES_DOWNLOAD_TTL_SECONDS=120
+FILES_DOWNLOAD_TTL_SECONDS=60
 FILES_CLEANUP_ENABLED=true
 ```
 
@@ -471,8 +478,8 @@ Log liên quan: `file_download_issued`, `file_preview_issued`,
 
 T11 gọi `FilesService.registerRecording` ở ranh giới nội bộ tin cậy, sau khi có
 `recording_assets` thuộc đúng session/group. Đây không phải API HTTP công khai.
-T16 cần tạo PENDING và chỉ chuyển AVAILABLE sau khi xác minh upload hoàn tất.
+T16 lưu phiên upload ACTIVE riêng và chỉ tạo file AVAILABLE sau khi xác minh complete.
 T11/T13 cần giữ/nhả `file_usages` và tuân thủ khóa hàng file khi thay đổi tham chiếu.
 Không nhận `createdBy`, `objectKey` hoặc trạng thái tùy ý từ trình duyệt để bỏ qua
-kiểm tra quyền. Các điểm này là hợp đồng tích hợp, chưa chứng minh T11/T13/T16/T17
+kiểm tra quyền. T16 đã có bàn giao riêng; các điểm này chưa chứng minh T11/T13/T17
 đã được triển khai đầy đủ.
