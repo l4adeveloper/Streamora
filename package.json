@@ -42,7 +42,10 @@
     "db:status": "npm run db:status --workspace=@streamora/api",
     "db:check": "npm run db:check --workspace=@streamora/api",
     "db:seed": "node backend/scripts/seed-demo-users.cjs",
-    "dev:realtime": "npm run dev --workspace=@streamora/realtime"
+    "dev:realtime": "npm run dev --workspace=@streamora/realtime",
+    "test:t15": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/files.test.cjs backend/test/local-file-storage.test.cjs backend/test/local-file-import.test.cjs backend/test/integration/files.test.cjs",
+    "test:t15:frontend": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/frontend/files-ui.test.cjs",
+    "files:import": "npm run build --workspace=@streamora/api && node backend/scripts/import-local-file.cjs"
   },
   "engines": {
     "node": ">=22.16.0",
