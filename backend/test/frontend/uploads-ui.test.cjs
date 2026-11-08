@@ -16,6 +16,42 @@ test(
       });
       const page = await browser.newPage();
       page.setDefaultTimeout(30000);
+      await page.addInitScript(() => {
+        window.uploadConcurrency = { active: 0, peak: 0 };
+        const uploads = new WeakSet();
+        const open = XMLHttpRequest.prototype.open;
+        const send = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+          if (method === "PUT" && String(url).includes("/parts?token="))
+            uploads.add(this);
+          else uploads.delete(this);
+          return open.call(this, method, url, ...rest);
+        };
+        XMLHttpRequest.prototype.send = function (...args) {
+          if (uploads.has(this)) {
+            const stats = window.uploadConcurrency;
+            stats.peak = Math.max(stats.peak, ++stats.active);
+            let finished = false;
+            const finish = () => {
+              if (finished) return;
+              finished = true;
+              stats.active--;
+              this.removeEventListener("readystatechange", changed);
+              this.removeEventListener("abort", finish);
+              this.removeEventListener("error", finish);
+              this.removeEventListener("timeout", finish);
+            };
+            const changed = () => {
+              if (this.readyState === XMLHttpRequest.DONE) finish();
+            };
+            this.addEventListener("readystatechange", changed);
+            this.addEventListener("abort", finish);
+            this.addEventListener("error", finish);
+            this.addEventListener("timeout", finish);
+          }
+          return send.apply(this, args);
+        };
+      });
       const email = `t16-${randomUUID()}@example.test`,
         password = "Upload-test-password-123!";
       const register = await fetch(`${fixture.apiUrl}/auth/register`, {
@@ -41,24 +77,6 @@ test(
       await page.locator('button[type="submit"]').click();
       await page.waitForURL("**/workspace");
       await page.goto(`${fixture.webOrigin}/files?groupId=${group.id}`);
-      let activeParts = 0,
-        peakParts = 0;
-      page.on("request", (request) => {
-        if (
-          request.method() === "PUT" &&
-          request.url().includes("/parts?token=")
-        ) {
-          activeParts++;
-          peakParts = Math.max(peakParts, activeParts);
-        }
-      });
-      page.on("requestfinished", (request) => {
-        if (
-          request.method() === "PUT" &&
-          request.url().includes("/parts?token=")
-        )
-          activeParts--;
-      });
       const buffer = Buffer.alloc(40 * 1024 ** 2 + 33, 42);
       await page.locator('.file-uploader input[type="file"]').setInputFiles({
         name: "Tai-lieu-T16.pdf",
@@ -76,7 +94,8 @@ test(
         where: { groupId: group.id },
       });
       assert.equal(saved.status, "AVAILABLE");
-      assert.equal(peakParts, 5);
+      // DevTools may deliver requestfinished after the next PUT starts; count unfinished XHRs in-page.
+      assert.equal(await page.evaluate(() => window.uploadConcurrency.peak), 5);
       assert.equal(Number(saved.size), buffer.length);
       await page
         .getByRole("button", {

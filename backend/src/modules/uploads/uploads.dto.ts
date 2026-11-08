@@ -51,7 +51,7 @@ export class UploadPartDto {
 export class CompleteUploadDto {
   @ApiProperty({ type: [UploadPartDto] })
   @IsArray()
-  @ArrayMinSize(1)
+  @ArrayMinSize(0)
   @ArrayMaxSize(10000)
   @ValidateNested({ each: true })
   @Type(() => UploadPartDto)

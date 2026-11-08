@@ -104,6 +104,13 @@ test(
       assert.equal(await page.locator(".library-file-row").count(), 24);
       assert.equal(
         await page
+          .getByRole("button", { name: "Chọn file tải lên", exact: true })
+          .count(),
+        0,
+        "Viewer must not see upload controls",
+      );
+      assert.equal(
+        await page
           .getByRole("button", {
             name: "Tải xuống Bản ghi cloud.mp4",
             exact: true,
@@ -216,7 +223,12 @@ test(
         .getByRole("button", { name: "Xóa Bài giảng mới.pdf", exact: true })
         .click();
       await page
-        .getByRole("button", { name: "Xác nhận xóa", exact: true })
+        .getByText("Tài liệu sẽ bị xóa vĩnh viễn và không thể khôi phục.", {
+          exact: false,
+        })
+        .waitFor();
+      await page
+        .getByRole("button", { name: "Xóa vĩnh viễn", exact: true })
         .click();
       await page.getByText("Chưa tìm thấy tài liệu", { exact: true }).waitFor();
       assert.equal(

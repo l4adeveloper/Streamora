@@ -227,7 +227,7 @@ export function FilesPanel({
       if (!alive.current) return;
       notify(
         action === "delete"
-          ? "Đã xóa tài liệu khỏi thư viện."
+          ? "Đã xóa vĩnh viễn tài liệu."
           : "Đã đổi tên tài liệu.",
         { tone: "success" },
       );
@@ -243,7 +243,7 @@ export function FilesPanel({
     <div className="files-page">
       {permissions.canUpload && (
         <FileUploader
-          key={groupId}
+          key={`${groupId}:${userId}`}
           groupId={groupId}
           onUploaded={() => void load()}
         />
@@ -429,7 +429,7 @@ export function FilesPanel({
                 {action === "rename"
                   ? "Đổi tên tài liệu"
                   : action === "delete"
-                    ? "Xóa tài liệu"
+                    ? "Xóa vĩnh viễn tài liệu?"
                     : action === "preview"
                       ? previewLabel(selected)
                       : "Chi tiết tài liệu"}
@@ -460,8 +460,8 @@ export function FilesPanel({
             )}
             {action === "delete" && (
               <p>
-                Tài liệu sẽ được ẩn khỏi thư viện. File đang xử lý hoặc còn liên
-                kết với bản ghi sẽ chưa thể xóa.
+                Tài liệu sẽ bị xóa vĩnh viễn và không thể khôi phục. Bạn có chắc
+                chắn muốn xóa tài liệu này không?
               </p>
             )}
             {action === "detail" && (
@@ -601,7 +601,7 @@ export function FilesPanel({
                   {busy
                     ? "Đang xử lý…"
                     : action === "delete"
-                      ? "Xác nhận xóa"
+                      ? "Xóa vĩnh viễn"
                       : "Lưu tên"}
                 </button>
               )}
