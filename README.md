@@ -18,6 +18,8 @@ Mở http://127.0.0.1:3000. Các trang trải nghiệm chạy độc lập với
 Swagger local có Try it out Auth/Users: `http://127.0.0.1:3000/api/v1/docs`
 (cần chạy cả frontend và API).
 Phần quản lý nhóm xem [hướng dẫn bàn giao T02](backend/docs/t02-handoff.md).
+Thư viện, API và triển khai S3: [bàn giao T15](backend/docs/t15-handoff.md).
+Nhập file/thư mục và xem trước PDF local: [hướng dẫn chạy T15](backend/docs/t15-local.md).
 Thành viên và phân quyền nhóm xem [hướng dẫn bàn giao T03](backend/docs/t03-handoff.md).
 Lịch học, meet độc lập và vòng đời buổi học xem [API T04](backend/docs/t04-api.md).
 Xin vào, accept/reject và vào/ra xem [API tham gia T04](backend/docs/t04-admission.md).
@@ -36,7 +38,7 @@ Swagger API local: `http://127.0.0.1:4000/api/v1/docs`.
 | `/meet`      | Tạo phòng hoặc tham gia bằng mã/liên kết                      |
 | `/rooms/:id` | Phòng họp, camera/micro/chia sẻ màn hình trên thiết bị cục bộ |
 | `/community` | Kênh chat, lưu lịch sử trên trình duyệt                       |
-| `/files`     | Thư viện tìm kiếm, lọc và mô phỏng tải lên/tạm dừng/tiếp tục  |
+| `/files`     | Thư viện thật theo group; tìm kiếm, quản lý và preview PDF |
 | `/register`  | Đăng ký tài khoản thật                                        |
 | `/login`     | Đăng nhập                                                     |
 | `/account`   | Hồ sơ cá nhân, cập nhật họ tên và đăng xuất                   |
@@ -86,11 +88,12 @@ npm run build
 `GET /api/v1/communities` vẫn là dữ liệu mẫu. API phòng yêu cầu Bearer:
 `POST /api/v1/rooms` với `{name,groupId}` dành cho HOST/OWNER/ADMIN và
 `GET /api/v1/rooms/:id` xác minh membership từ room trong DB.
-`GET /api/v1/files?groupId=<uuid>&q=slide` yêu cầu thành viên nhóm; nội dung vẫn minh họa.
+`GET /api/v1/groups/<uuid>/files?q=slide` yêu cầu thành viên nhóm, đọc metadata thật từ PostgreSQL.
+Swagger T15: `/api/v1/docs-files`. Lưu trữ local hoặc S3; upload mới thuộc T16/T17.
 Realtime `/classroom` dùng `auth.accessToken`; `channel:join` nhận `{groupId}`,
 `chat:send` nhận `{groupId,text}`. API cũng cung cấp gateway; service cổng 4001 dùng cùng bộ quyền.
 Khu vực tài khoản/nhóm/thành viên/lịch học/Meet dùng `NEXT_PUBLIC_API_URL` gọi backend thật;
-trình phát trong workspace và thư viện còn dùng dữ liệu minh họa.
+trình phát trong workspace còn dùng dữ liệu minh họa; thư viện `/files` dùng API thật.
 
 `npm run setup:env` tạo cấu hình local cùng khóa ký ngẫu nhiên; giữ nguyên
 file đã có. `backend/.env` dành cho server (điền `DATABASE_URL` của PostgreSQL dùng chung),
