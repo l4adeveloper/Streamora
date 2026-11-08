@@ -9,6 +9,15 @@ export interface EnvironmentConfig {
   docsEnabled: boolean;
   webOrigin: string;
   databaseUrl: string;
+  files?: {
+    driver?: "local" | "s3";
+    localDirectory?: string;
+    publicBaseUrl?: string;
+    bucket: string;
+    region: string;
+    downloadTtlSeconds: number;
+    cleanupEnabled: boolean;
+  };
   /** Trusted application overrides; omitted deployments use the shared protocol defaults. */
   sessionRealtime?: {
     pollIntervalMs: number;
@@ -134,6 +143,46 @@ export function readEnvironment(
     return invalid("DATABASE_URL");
   }
 
+  const fileBucket = env.FILES_S3_BUCKET ?? "";
+  const fileDriver =
+    env.FILES_STORAGE_DRIVER ?? (nodeEnv === "production" ? "s3" : "local");
+  if (!["local", "s3"].includes(fileDriver)) invalid("FILES_STORAGE_DRIVER");
+  const localDirectory = resolve(
+    __dirname,
+    "../../",
+    env.FILES_LOCAL_DIRECTORY ?? ".local-storage/files",
+  );
+  const publicBaseUrl =
+    env.FILES_PUBLIC_BASE_URL ??
+    `http://${host === "0.0.0.0" ? "127.0.0.1" : host}:${port}`;
+  try {
+    const url = new URL(publicBaseUrl);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.origin !== publicBaseUrl ||
+      url.username ||
+      url.password ||
+      (nodeEnv === "production" &&
+        fileDriver === "local" &&
+        url.protocol !== "https:")
+    )
+      invalid("FILES_PUBLIC_BASE_URL");
+  } catch {
+    invalid("FILES_PUBLIC_BASE_URL");
+  }
+  if (fileBucket && !/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(fileBucket))
+    invalid("FILES_S3_BUCKET");
+  const fileRegion = env.FILES_S3_REGION ?? "ap-southeast-1";
+  if (!/^[a-z]{2}(-[a-z]+)+-\d+$/.test(fileRegion)) invalid("FILES_S3_REGION");
+  const downloadTtlSeconds = positiveInteger(
+    env,
+    "FILES_DOWNLOAD_TTL_SECONDS",
+    120,
+  );
+  if (downloadTtlSeconds > 300) invalid("FILES_DOWNLOAD_TTL_SECONDS");
+  const cleanupEnabled = env.FILES_CLEANUP_ENABLED ?? "true";
+  if (!["true", "false"].includes(cleanupEnabled))
+    invalid("FILES_CLEANUP_ENABLED");
   return {
     nodeEnv: nodeEnv as EnvironmentConfig["nodeEnv"],
     host,
@@ -141,6 +190,15 @@ export function readEnvironment(
     docsEnabled: rawDocs === "true",
     webOrigin,
     databaseUrl: databaseUrl!,
+    files: {
+      driver: fileDriver as "local" | "s3",
+      localDirectory,
+      publicBaseUrl,
+      bucket: fileBucket,
+      region: fileRegion,
+      downloadTtlSeconds,
+      cleanupEnabled: cleanupEnabled === "true",
+    },
     auth: {
       accessTokenSecret: secret!,
       accessTokenTtlSeconds,
