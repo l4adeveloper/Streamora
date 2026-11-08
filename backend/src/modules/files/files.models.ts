@@ -26,3 +26,24 @@ export class FileDownloadResponseDto {
   @ApiProperty() url!: string;
   @ApiProperty({ format: "date-time" }) expiresAt!: string;
 }
+class VideoSourceDto extends FileDownloadResponseDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() label!: string;
+  @ApiProperty({ enum: ["file", "hls"] }) kind!: string;
+  @ApiProperty() mimeType!: string;
+  @ApiProperty({ type: Number, nullable: true }) height!: number | null;
+  @ApiProperty({ type: Number, nullable: true }) bitrate!: number | null;
+}
+class VideoProcessingDto {
+  @ApiProperty({
+    enum: ["NOT_REQUESTED", "QUEUED", "PROCESSING", "READY", "FAILED"],
+  })
+  status!: string;
+  @ApiProperty({ type: Number, nullable: true }) progressPercent!:
+    number | null;
+}
+export class VideoPlaybackResponseDto {
+  @ApiProperty({ format: "uuid" }) fileId!: string;
+  @ApiProperty({ type: VideoProcessingDto }) processing!: VideoProcessingDto;
+  @ApiProperty({ type: [VideoSourceDto] }) sources!: VideoSourceDto[];
+}
