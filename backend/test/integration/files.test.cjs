@@ -324,6 +324,10 @@ test("T15 local HTTP: import into a real group, download bytes without AWS, expi
       where: { id: imported.fileId },
     });
     await localFiles.remove(owner.id, imported.fileId);
+    await assert.rejects(
+      readFile(join(config.files.localDirectory, row.objectKey)),
+      (e) => e.code === "ENOENT",
+    );
     await localApp.get(FileCleanupService).tick();
     const deletion = await db.fileObjectDeletion.findUnique({
       where: { fileId: imported.fileId },
