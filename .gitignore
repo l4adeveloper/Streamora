@@ -8,5 +8,6 @@ dist/
 *.tsbuildinfo
 coverage/
 .preview/
+.local-storage/
 backend/src/generated/prisma/
 .DS_Store

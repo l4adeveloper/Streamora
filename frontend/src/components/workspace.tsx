@@ -40,7 +40,6 @@ import {
   PhoneOff,
   Hand,
   BarChart3,
-  Upload,
   Circle,
   ExternalLink,
 } from "lucide-react";
@@ -60,6 +59,7 @@ import { useGroupChat } from "@/lib/memberships/use-group-chat";
 
 import { LivePlayer } from "./live-player";
 import { WorkspaceChat } from "./workspace-chat";
+import { FilesPanel } from "./files/files-panel";
 import { initialFiles, membersInitial, portrait } from "./demo-data";
 import type { View, ChatMessage } from "./demo-data";
 function ArrowUpRight() {
@@ -93,7 +93,7 @@ export function Workspace({
   const groupAccess = useGroupPermissions(workspaceGroup.groupId);
   const permissions = groupAccess.permissions;
   const [membersView, setMembersView] = useState(false);
-  const [panel, setPanel] = useState(true);
+  const [panel, setPanel] = useState(view !== "files");
   const [panelTab, setPanelTab] = useState<"chat" | "members">(
     view === "chat" ? "members" : "chat",
   );
@@ -117,7 +117,6 @@ export function Workspace({
   const [search, setSearch] = useState("");
   const members = membersInitial;
   const [files, setFiles] = useState(initialFiles);
-  const [fileQuery, setFileQuery] = useState("");
   const [filter, setFilter] = useState("Tất cả");
   const [mic, setMic] = useState(false);
   const [camera, setCamera] = useState(false);
@@ -136,14 +135,7 @@ export function Workspace({
   ]);
   const [vote, setVote] = useState<number | null>(null);
   const [hand, setHand] = useState(false);
-  const [upload, setUpload] = useState<{
-    name: string;
-    size: string;
-    progress: number;
-    paused: boolean;
-  } | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
   const [localCustomChannels, setLocalCustomChannels] = useState<string[]>([]);
   const [activeRoomName, setActiveRoomName] = useState("Phòng học nhóm");
   const chatStorageKey = `streamora-chat-v2:${channel}`;
@@ -234,7 +226,6 @@ export function Workspace({
     setModal(null);
     setRecording(false);
     setPoll(false);
-    setUpload(null);
     [cameraStream, screenStream, micStream].forEach((ref) =>
       ref.current?.getTracks().forEach((track) => track.stop()),
     );
@@ -253,7 +244,6 @@ export function Workspace({
       setSharing(false);
       setModal(null);
       setRecording(false);
-      setUpload(null);
     }
     if (!permissions?.canHost) {
       setPoll(false);
@@ -350,35 +340,6 @@ export function Workspace({
     if (screenVideo.current)
       screenVideo.current.srcObject = screenStream.current;
   }, [sharing]);
-  useEffect(() => {
-    if (!upload || upload.paused) return;
-    const timer = setInterval(
-      () =>
-        setUpload((current) =>
-          current
-            ? { ...current, progress: Math.min(100, current.progress + 4) }
-            : null,
-        ),
-      250,
-    );
-    return () => clearInterval(timer);
-  }, [upload?.paused, upload?.name]);
-  useEffect(() => {
-    if (upload?.progress !== 100) return;
-    const next = [
-      {
-        name: upload.name,
-        kind: "Tài liệu",
-        size: upload.size,
-        date: "Vừa thêm (mẫu)",
-      },
-      ...files,
-    ];
-    setFiles(next);
-    localStorage.setItem("streamora-files", JSON.stringify(next));
-    setUpload(null);
-    notify("Đã thêm mục tài liệu mẫu. Tệp chưa được tải lên máy chủ.");
-  }, [upload?.progress]);
   async function toggleMedia(kind: "camera" | "mic" | "screen") {
     if (
       workspaceGroup.groupId &&
@@ -580,13 +541,7 @@ export function Workspace({
     setMembersView(false);
     setMobileNav(false);
   }
-  const filteredFiles = files.filter(
-    (file) =>
-      file.name
-        .toLocaleLowerCase("vi")
-        .includes(fileQuery.toLocaleLowerCase("vi")) &&
-      (filter === "Tất cả" || file.kind === filter),
-  );
+
   const chatProps = {
     messages,
     draft,
@@ -697,9 +652,6 @@ export function Workspace({
             <small>Không gian học tập</small>
           </div>
           <ChevronDown size={15} />
-        </button>
-        <button className="sidebar-search" onClick={() => setModal("search")}>
-          <Search size={15} /> Tìm trong không gian <kbd>⌘ K</kbd>
         </button>
         <div className="sidebar-scroll">
           <div className="channel-section">
@@ -826,7 +778,7 @@ export function Workspace({
               }}
               className={`channel ${!membersView && view === "files" && filter !== "Bản ghi" ? "selected" : ""}`}
             >
-              <Folder size={18} /> Tài liệu chung <small>{files.length}</small>
+              <Folder size={18} /> Tài liệu chung
             </Link>
             <Link
               href="/files?type=recordings"
@@ -1203,159 +1155,47 @@ export function Workspace({
                     </div>
                   </div>
                 )}
-                {view === "files" && (
-                  <div className="files-page">
-                    <div className="files-banner">
-                      <div className="file-banner-icon">
-                        <Folder size={33} />
-                      </div>
-                      <div>
-                        <span className="eyebrow">THƯ VIỆN CỘNG ĐỒNG</span>
-                        <h2>Mọi kiến thức, một nơi.</h2>
-                        <p>
-                          Tài liệu và bản ghi luôn ở đây để bạn tiếp tục khám
-                          phá.
-                        </p>
-                      </div>
-                      <button
-                        className="button primary"
-                        disabled={
-                          Boolean(workspaceGroup.groupId) &&
-                          !permissions?.canUpload
-                        }
-                        onClick={() => fileInput.current?.click()}
-                      >
-                        <Upload size={16} /> Thêm tài liệu
-                      </button>
+                {view === "files" &&
+                  (!user ? (
+                    <div className="empty-state">
+                      <Folder size={30} />
+                      <h3>Thư viện tài liệu của nhóm</h3>
+                      <p>Đăng nhập để xem tài liệu và bản ghi của bạn.</p>
+                      <Link href="/auth" className="button primary">
+                        Đăng nhập
+                      </Link>
                     </div>
-                    <div className="file-controls">
-                      <div className="file-filters">
-                        {["Tất cả", "Tài liệu", "Bản ghi"]
-                          .filter(
-                            (item) =>
-                              item !== "Bản ghi" ||
-                              !workspaceGroup.groupId ||
-                              permissions?.canViewRecordings,
-                          )
-                          .map((item) => (
-                            <button
-                              key={item}
-                              onClick={() => setFilter(item)}
-                              className={filter === item ? "selected" : ""}
-                            >
-                              {item}
-                            </button>
-                          ))}
-                      </div>
-                      <div className="input-icon">
-                        <Search size={16} />
-                        <input
-                          placeholder="Tìm tên tài liệu…"
-                          aria-label="Tìm tên tài liệu"
-                          value={fileQuery}
-                          onChange={(e) => setFileQuery(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <input
-                      type="file"
-                      ref={fileInput}
-                      hidden
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file)
-                          setUpload({
-                            name: file.name,
-                            size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-                            progress: 0,
-                            paused: false,
-                          });
-                        e.target.value = "";
-                      }}
+                  ) : workspaceGroup.loading || groupAccess.loading ? (
+                    <LoadingState message="Đang tải thư viện…" />
+                  ) : workspaceGroup.error ? (
+                    <RequestError
+                      error={workspaceGroup.error}
+                      onRetry={() => void workspaceGroup.reload()}
                     />
-                    {upload && (
-                      <div className="upload-progress">
-                        <Upload size={22} />
-                        <div>
-                          <b>{upload.name}</b>
-                          <small>
-                            {upload.paused
-                              ? "Đã tạm dừng · Có thể tiếp tục"
-                              : `Đang mô phỏng tải lên · ${upload.progress}%`}
-                          </small>
-                          <progress value={upload.progress} max="100" />
-                        </div>
-                        <button
-                          className="button secondary compact"
-                          onClick={() =>
-                            setUpload({ ...upload, paused: !upload.paused })
-                          }
-                        >
-                          {upload.paused ? (
-                            <Play size={14} />
-                          ) : (
-                            <Pause size={14} />
-                          )}{" "}
-                          {upload.paused ? "Tiếp tục" : "Tạm dừng"}
-                        </button>
-                        <IconButton
-                          label="Hủy tải lên"
-                          onClick={() => setUpload(null)}
-                        >
-                          <X size={16} />
-                        </IconButton>
-                      </div>
-                    )}
-                    <div className="file-table">
-                      <div className="file-table-heading">
-                        <span>Tên tài liệu</span>
-                        <span>Dung lượng</span>
-                        <span>Được thêm</span>
-                        <span />
-                      </div>
-                      {filteredFiles.map((file, index) => (
-                        <button
-                          key={`${file.name}-${index}`}
-                          className="file-row"
-                          onClick={() => {
-                            setModal(`file:${file.name}`);
-                          }}
-                        >
-                          <span>
-                            <span
-                              className={`file-symbol ${file.kind === "Bản ghi" ? "video-symbol" : ""}`}
-                            >
-                              {file.kind === "Bản ghi" ? (
-                                <Video size={22} />
-                              ) : (
-                                <FileText size={22} />
-                              )}
-                            </span>
-                            <span>
-                              <b>{file.name}</b>
-                              <small>{file.kind}</small>
-                            </span>
-                          </span>
-                          <span>{file.size}</span>
-                          <span>{file.date}</span>
-                          <ChevronRight size={16} />
-                        </button>
-                      ))}
-                      {!filteredFiles.length && (
-                        <div className="empty-state">
-                          <Search size={30} />
-                          <h3>Chưa tìm thấy tài liệu</h3>
-                          <p>Thử một tên khác hoặc chọn bộ lọc khác.</p>
-                        </div>
-                      )}
+                  ) : !workspaceGroup.groupId ? (
+                    <div className="empty-state">
+                      <Folder size={30} />
+                      <h3>Chưa có nhóm học tập</h3>
+                      <p>Tạo hoặc tham gia nhóm để xem tài liệu và bản ghi.</p>
+                      <Link href="/groups" className="button primary">
+                        Nhóm học tập
+                      </Link>
                     </div>
-                    <div className="file-disclaimer">
-                      <ShieldCheck size={15} /> Thư viện mẫu lưu thông tin trên
-                      trình duyệt. Tải lên và tạm dừng được mô phỏng; nội dung
-                      tệp chưa được lưu.
-                    </div>
-                  </div>
-                )}
+                  ) : groupAccess.error ? (
+                    <RequestError
+                      error={groupAccess.error}
+                      onRetry={() => void groupAccess.refresh()}
+                    />
+                  ) : permissions ? (
+                    <FilesPanel
+                      key={`${user.id}:${workspaceGroup.groupId}:${permissions.role}:${groupAccess.membershipRevision}`}
+                      groupId={workspaceGroup.groupId}
+                      userId={user.id}
+                      permissions={permissions}
+                      filter={filter}
+                      onFilterChange={setFilter}
+                    />
+                  ) : null)}
                 {view === "chat" && (
                   <div className="community-chat">
                     <WorkspaceChat

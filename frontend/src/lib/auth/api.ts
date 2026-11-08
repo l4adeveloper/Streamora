@@ -14,6 +14,12 @@ export class AuthApiError extends Error {
 }
 
 const messages: Record<string, string> = {
+  PDF_PREVIEW_UNSUPPORTED: "Chỉ hỗ trợ xem trước file PDF hợp lệ.",
+  FILE_NOT_FOUND: "Tài liệu không tồn tại hoặc đã bị xóa.",
+  FILE_NOT_READY: "Tài liệu đang được chuẩn bị. Vui lòng thử lại sau.",
+  FILE_IN_USE:
+    "Tài liệu đang được tải lên, xử lý hoặc liên kết với bản ghi nên chưa thể xóa.",
+  STORAGE_UNAVAILABLE: "Chưa thể kết nối kho tài liệu. Vui lòng thử lại sau.",
   EMAIL_EXISTS:
     "Email này đã được sử dụng. Bạn có thể đăng nhập hoặc dùng email khác.",
   INVALID_CREDENTIALS: "Email hoặc mật khẩu không đúng. Vui lòng kiểm tra lại.",
