@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Headers,
   HttpCode,
   Param,
@@ -11,6 +12,7 @@ import {
   ApiBearerAuth,
   ApiHeader,
   ApiOperation,
+  ApiOkResponse,
   ApiTags,
 } from "@nestjs/swagger";
 import {
@@ -33,6 +35,66 @@ import {
 @RequireAuth()
 export class UploadsController {
   constructor(private readonly uploads: UploadsService) {}
+  @Get(":uploadId")
+  @ApiOkResponse({
+    schema: {
+      type: "object",
+      required: [
+        "uploadId",
+        "status",
+        "filename",
+        "size",
+        "fingerprint",
+        "partSize",
+        "totalParts",
+        "expiresAt",
+        "uploadedParts",
+      ],
+      properties: {
+        uploadId: { type: "string", format: "uuid" },
+        status: {
+          type: "string",
+          enum: [
+            "INITIALIZING",
+            "ACTIVE",
+            "COMPLETING",
+            "COMPLETED",
+            "ABORTING",
+            "ABORTED",
+          ],
+        },
+        groupId: { type: "string", format: "uuid" },
+        filename: { type: "string" },
+        size: { type: "integer" },
+        fingerprint: { type: "string" },
+        partSize: { type: "integer" },
+        totalParts: { type: "integer" },
+        expiresAt: { type: "string", format: "date-time" },
+        fileId: { type: "string", format: "uuid" },
+        objectReady: { type: "boolean" },
+        uploadedParts: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              partNumber: { type: "integer" },
+              etag: { type: "string" },
+              size: { type: "integer" },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiOperation({
+    summary: "T17-01 — Trạng thái và parts thực tế để tiếp tục tải lên",
+  })
+  status(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("uploadId", UUIDParamPipe) id: string,
+  ) {
+    return this.uploads.status(auth.user.id, id);
+  }
   @Post()
   @ApiOperation({ summary: "T16-01 — Tạo phiên multipart" })
   create(

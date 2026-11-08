@@ -78,11 +78,16 @@ test("shared resource permissions distinguish global admin and group roles and r
     role: "VIEWER",
     canManageMembers: false,
     canHost: false,
-    canUpload: true,
+    canUpload: false,
     canViewRecordings: true,
   });
   await assert.rejects(access.require(viewer, "group", "canHost"));
+  await assert.rejects(access.require(viewer, "group", "canUpload"));
   role = "HOST";
+  assert.equal(
+    (await access.require(viewer, "group", "canUpload")).canUpload,
+    true,
+  );
   assert.equal(
     (await access.require(viewer, "group", "canHost")).canManageMembers,
     false,
