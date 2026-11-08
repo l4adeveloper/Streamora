@@ -5,7 +5,7 @@ Tài liệu tổng hợp phạm vi, API và triển khai/chuyển dữ liệu sa
 
 Thư viện vẫn dùng API và PostgreSQL thật; nội dung file nằm trên ổ đĩa của máy
 chạy backend. Không cần tài khoản AWS, bucket, Docker hoặc dịch vụ cloud mới.
-Đây là T15; chưa có uploader multipart/resume T16/T17.
+T15 cung cấp thư viện/import. Upload multipart đã có tại [T16](t16-handoff.md); resume sau reload thuộc T17.
 
 ## Chạy
 
@@ -15,7 +15,7 @@ Trong `backend/.env`, thêm hoặc sửa:
 FILES_STORAGE_DRIVER=local
 FILES_LOCAL_DIRECTORY=.local-storage/files
 FILES_PUBLIC_BASE_URL=http://127.0.0.1:4000
-FILES_DOWNLOAD_TTL_SECONDS=120
+FILES_DOWNLOAD_TTL_SECONDS=60
 FILES_CLEANUP_ENABLED=true
 ```
 
@@ -124,7 +124,7 @@ uploader phải còn quyền group. File PENDING, còn recordingId hoặc file_u
 
 T11 gọi service nội bộ `FilesService.registerRecording`: tạo registry
 `recording_assets {id,sessionId}` trước, rồi đăng ký metadata; service kiểm tra
-group và chống trùng theo recordingId. T16 tạo file PENDING, chuyển AVAILABLE
+group và chống trùng theo recordingId. T16 lưu phiên ACTIVE riêng, tạo file AVAILABLE
 sau complete; T11/T13 dùng file_usages để giữ file đang được xử lý.
 
 ## Chuyển sang S3 sau
@@ -136,7 +136,9 @@ FILES_S3_REGION=ap-southeast-1
 ```
 
 Cấu hình credentials phía backend rồi khởi động lại. Giao diện/API metadata
-giữ nguyên. **Các file đã nhập local không tự chuyển lên S3**; cần chuyển dữ liệu
-và giữ objectKey tương ứng trước khi đổi driver cho thư viện đang có dữ liệu.
+giữ nguyên. **Các file đã nhập local không tự chuyển lên S3**. Từ bản T16, file cũ
+giữ vị trí riêng và có thể tiếp tục đọc ở local nếu API còn truy cập được thư mục
+cũ; chỉ upload mới dùng cấu hình S3. Nâng cấp/gắn dữ liệu legacy và chuyển cả file
+cũ sang S3 theo [bàn giao T16, mục 6](t16-handoff.md).
 Chế độ local dùng một ổ đĩa, không thay thế khả năng chia sẻ lưu trữ giữa nhiều
 backend hoặc kiểm thử IAM/CORS/chữ ký S3 thật.

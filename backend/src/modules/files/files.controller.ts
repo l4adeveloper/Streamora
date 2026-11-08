@@ -29,6 +29,7 @@ import {
   FileDownloadResponseDto,
   FileListResponseDto,
   FileResponseDto,
+  VideoPlaybackResponseDto,
 } from "./files.models";
 
 @Controller("groups/:groupId/files")
@@ -64,6 +65,27 @@ export class GroupFilesController {
 @ApiParam({ name: "fileId", format: "uuid" })
 export class FilesController {
   constructor(private readonly files: FilesService) {}
+  @Post(":fileId/playback")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Video preview — nguồn gốc và các chất lượng đã được xuất bản; chuẩn bị T13",
+  })
+  @ApiSuccess(200, VideoPlaybackResponseDto)
+  @ApiErrors(
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FILE_NOT_FOUND"],
+    [409, "FILE_NOT_READY"],
+    [415, "VIDEO_PREVIEW_UNSUPPORTED"],
+    [503, "VIDEO_OUTPUT_INVALID", "STORAGE_UNAVAILABLE"],
+  )
+  playback(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("fileId", UUIDParamPipe) fileId: string,
+  ) {
+    return this.files.playback(auth.user.id, fileId);
+  }
   @Get()
   @ApiExcludeEndpoint()
   legacyList(
@@ -143,7 +165,7 @@ export class FilesController {
   @HttpCode(200)
   @ApiOperation({
     summary:
-      "Xem trước PDF — cấp URL inline ngắn hạn, kiểm tra quyền và trạng thái",
+      "Xem trước PDF/ảnh/video — URL inline ngắn hạn, kiểm tra quyền và trạng thái",
   })
   @ApiSuccess(200, FileDownloadResponseDto)
   @ApiErrors(

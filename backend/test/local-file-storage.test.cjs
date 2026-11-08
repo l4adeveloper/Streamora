@@ -7,6 +7,66 @@ const {
   LocalFileStorage,
 } = require("../dist/modules/files/local-file-storage");
 
+test("image previews sign MIME, verify raster signatures and reject spoofed types", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "streamora-image-preview-"));
+  try {
+    const local = new LocalFileStorage({
+      directory: join(dir, "files"),
+      secret: "image-preview-test",
+      ttlSeconds: 60,
+      baseUrl: "http://127.0.0.1:4000",
+    });
+    const fixtures = [
+      ["image/png", Buffer.from("89504e470d0a1a0a00000000", "hex")],
+      ["image/jpeg", Buffer.from("ffd8ffe000104a4649460001", "hex")],
+      ["image/webp", Buffer.from("524946461000000057454250", "hex")],
+    ];
+    for (let i = 0; i < fixtures.length; i++) {
+      const [type, bytes] = fixtures[i];
+      const source = join(dir, `source${i}`);
+      await writeFile(source, bytes);
+      await local.importFile(source, `images/${i}`);
+      const signed = await local.download(
+        `images/${i}`,
+        `image${i}`,
+        1000,
+        true,
+        type,
+      );
+      const token = new URL(signed.url).searchParams.get("token");
+      const opened = await local.openDownload(token, 2000);
+      assert.equal(opened.type, type);
+      assert.match(opened.disposition, /^inline;/);
+      for await (const _ of opened.stream) {
+      }
+      const bad = await local.download(
+        `images/${i}`,
+        "spoofed",
+        1000,
+        true,
+        "application/pdf",
+      );
+      await assert.rejects(
+        local.openDownload(new URL(bad.url).searchParams.get("token"), 2000),
+        (e) => e.getStatus() === 415,
+      );
+    }
+    const svg = await local.download(
+      "images/0",
+      "x.svg",
+      1000,
+      true,
+      "image/svg+xml",
+    );
+    await assert.rejects(
+      local.openDownload(new URL(svg.url).searchParams.get("token"), 2000),
+      (e) => e.getStatus() === 403,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("T15 local serves real bytes, signs expiry, rejects tampering and deletes only its copy", async () => {
   const dir = await mkdtemp(join(tmpdir(), "streamora-local-test-"));
   try {

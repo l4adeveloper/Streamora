@@ -1,10 +1,16 @@
 node_modules/
 .next/
 dist/
+# Environment files and their local variants/backups, at any directory level.
 .env
 .env.*
+*.env
+*.env.*
+# Keep configuration templates in the repository.
 !.env.example
 !.env.*.example
+!*.env.example
+!*.env.*.example
 *.tsbuildinfo
 coverage/
 .preview/
