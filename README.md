@@ -20,6 +20,8 @@ Swagger local có Try it out Auth/Users: `http://127.0.0.1:3000/api/v1/docs`
 Phần quản lý nhóm xem [hướng dẫn bàn giao T02](backend/docs/t02-handoff.md).
 Thư viện, API và triển khai S3: [bàn giao T15](backend/docs/t15-handoff.md).
 Nhập file/thư mục và xem trước PDF local: [hướng dẫn chạy T15](backend/docs/t15-local.md).
+Upload multipart local và cấu hình AWS: [bàn giao T16](backend/docs/t16-handoff.md).
+Preview video local, tua và khung chất lượng T13: [hướng dẫn video](backend/docs/video-preview-local.md).
 Thành viên và phân quyền nhóm xem [hướng dẫn bàn giao T03](backend/docs/t03-handoff.md).
 Lịch học, meet độc lập và vòng đời buổi học xem [API T04](backend/docs/t04-api.md).
 Xin vào, accept/reject và vào/ra xem [API tham gia T04](backend/docs/t04-admission.md).
@@ -38,7 +40,7 @@ Swagger API local: `http://127.0.0.1:4000/api/v1/docs`.
 | `/meet`      | Tạo phòng hoặc tham gia bằng mã/liên kết                      |
 | `/rooms/:id` | Phòng họp, camera/micro/chia sẻ màn hình trên thiết bị cục bộ |
 | `/community` | Kênh chat, lưu lịch sử trên trình duyệt                       |
-| `/files`     | Thư viện thật theo group; tìm kiếm, quản lý và preview PDF |
+| `/files`     | Thư viện theo group; upload nhiều file, tìm kiếm, quản lý và preview PDF/ảnh/video |
 | `/register`  | Đăng ký tài khoản thật                                        |
 | `/login`     | Đăng nhập                                                     |
 | `/account`   | Hồ sơ cá nhân, cập nhật họ tên và đăng xuất                   |
@@ -89,7 +91,8 @@ npm run build
 `POST /api/v1/rooms` với `{name,groupId}` dành cho HOST/OWNER/ADMIN và
 `GET /api/v1/rooms/:id` xác minh membership từ room trong DB.
 `GET /api/v1/groups/<uuid>/files?q=slide` yêu cầu thành viên nhóm, đọc metadata thật từ PostgreSQL.
-Swagger T15: `/api/v1/docs-files`. Lưu trữ local hoặc S3; upload mới thuộc T16/T17.
+Swagger T15/T16: `/api/v1/docs-files`. Upload multipart và thư viện dùng local hoặc S3; resume sau reload thuộc T17.
+Tài liệu bàn giao upload, cấu hình local/S3, migration, API và nghiệm thu: [T16](backend/docs/t16-handoff.md).
 Realtime `/classroom` dùng `auth.accessToken`; `channel:join` nhận `{groupId}`,
 `chat:send` nhận `{groupId,text}`. API cũng cung cấp gateway; service cổng 4001 dùng cùng bộ quyền.
 Khu vực tài khoản/nhóm/thành viên/lịch học/Meet dùng `NEXT_PUBLIC_API_URL` gọi backend thật;
@@ -132,14 +135,14 @@ nên user trong `DATABASE_URL` cần quyền CREATEDB.
 - Thanh tua kéo được, play/pause, đuổi theo mốc trực tiếp, chọn tốc độ/chất lượng và toàn màn hình là mô phỏng giao diện, chưa phát video HLS thực.
 - Camera/micro/chia sẻ màn hình dùng `getUserMedia`/`getDisplayMedia` thật sau khi cho phép, có dừng track khi rời trang. Chưa truyền media giữa người dùng.
 - Có thiết lập FPS cho lần chia sẻ tiếp theo; trình duyệt quyết định mức hỗ trợ.
-- Thông báo ghi hình, mục bản ghi và tải lên chỉ minh họa. Không tạo tệp ghi âm/video, không giữ nội dung tệp đã chọn và không upload lên cloud.
+- Thông báo ghi hình và mục bản ghi trong workspace vẫn minh họa. Thư viện `/files` đã upload multipart thật qua local hoặc S3; chưa có chức năng ghi hình T10/T11.
 - Giao diện dùng ảnh chân dung minh họa từ Unsplash và font Be Vietnam Pro từ Google Fonts; có fallback khi không tải được font.
 
 ## Phần cần tích hợp tiếp
 
 Tích hợp guard T03 vào các module lớp học/tài liệu/bản ghi khi triển khai; LiveKit và token từ API đã xác thực;
 Egress + Web Audio API; HLS/hls.js với rolling DVR playlist; presigned multipart upload S3 có resume thật;
-worker FFmpeg, retry/DLQ; Redis adapter; replication GCS và định tuyến CDN; Kubernetes/HPA/WAF và metrics.
+điều phối encode qua dịch vụ AWS, retry/DLQ; Redis adapter; replication GCS và định tuyến CDN; Kubernetes/HPA/WAF và metrics.
 
 API/realtime chỉ bind loopback. API phòng/tài liệu và Socket.IO hiện đã xác thực,
 kiểm tra quyền theo group và thu hồi truy cập khi xóa thành viên. Xem giới hạn media,

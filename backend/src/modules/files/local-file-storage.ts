@@ -1,11 +1,22 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { copyFile, mkdir, open, realpath, unlink } from "node:fs/promises";
+import {
+  copyFile,
+  link,
+  mkdir,
+  open,
+  realpath,
+  unlink,
+} from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { ApiError } from "../../common/api-error";
+import { PREVIEW_TYPES, matchesPreviewType } from "./file-preview";
+import { Readable } from "node:stream";
+import { byteRange } from "./byte-range";
 
 export function attachmentName(name: string, preview = false) {
-  return `${preview ? "inline" : "attachment"}; filename="${preview ? "preview.pdf" : "download"}"; filename*=UTF-8''${encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`;
+  return `${preview ? "inline" : "attachment"}; filename="${preview ? "preview" : "download"}"; filename*=UTF-8''${encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`;
 }
 export class LocalFileStorage {
   private readonly root: string;
@@ -16,6 +27,7 @@ export class LocalFileStorage {
       secret: string;
       ttlSeconds: number;
       baseUrl: string;
+      locationId?: string;
     },
   ) {
     this.root = resolve(options.directory);
@@ -94,17 +106,33 @@ export class LocalFileStorage {
         "FORBIDDEN",
         "Không được ghi file tại vị trí này.",
       );
-    await copyFile(sourcePath, path, constants.COPYFILE_EXCL);
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    try {
+      await copyFile(sourcePath, temporary, constants.COPYFILE_EXCL);
+      // Publish a complete file atomically without overwriting an existing object.
+      await link(temporary, path);
+    } finally {
+      await unlink(temporary).catch(() => {});
+    }
   }
-  async download(key: string, name: string, now = Date.now(), preview = false) {
+  async download(
+    key: string,
+    name: string,
+    now = Date.now(),
+    preview = false,
+    mimeType = "application/pdf",
+  ) {
     this.path(key);
-    const expires = now + this.options.ttlSeconds * 1000;
+    const expires = now + Math.min(60, this.options.ttlSeconds) * 1000;
     const data = Buffer.from(
       JSON.stringify({
         key,
         name,
         expires,
-        ...(preview ? { preview: true } : {}),
+        ...(this.options.locationId
+          ? { locationId: this.options.locationId }
+          : {}),
+        ...(preview ? { preview: true, previewType: mimeType } : {}),
       }),
     ).toString("base64url");
     const signature = createHmac("sha256", this.signingKey)
@@ -115,12 +143,18 @@ export class LocalFileStorage {
       expiresAt: new Date(expires).toISOString(),
     };
   }
-  async openDownload(token: string, now = Date.now()) {
+  async openDownload(
+    token: string,
+    now = Date.now(),
+    range?: string,
+    head = false,
+  ) {
     let payload: {
       key: string;
       name: string;
       expires: number;
       preview?: boolean;
+      previewType?: string;
     };
     try {
       if (typeof token !== "string" || token.length > 8192) throw new Error();
@@ -146,7 +180,10 @@ export class LocalFileStorage {
         typeof payload.key !== "string" ||
         typeof payload.name !== "string" ||
         payload.name.length > 255 ||
-        (payload.preview !== undefined && typeof payload.preview !== "boolean")
+        (payload.preview !== undefined &&
+          typeof payload.preview !== "boolean") ||
+        (payload.previewType !== undefined &&
+          (!payload.preview || !PREVIEW_TYPES.has(payload.previewType)))
       )
         throw new Error();
     } catch {
@@ -167,21 +204,66 @@ export class LocalFileStorage {
             "Không tìm thấy nội dung file.",
           );
         if (payload.preview) {
-          const header = Buffer.alloc(5);
-          await handle.read(header, 0, 5, 0);
-          if (header.toString("ascii") !== "%PDF-")
+          const header = Buffer.alloc(12);
+          await handle.read(header, 0, 12, 0);
+          if (
+            !matchesPreviewType(
+              header,
+              payload.previewType ?? "application/pdf",
+            )
+          )
             throw new ApiError(
               415,
-              "PDF_PREVIEW_UNSUPPORTED",
-              "Nội dung file không phải PDF hợp lệ.",
+              payload.previewType?.startsWith("video/")
+                ? "VIDEO_PREVIEW_UNSUPPORTED"
+                : payload.previewType?.startsWith("image/")
+                  ? "IMAGE_PREVIEW_UNSUPPORTED"
+                  : "PDF_PREVIEW_UNSUPPORTED",
+              "Nội dung file không khớp định dạng xem trước.",
             );
         }
+        const selected =
+          range && !head ? byteRange(range, stat.size) : undefined;
+        const status = selected === null ? 416 : selected ? 206 : 200;
+        const size =
+          selected === null
+            ? 0
+            : selected
+              ? selected.end - selected.start + 1
+              : stat.size;
+        let stream: Readable;
+        if (head || selected === null) {
+          await handle.close();
+          stream = Readable.from([]);
+        } else {
+          // Own the handle lifetime explicitly, including interrupted range reads.
+          stream = handle.createReadStream({
+            autoClose: false,
+            ...(selected ? { start: selected.start, end: selected.end } : {}),
+          });
+          let closed = false;
+          const release = () => {
+            if (closed) return;
+            closed = true;
+            void handle.close().catch(() => {});
+          };
+          stream.once("end", release);
+          stream.once("error", release);
+          stream.once("close", release);
+        }
         return {
-          stream: handle.createReadStream(),
-          size: stat.size,
+          stream,
+          size,
+          status,
+          contentRange:
+            selected === null
+              ? `bytes */${stat.size}`
+              : selected
+                ? `bytes ${selected.start}-${selected.end}/${stat.size}`
+                : undefined,
           disposition: attachmentName(payload.name, payload.preview),
           type: payload.preview
-            ? "application/pdf"
+            ? (payload.previewType ?? "application/pdf")
             : "application/octet-stream",
         };
       } catch (error) {
@@ -203,6 +285,19 @@ export class LocalFileStorage {
       await unlink(await this.checkedPath(key));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  async size(key: string) {
+    try {
+      const handle = await open(await this.checkedPath(key), "r");
+      try {
+        return (await handle.stat()).size;
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
     }
   }
 }

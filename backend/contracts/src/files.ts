@@ -27,3 +27,19 @@ export interface FileDownloadResponse {
   url: string;
   expiresAt: string;
 }
+
+export type VideoProcessingStatus =
+  "NOT_REQUESTED" | "QUEUED" | "PROCESSING" | "READY" | "FAILED";
+export interface VideoPlaybackSource extends FileDownloadResponse {
+  id: string;
+  label: string;
+  kind: "file" | "hls";
+  mimeType: string;
+  height: number | null;
+  bitrate: number | null;
+}
+export interface VideoPlaybackResponse {
+  fileId: string;
+  processing: { status: VideoProcessingStatus; progressPercent: number | null };
+  sources: VideoPlaybackSource[];
+}
