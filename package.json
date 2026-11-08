@@ -49,6 +49,9 @@
     "test:t16": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/multipart-storage.test.cjs backend/test/integration/uploads.test.cjs",
     "test:t16:large": "npm run build --workspace=@streamora/api && node backend/scripts/test-t16-large.cjs",
     "test:t16:frontend": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/frontend/uploads-ui.test.cjs",
+    "test:t17": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/uploads-resume.test.cjs backend/test/uploads-scheduling.test.cjs backend/test/uploads-resume-browser.test.cjs backend/test/multipart-storage.test.cjs",
+    "test:t17:integration": "npm run test:t16",
+    "test:t17:frontend": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/frontend/uploads-resume-ui.test.cjs backend/test/frontend/uploads-ui.test.cjs",
     "test:video-preview": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/video-preview.test.cjs backend/test/frontend/video-preview-ui.test.cjs"
   },
   "engines": {

@@ -1,5 +1,7 @@
 # T16 — Bàn giao upload multipart song song
 
+Phần resume trong tài liệu này mô tả mốc T16. Triển khai tiếp theo xem [bàn giao T17](t17-handoff.md).
+
 Ngày cập nhật: **08/11/2026**. Nhánh: **`anhduc/T16`**.
 
 Tài liệu mô tả code trong working tree tại thời điểm bàn giao. T16 đã tích hợp

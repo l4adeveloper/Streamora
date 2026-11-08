@@ -8,6 +8,7 @@ import type {
 import { PrismaService } from "../../database/prisma.service";
 import { GroupAccessService } from "../memberships/group-access.service";
 import { ApiError } from "../../common/api-error";
+import { safeErrorCode } from "../../common/safe-error-code";
 import { FileStorageService } from "./file-storage.service";
 import { PREVIEW_TYPES } from "./file-preview";
 import { VideoPlaybackService } from "./video-playback.service";
@@ -156,7 +157,7 @@ export class FilesService {
     });
   }
   async remove(userId: string, fileId: string) {
-    await this.prisma.$transaction(async (tx) => {
+    const deletion = await this.prisma.$transaction(async (tx) => {
       const file = await this.mutationAccess(tx, userId, fileId);
       // PENDING can still be written by T16/T11. Recording links are retained
       // until T11 explicitly releases the recording retention/reference.
@@ -181,7 +182,27 @@ export class FilesService {
           storageLocationId: file.storageLocationId,
         },
       });
+      return {
+        objectKey: file.objectKey,
+        storageLocationId: file.storageLocationId,
+      };
     });
+    // The durable deletion request is committed first; never hold DB locks for storage I/O.
+    try {
+      await this.storage.delete(deletion.objectKey, deletion.storageLocationId);
+      await this.prisma.fileObjectDeletion.update({
+        where: { fileId },
+        data: { completedAt: new Date() },
+      });
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "file_delete_retry_pending",
+          fileId,
+          code: safeErrorCode(error),
+        }),
+      );
+    }
   }
   async download(userId: string, fileId: string, preview = false) {
     const response = await this.withReadableFile(

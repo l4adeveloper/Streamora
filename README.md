@@ -1,151 +1,208 @@
 # Streamora
 
-Khung monorepo cho nền tảng học trực tuyến, cộng đồng và phát trực tiếp có tua lại. Toàn bộ giao diện tiếng Việt, tông tối với tím và cyan.
+Nền tảng học trực tuyến, cộng đồng và phát trực tiếp có tua lại. Dự án dùng **Next.js + NestJS + PostgreSQL**, tổ chức theo monorepo, với giao diện tiếng Việt.
 
-## Chạy giao diện
+## 1. Chạy local
 
-Yêu cầu Node.js 22.16+ và npm 10+. Tại thư mục gốc:
+### Chuẩn bị
+
+- **Node.js 22.16+**, **npm 10+**.
+- PostgreSQL truy cập được qua `DATABASE_URL`; dự án kết nối trực tiếp, không cần Docker.
+- Thực hiện các lệnh dưới đây tại **thư mục gốc repository**.
+
+### Bước 1 — Cài đặt và tạo cấu hình
 
 ```sh
 npm ci
-npm run setup:env   # rồi điền DATABASE_URL trong backend/.env
-npm run dev
+npm run setup:env
 ```
 
-Mở http://127.0.0.1:3000. Các trang trải nghiệm chạy độc lập với dữ liệu mẫu.
-Đăng ký, đăng nhập và tài khoản dùng API/PostgreSQL thật; xem [hướng dẫn frontend](frontend/README.md).
-Đồng đội bắt đầu từ [hướng dẫn bàn giao T01](backend/docs/t01-handoff.md).
-Swagger local có Try it out Auth/Users: `http://127.0.0.1:3000/api/v1/docs`
-(cần chạy cả frontend và API).
-Phần quản lý nhóm xem [hướng dẫn bàn giao T02](backend/docs/t02-handoff.md).
-Thư viện, API và triển khai S3: [bàn giao T15](backend/docs/t15-handoff.md).
-Nhập file/thư mục và xem trước PDF local: [hướng dẫn chạy T15](backend/docs/t15-local.md).
-Upload multipart local và cấu hình AWS: [bàn giao T16](backend/docs/t16-handoff.md).
-Preview video local, tua và khung chất lượng T13: [hướng dẫn video](backend/docs/video-preview-local.md).
-Thành viên và phân quyền nhóm xem [hướng dẫn bàn giao T03](backend/docs/t03-handoff.md).
-Lịch học, meet độc lập và vòng đời buổi học xem [API T04](backend/docs/t04-api.md).
-Xin vào, accept/reject và vào/ra xem [API tham gia T04](backend/docs/t04-admission.md).
-Thông báo realtime, heartbeat và reconnect xem [realtime T04](backend/docs/t04-realtime.md).
-Giao diện T04 thật: mở nhóm → **Xem lịch học**, hoặc vào `/meet` để tạo/tham gia
-cuộc họp độc lập. Xem [hướng dẫn giao diện T04](frontend/docs/class-sessions.md).
-Điểm tích hợp T05/T11: [kiểm tra lượt tham gia và sự kiện kết thúc](backend/docs/t04-integration.md).
-Nghiệm thu toàn bộ bằng `npm run test:t04`; xem [bàn giao và kịch bản demo T04](backend/docs/t04-handoff.md).
-Swagger T04 local: `http://127.0.0.1:4000/api/v1/docs-sessions`.
-Swagger API local: `http://127.0.0.1:4000/api/v1/docs`.
+`setup:env` tạo khóa ký ngẫu nhiên và các file cấu hình nếu chưa có; giữ nguyên file đã tồn tại.
 
-| Đường dẫn    | Nội dung                                                      |
-| ------------ | ------------------------------------------------------------- |
-| `/`          | Landing giới thiệu và bản xem trước không gian                |
-| `/workspace` | Lớp trực tiếp, trình phát DVR minh họa, chat và thành viên    |
-| `/meet`      | Tạo phòng hoặc tham gia bằng mã/liên kết                      |
-| `/rooms/:id` | Phòng họp, camera/micro/chia sẻ màn hình trên thiết bị cục bộ |
-| `/community` | Kênh chat, lưu lịch sử trên trình duyệt                       |
-| `/files`     | Thư viện theo group; upload nhiều file, tìm kiếm, quản lý và preview PDF/ảnh/video |
-| `/register`  | Đăng ký tài khoản thật                                        |
-| `/login`     | Đăng nhập                                                     |
-| `/account`   | Hồ sơ cá nhân, cập nhật họ tên và đăng xuất                   |
+| File                  | Cần cấu hình                                                                      |
+| --------------------- | --------------------------------------------------------------------------------- |
+| `backend/.env`        | Điền `DATABASE_URL` của PostgreSQL; kiểm tra `WEB_ORIGIN=http://127.0.0.1:3000`   |
+| `frontend/.env.local` | `NEXT_PUBLIC_API_URL=http://127.0.0.1:4000/api/v1`; realtime mặc định ở cổng 4001 |
 
-## Cấu trúc
+Dùng thống nhất hostname `127.0.0.1`. Cấu hình frontend chỉ chứa biến public; khóa ký, thông tin database và credentials storage thuộc backend. Khởi động lại dịch vụ sau khi sửa env.
 
-```text
-frontend/                # Next.js (@streamora/web)
-  src/
-    app/                 # Các route Next.js App Router và giao diện chung
-    components/          # landing, workspace, live-player, presentation, ui, demo-data
-backend/                 # NestJS API (@streamora/api)
-  src/config/            # Cấu hình môi trường và chính sách auth T01
-  src/database/          # DatabaseModule/PrismaService kết nối PostgreSQL
-  src/common/            # Guard, DTO, validation, lỗi và log HTTP dùng chung
-  src/modules/
-    auth/                # Đăng ký, đăng nhập, JWT và refresh rotation
-    users/               # GET/PATCH hồ sơ với guard xác thực
-    communities/         # Danh sách cộng đồng mẫu
-    memberships/         # Thành viên, quyền nhóm và thu hồi Socket.IO/LiveKit
-    rooms/               # Phòng theo nhóm và ánh xạ LiveKit trong DB
-    files/               # Tìm kiếm metadata tài liệu mẫu
-  realtime/src/          # NestJS Socket.IO: tham gia kênh và phát tin nhắn
-  test/                  # Test cấu hình, setup và HTTP nền tảng
-  prisma/                # Schema và migration users/auth_sessions/refresh tokens
-  services/
-    recording/           # Hướng tích hợp LiveKit Egress
-    video-worker/        # Hướng tích hợp RabbitMQ + FFmpeg + HLS
-  contracts/src/         # Kiểu dữ liệu dùng chung FE/BE (@streamora/contracts)
-  scripts/               # setup-env, demo, seed, export OpenAPI
-  infra/
-    kubernetes/          # Ghi chú tổ chức deployment
-    observability/       # Danh mục metrics cần triển khai
-```
+### Bước 2 — Chuẩn bị database
 
-## Các dịch vụ local
-
-```sh
-npm run dev:api       # http://127.0.0.1:4000/api/v1/health
-npm run dev:realtime  # http://127.0.0.1:4001/health
-npm run typecheck
-npm run test:backend
-npm run test:database # PostgreSQL local đang chạy
-npm run build
-```
-
-`GET /api/v1/communities` vẫn là dữ liệu mẫu. API phòng yêu cầu Bearer:
-`POST /api/v1/rooms` với `{name,groupId}` dành cho HOST/OWNER/ADMIN và
-`GET /api/v1/rooms/:id` xác minh membership từ room trong DB.
-`GET /api/v1/groups/<uuid>/files?q=slide` yêu cầu thành viên nhóm, đọc metadata thật từ PostgreSQL.
-Swagger T15/T16: `/api/v1/docs-files`. Upload multipart và thư viện dùng local hoặc S3; resume sau reload thuộc T17.
-Tài liệu bàn giao upload, cấu hình local/S3, migration, API và nghiệm thu: [T16](backend/docs/t16-handoff.md).
-Realtime `/classroom` dùng `auth.accessToken`; `channel:join` nhận `{groupId}`,
-`chat:send` nhận `{groupId,text}`. API cũng cung cấp gateway; service cổng 4001 dùng cùng bộ quyền.
-Khu vực tài khoản/nhóm/thành viên/lịch học/Meet dùng `NEXT_PUBLIC_API_URL` gọi backend thật;
-trình phát trong workspace còn dùng dữ liệu minh họa; thư viện `/files` dùng API thật.
-
-`npm run setup:env` tạo cấu hình local cùng khóa ký ngẫu nhiên; giữ nguyên
-file đã có. `backend/.env` dành cho server (điền `DATABASE_URL` của PostgreSQL dùng chung),
-`frontend/.env.local` chỉ có biến public. Quy ước tài khoản, token, cookie, cấu trúc module
-và phạm vi từng mục được ghi trong [backend/README.md](backend/README.md).
-Backend đã nạp/kiểm tra env, bật CORS credentials và tích hợp PostgreSQL/Prisma.
-Đã có 6 API auth/hồ sơ; xem [hướng dẫn thử API](backend/docs/auth-api.md).
-Mục 4 đã cung cấp package `@streamora/contracts` cho FE/BE và
-[quy ước tích hợp backend](backend/docs/backend-conventions.md) cho các module khác.
-Mục 5 có [cấu hình cookie/staging và test trình duyệt](backend/docs/session-security.md),
-chạy bằng `npm run test:browser` khi PostgreSQL local đang hoạt động.
-Mục 6 đã tích hợp giao diện đăng ký/đăng nhập/tài khoản. Mục 7 bổ sung tự refresh/retry
-và đồng bộ phiên giữa các tab; xem [hướng dẫn phiên frontend](frontend/docs/session.md).
-Mục 8 có khung trang/điều hướng, user, toast, form và trạng thái dùng chung;
-xem [quy ước frontend cho nhóm](frontend/docs/frontend-conventions.md).
-Mục 9 có `npm run test:t01` để nghiệm thu typecheck, API/database, cookie và UI/phiên;
-xem [hướng dẫn nghiệm thu T01](backend/docs/t01-acceptance.md).
-Mục 10 cung cấp Swagger, bản OpenAPI để review, `npm run docs:api`,
-`npm run docs:api:check`, `npm run demo:auth` và tài liệu bàn giao/demo/PR/staging.
-Chạy kiểm thử bằng `npm run test:frontend`. Dự án không dùng Docker: backend kết nối
-thẳng tới PostgreSQL qua `DATABASE_URL` trong `backend/.env`. Trước khi chạy API:
+Sau khi điền `DATABASE_URL`:
 
 ```sh
 npm run db:migrate
 npm run db:check
 ```
 
-Database dùng chung cho cả nhóm, nên chỉ cần chạy migration khi có migration mới.
-Test integration/UI tạo rồi xóa database `streamora_test_*` tạm trên cùng server,
-nên user trong `DATABASE_URL` cần quyền CREATEDB.
+Migration áp dụng khi có thay đổi mới. Nếu nhóm dùng chung database, migration đã được một người áp dụng sẽ có hiệu lực cho cả nhóm; không cần chạy lại để đồng bộ dữ liệu.
 
-## Phạm vi đã triển khai
+### Bước 3 — Mở các dịch vụ ở terminal riêng
 
-- Điều hướng giữa các trang, mời bằng liên kết, tạo/tham gia phòng mẫu, tìm metadata tài liệu và tin nhắn.
-- Chat được lưu riêng theo kênh; kênh mới và metadata thư viện lưu trong `localStorage` trên thiết bị. Thao tác cộng đồng/bình chọn là trạng thái mẫu. Mục Thành viên dùng API thật: tên/email, tìm kiếm, thêm/xóa, gán HOST/VIEWER và bảo vệ OWNER.
-- Thanh tua kéo được, play/pause, đuổi theo mốc trực tiếp, chọn tốc độ/chất lượng và toàn màn hình là mô phỏng giao diện, chưa phát video HLS thực.
-- Camera/micro/chia sẻ màn hình dùng `getUserMedia`/`getDisplayMedia` thật sau khi cho phép, có dừng track khi rời trang. Chưa truyền media giữa người dùng.
-- Có thiết lập FPS cho lần chia sẻ tiếp theo; trình duyệt quyết định mức hỗ trợ.
-- Thông báo ghi hình và mục bản ghi trong workspace vẫn minh họa. Thư viện `/files` đã upload multipart thật qua local hoặc S3; chưa có chức năng ghi hình T10/T11.
-- Giao diện dùng ảnh chân dung minh họa từ Unsplash và font Be Vietnam Pro từ Google Fonts; có fallback khi không tải được font.
+| Terminal | Lệnh                   | Mục đích                                              |
+| -------- | ---------------------- | ----------------------------------------------------- |
+| Frontend | `npm run dev`          | Giao diện tại [127.0.0.1:3000](http://127.0.0.1:3000) |
+| API      | `npm run dev:api`      | Auth, nhóm, lịch học, thư viện và điều khiển upload   |
+| Realtime | `npm run dev:realtime` | Chat/thông báo realtime khi frontend dùng cổng 4001   |
 
-## Phần cần tích hợp tiếp
+`dev:api` biên dịch rồi chạy một lần. Sau khi sửa code backend, dừng và chạy lại lệnh. Listener PUT local được API tự mở khi cần, không có lệnh chạy storage riêng.
 
-Tích hợp guard T03 vào các module lớp học/tài liệu/bản ghi khi triển khai; LiveKit và token từ API đã xác thực;
-Egress + Web Audio API; HLS/hls.js với rolling DVR playlist; presigned multipart upload S3 có resume thật;
-điều phối encode qua dịch vụ AWS, retry/DLQ; Redis adapter; replication GCS và định tuyến CDN; Kubernetes/HPA/WAF và metrics.
+**Bắt đầu sử dụng:** mở [Đăng ký](http://127.0.0.1:3000/register) hoặc [Đăng nhập](http://127.0.0.1:3000/login), chọn nhóm rồi mở thư viện/lịch học. Luồng demo nhiều tài khoản nằm trong [bàn giao T04](backend/docs/t04-handoff.md).
 
-API/realtime chỉ bind loopback. API phòng/tài liệu và Socket.IO hiện đã xác thực,
-kiểm tra quyền theo group và thu hồi truy cập khi xóa thành viên. Xem giới hạn media,
-TTL, outbox và hướng dẫn dùng chung guard/hook trong tài liệu T03.
-Kết quả test, PR và giới hạn bàn giao xem [báo cáo T01](backend/docs/t01-delivery-report.md).
-Staging công khai của nhóm cần hạ tầng/domain deployment riêng.
+## 2. Dịch vụ và đường dẫn
+
+### Cổng mặc định
+
+| Dịch vụ              | Cổng | Địa chỉ / ghi chú                                                |
+| -------------------- | ---- | ---------------------------------------------------------------- |
+| Frontend             | 3000 | [Trang chủ](http://127.0.0.1:3000)                               |
+| API NestJS           | 4000 | [Health](http://127.0.0.1:4000/api/v1/health), tiền tố `/api/v1` |
+| Realtime             | 4001 | [Health](http://127.0.0.1:4001/health), Socket.IO `/classroom`   |
+| Storage upload local | 4002 | Nhận PUT part qua URL đã ký; được quản lý bởi API                |
+
+API/realtime mặc định bind loopback. Staging công khai cần cấu hình hạ tầng/domain riêng.
+
+### Các trang chính
+
+| Đường dẫn                         | Nội dung                                                               |
+| --------------------------------- | ---------------------------------------------------------------------- |
+| `/`                               | Giới thiệu và xem trước không gian học                                 |
+| `/register`, `/login`, `/account` | Đăng ký, đăng nhập, hồ sơ và đăng xuất                                 |
+| `/workspace`                      | Không gian nhóm, chat, thành viên và trình phát trực tiếp minh họa     |
+| `/meet`                           | Tạo/tham gia cuộc họp độc lập bằng mã hoặc liên kết                    |
+| `/rooms/:id`                      | Giao diện phòng họp và thiết bị camera/micro/chia sẻ màn hình          |
+| `/groups/:groupId/sessions`       | Lịch học của nhóm; cũng có thể mở nhóm → **Xem lịch học**              |
+| `/community`                      | Không gian cộng đồng; có phần trạng thái/dữ liệu minh họa              |
+| `/files`                          | Thư viện theo nhóm: upload, tìm kiếm, quản lý và preview PDF/ảnh/video |
+
+### Swagger và API
+
+| Phạm vi                                | Tài liệu tương tác                                             |
+| -------------------------------------- | -------------------------------------------------------------- |
+| Auth và hồ sơ                          | [Swagger API](http://127.0.0.1:4000/api/v1/docs)               |
+| Lịch học, Meet và tham gia phòng — T04 | [Swagger sessions](http://127.0.0.1:4000/api/v1/docs-sessions) |
+| Thư viện và upload — T15/T16/T17       | [Swagger files](http://127.0.0.1:4000/api/v1/docs-files)       |
+
+Khi cả frontend và API đang chạy, có thể mở Swagger qua proxy frontend tại [3000/api/v1/docs](http://127.0.0.1:3000/api/v1/docs) để thử luồng auth/cookie. Xem [hướng dẫn thử API](backend/docs/auth-api.md) và [OpenAPI](backend/docs/openapi.md).
+
+## 3. Trạng thái tính năng
+
+### Đã tích hợp API/storage thật
+
+| Phạm vi                | Đã có                                                                        | Tài liệu chính                     |
+| ---------------------- | ---------------------------------------------------------------------------- | ---------------------------------- |
+| Tài khoản — T01        | Đăng ký/đăng nhập, hồ sơ, refresh/retry và đồng bộ phiên giữa các tab        | [T01](backend/docs/t01-handoff.md) |
+| Nhóm — T02             | Quản lý nhóm và không gian làm việc theo nhóm                                | [T02](backend/docs/t02-handoff.md) |
+| Thành viên — T03       | Tìm/thêm/xóa thành viên, HOST/VIEWER, bảo vệ OWNER và thu hồi quyền          | [T03](backend/docs/t03-handoff.md) |
+| Lịch học và Meet — T04 | Lịch, vòng đời buổi học, xin vào/duyệt/vào/ra và realtime                    | [T04](backend/docs/t04-handoff.md) |
+| Thư viện — T15         | Metadata PostgreSQL, tìm kiếm, quản lý file và preview                       | [T15](backend/docs/t15-handoff.md) |
+| Upload multipart — T16 | Nhiều file, chia part, ký URL, complete/abort; local và adapter S3           | [T16](backend/docs/t16-handoff.md) |
+| Tiếp tục upload — T17  | Pause/resume, khôi phục nguồn/hàng đợi sau reload, retry và chia lượt truyền | [T17](backend/docs/t17-handoff.md) |
+
+Chat trong nhóm dùng API/realtime thật; phần demo không gắn nhóm vẫn có trạng thái lưu trên trình duyệt. Thư viện `/files` theo nhóm đọc metadata thật từ PostgreSQL.
+
+### Còn minh họa hoặc cần tích hợp tiếp
+
+- Trình phát trực tiếp trong workspace có thanh tua, tốc độ/chất lượng và toàn màn hình minh họa; chưa có luồng HLS/DVR thật.
+- Camera/micro/chia sẻ màn hình dùng thiết bị thật sau khi được cho phép, có dừng track khi rời trang; chưa hoàn thiện truyền media giữa người dùng. Mức FPS chia sẻ còn phụ thuộc trình duyệt.
+- Ghi hình và bản ghi trong workspace còn minh họa; T10/T11, LiveKit Egress và Web Audio API là phần tích hợp tiếp.
+- Cần triển khai pipeline encode AWS, retry/DLQ, Redis adapter, replication GCS, CDN và hạ tầng Kubernetes/HPA/WAF/metrics.
+- S3 có adapter, IAM/CORS/lifecycle mẫu; chưa triển khai và kiểm thử upload S3 thật. Preview video local xem [hướng dẫn video](backend/docs/video-preview-local.md).
+- Giao diện dùng ảnh chân dung minh họa từ Unsplash và font Be Vietnam Pro từ Google Fonts; có font fallback.
+
+## 4. Các lệnh thường dùng
+
+### Phát triển và kiểm tra chung
+
+| Lệnh                     | Công dụng                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `npm run typecheck`      | Kiểm tra kiểu dữ liệu toàn monorepo                                            |
+| `npm run build`          | Build các workspace                                                            |
+| `npm run db:status`      | Xem trạng thái migration                                                       |
+| `npm run db:migrate`     | Áp dụng migration đã có                                                        |
+| `npm run db:check`       | Kiểm tra kết nối và các bảng auth                                              |
+| `npm run docs:api`       | Xuất OpenAPI                                                                   |
+| `npm run docs:api:check` | Kiểm tra OpenAPI khớp code                                                     |
+| `npm run demo:auth`      | Chạy kịch bản demo auth                                                        |
+| `npm run files:import`   | Nhập file local; xem [hướng dẫn T15](backend/docs/t15-local.md) trước khi dùng |
+
+### Kiểm thử
+
+| Phạm vi                                         | Lệnh                                                                       |
+| ----------------------------------------------- | -------------------------------------------------------------------------- |
+| Backend                                         | `npm run test:backend`                                                     |
+| Database / browser auth / toàn bộ UI            | `npm run test:database` / `npm run test:browser` / `npm run test:frontend` |
+| T01 — tài khoản, cookie và phiên                | `npm run test:t01`                                                         |
+| T02 — nhóm                                      | `npm run test:t02`                                                         |
+| T03 — thành viên và quyền                       | `npm run test:t03`                                                         |
+| T04 — lịch học, tham gia và realtime            | `npm run test:t04`                                                         |
+| T15 — thư viện và UI                            | `npm run test:t15` / `npm run test:t15:frontend`                           |
+| T16 — multipart và UI                           | `npm run test:t16` / `npm run test:t16:frontend`                           |
+| T17 — resume và điều phối, không cần PostgreSQL | `npm run test:t17`                                                         |
+| T17 — API/database và UI                        | `npm run test:t17:integration` / `npm run test:t17:frontend`               |
+| Preview video                                   | `npm run test:video-preview`                                               |
+
+**Database kiểm thử:** integration/UI tạo rồi xóa database `streamora_test_*` qua fixture. Dùng PostgreSQL/tài khoản kiểm thử riêng và ghi đè `DATABASE_URL` cho tiến trình test. Tài khoản này cần `CREATEDB`; tài khoản chạy ứng dụng bình thường không cần quyền đó. Xem [cách cấu hình an toàn trong T17](backend/docs/t17-handoff.md#database-kiểm-thử-và-quyền-createdb).
+
+## 5. Tài liệu và bàn giao
+
+### Theo module
+
+| Module                       | Điểm bắt đầu                                           | Tài liệu bổ sung                                                                                      |
+| ---------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| T01 — tài khoản và nền tảng  | [Bàn giao](backend/docs/t01-handoff.md)                | [Nghiệm thu](backend/docs/t01-acceptance.md), [báo cáo bàn giao](backend/docs/t01-delivery-report.md) |
+| T02 — nhóm                   | [Bàn giao](backend/docs/t02-handoff.md)                | —                                                                                                     |
+| T03 — thành viên, quyền nhóm | [Bàn giao](backend/docs/t03-handoff.md)                | Guard, thu hồi truy cập Socket.IO/LiveKit trong tài liệu bàn giao                                     |
+| T04 — lịch học và Meet       | [Bàn giao / demo](backend/docs/t04-handoff.md)         | [API lịch học](backend/docs/t04-api.md), [API tham gia](backend/docs/t04-admission.md)                |
+| T04 — giao diện và realtime  | [Hướng dẫn giao diện](frontend/docs/class-sessions.md) | [Realtime / heartbeat](backend/docs/t04-realtime.md)                                                  |
+| T04 — điểm nối T05/T11       | [Hướng dẫn tích hợp](backend/docs/t04-integration.md)  | Guard tham gia và consumer sự kiện kết thúc                                                           |
+| T15 — thư viện               | [Bàn giao](backend/docs/t15-handoff.md)                | [Nhập file và chạy local](backend/docs/t15-local.md)                                                  |
+| T16 — upload multipart       | [Bàn giao local/AWS](backend/docs/t16-handoff.md)      | API, quota, storage và nghiệm thu multipart                                                           |
+| T17 — tiếp tục upload        | [Bàn giao mới nhất](backend/docs/t17-handoff.md)       | Pause/resume, reload hàng đợi, tối ưu truyền và các giới hạn                                          |
+| Preview video / điểm nối T13 | [Hướng dẫn local](backend/docs/video-preview-local.md) | Tua, phát bản gốc và khung chất lượng                                                                 |
+
+### Quy ước dùng chung
+
+| Chủ đề              | Tài liệu                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Frontend và backend | [Frontend README](frontend/README.md), [Backend README](backend/README.md)                                          |
+| Tích hợp module     | [Quy ước frontend](frontend/docs/frontend-conventions.md), [quy ước backend](backend/docs/backend-conventions.md)   |
+| Phiên và cookie     | [Phiên frontend](frontend/docs/session.md), [cookie / staging / kiểm thử browser](backend/docs/session-security.md) |
+| Thử API và OpenAPI  | [Auth API](backend/docs/auth-api.md), [OpenAPI](backend/docs/openapi.md)                                            |
+
+Module mới dùng contracts trong `@streamora/contracts`, guard/quyền nhóm và API client hiện có. Cơ chế token, cookie, outbox và thu hồi quyền được mô tả trong các tài liệu nền tảng ở trên.
+
+## 6. Cấu trúc repository
+
+```text
+frontend/                      # Next.js — @streamora/web
+  src/app/                     # Route và layout
+  src/components/              # Giao diện auth, nhóm, lịch học, thư viện, workspace
+  src/lib/                     # API client, phiên, upload và logic phía trình duyệt
+  docs/                        # Quy ước và hướng dẫn tích hợp frontend
+backend/                       # NestJS API — @streamora/api
+  src/config/                  # Đọc/kiểm tra cấu hình môi trường
+  src/common/                  # Guard, validation, lỗi và log dùng chung
+  src/database/                # PrismaService và kết nối PostgreSQL
+  src/modules/
+    auth/, users/              # Tài khoản và hồ sơ
+    groups/, memberships/      # Nhóm, thành viên và quyền
+    class-sessions/, rooms/    # Lịch học, tham gia và phòng
+    files/, uploads/           # Thư viện, multipart và resume
+    communities/               # API cộng đồng mẫu
+  prisma/                      # Schema và migration
+  realtime/                    # Service Socket.IO — @streamora/realtime
+  contracts/                   # Kiểu dữ liệu FE/BE — @streamora/contracts
+  services/                    # Điểm nối recording / video-worker
+  infra/                       # Mẫu AWS, Kubernetes và observability
+  scripts/                     # Setup, demo, seed và xuất OpenAPI
+  test/                        # Unit, integration, browser và UI
+  docs/                        # Bàn giao theo task và hợp đồng API
+```
+
+### Ghi chú tích hợp API/realtime
+
+- `GET /api/v1/communities` vẫn trả dữ liệu mẫu.
+- `POST /api/v1/rooms` nhận `{name, groupId}`, cần HOST/OWNER/ADMIN; `GET /api/v1/rooms/:id` xác minh quyền qua nhóm trong database.
+- `GET /api/v1/groups/:groupId/files?q=slide` yêu cầu thành viên nhóm và đọc thư viện thật.
+- Socket.IO `/classroom` dùng `auth.accessToken`; `channel:join` nhận `{groupId}`, `chat:send` nhận `{groupId, text}`. API cũng cung cấp gateway; service cổng 4001 dùng cùng bộ quyền.
