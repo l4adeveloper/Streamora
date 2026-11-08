@@ -14,6 +14,17 @@ export class AuthApiError extends Error {
 }
 
 const messages: Record<string, string> = {
+  UPLOAD_LOCAL_STORAGE_UNAVAILABLE:
+    "Không thể lưu file để tiếp tục sau reload. Hãy kiểm tra dung lượng trống hoặc quyền lưu trữ của trình duyệt.",
+  UPLOAD_RESUME_UNAVAILABLE:
+    "API đang chạy chưa hỗ trợ tiếp tục tải lên. Hãy khởi động lại API bằng phiên bản mới.",
+  UPLOAD_NOT_FOUND: "Không tìm thấy phiên tải lên. Hãy chọn file để tải lại.",
+  UPLOAD_EXPIRED:
+    "Phiên tải lên đã hết hạn. Hãy hủy phiên rồi chọn file để tải lại.",
+  UPLOAD_NOT_ACTIVE:
+    "Phiên đang xử lý hoặc đã kết thúc. Hãy kiểm tra trạng thái trước khi tiếp tục.",
+  UPLOAD_FILE_MISMATCH:
+    "File không khớp phiên tải lên. Hãy chọn lại đúng file ban đầu.",
   PDF_PREVIEW_UNSUPPORTED:
     "Chỉ hỗ trợ xem trước PDF và ảnh JPEG, PNG, WebP hợp lệ.",
   IMAGE_PREVIEW_UNSUPPORTED:

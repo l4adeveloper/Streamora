@@ -254,7 +254,7 @@ test("T16 abort is repeatable, closes signed URLs, expiry and membership revocat
     204,
   );
   await db.groupMember.create({
-    data: { userId: other.id, groupId: group.id, role: "VIEWER" },
+    data: { userId: other.id, groupId: group.id, role: "HOST" },
   });
   const member = await api("POST", "/uploads", input(20), other);
   assert.equal(member.status, 201);
@@ -402,7 +402,7 @@ test("T16 server quotas serialize concurrent reservations, release on abort/expi
       );
 
     await db.groupMember.create({
-      data: { userId: other.id, groupId: group.id, role: "VIEWER" },
+      data: { userId: other.id, groupId: group.id, role: "HOST" },
     });
     policy.maxActivePerGroup = 2;
     assert.equal((await reserve()).status, 201);
@@ -498,7 +498,7 @@ test("T16 slow storage create/sign/abort does not hold group locks", async () =>
 
 test("T16 slow complete releases locks and rechecks membership before publishing", async () => {
   await db.groupMember.create({
-    data: { userId: other.id, groupId: group.id, role: "VIEWER" },
+    data: { userId: other.id, groupId: group.id, role: "HOST" },
   });
   const created = await api("POST", "/uploads", input(20), other);
   const id = created.body.uploadId;
@@ -622,4 +622,115 @@ test("T16 completed and in-flight local files retain their location after changi
     another.onModuleDestroy();
     await multipart.onModuleDestroy();
   }
+});
+
+test("T17 status uses storage parts, protects owner, supports resume and terminal/expiry states", async () => {
+  const session = await create();
+  const id = session.uploadId;
+  assert.equal(
+    (await api("GET", `/uploads/${id}`, undefined, other)).status,
+    403,
+  );
+  const first = await put(id, 1, Buffer.alloc(partSize, 7));
+  const snapshot = await api("GET", `/uploads/${id}`);
+  assert.equal(snapshot.status, 200);
+  assert.equal(snapshot.body.fingerprint, input().fingerprint);
+  assert.deepEqual(snapshot.body.uploadedParts, [{ ...first, size: partSize }]);
+  const second = await put(id, 2, Buffer.alloc(19, 8));
+  const completed = await api("POST", `/uploads/${id}/complete`, {
+    parts: [first, second],
+  });
+  assert.equal(completed.status, 200);
+  const final = await api("GET", `/uploads/${id}`);
+  assert.equal(final.body.status, "COMPLETED");
+  assert.equal(final.body.fileId, completed.body.file.id);
+  assert.deepEqual(final.body.uploadedParts, []);
+  const aborted = await create(19);
+  await api("DELETE", `/uploads/${aborted.uploadId}`);
+  assert.equal(
+    (await api("GET", `/uploads/${aborted.uploadId}`)).body.status,
+    "ABORTED",
+  );
+  assert.equal(
+    (
+      await api("POST", `/uploads/${aborted.uploadId}/complete`, {
+        parts: [first],
+      })
+    ).status,
+    409,
+  );
+  const expired = await create(19);
+  await db.uploadSession.update({
+    where: { id: expired.uploadId },
+    data: { expiresAt: new Date(0) },
+  });
+  assert.equal((await api("GET", `/uploads/${expired.uploadId}`)).status, 410);
+  assert.equal((await sign(expired.uploadId, [1])).status, 410);
+  assert.equal(
+    (
+      await api("POST", `/uploads/${expired.uploadId}/complete`, {
+        parts: [first],
+      })
+    ).status,
+    410,
+  );
+  const valid = await create(19);
+  const {
+    UploadsService,
+  } = require("../../dist/modules/uploads/uploads.service");
+  const result = await app
+    .get(UploadsService)
+    .cleanupExpired({ cutoffAt: new Date(Date.now() + 86400000), limit: 10 });
+  assert.ok(result.aborted >= 1);
+  assert.equal(result.failed, 0);
+  assert.equal(
+    (await api("GET", `/uploads/${expired.uploadId}`)).body.status,
+    "ABORTED",
+  );
+  assert.equal(
+    (await api("GET", `/uploads/${valid.uploadId}`)).body.status,
+    "ACTIVE",
+  );
+  await api("DELETE", `/uploads/${valid.uploadId}`);
+});
+
+test("Viewer cannot create or resume uploads; demoted hosts can still abort their own upload", async () => {
+  await db.groupMember.upsert({
+    where: { userId_groupId: { userId: other.id, groupId: group.id } },
+    create: { userId: other.id, groupId: group.id, role: "VIEWER" },
+    update: { role: "VIEWER" },
+  });
+  assert.equal((await api("POST", "/uploads", input(19), other)).status, 403);
+  await db.groupMember.update({
+    where: { userId_groupId: { userId: other.id, groupId: group.id } },
+    data: { role: "HOST" },
+  });
+  const session = await api("POST", "/uploads", input(19), other);
+  assert.equal(session.status, 201);
+  await db.groupMember.update({
+    where: { userId_groupId: { userId: other.id, groupId: group.id } },
+    data: { role: "VIEWER" },
+  });
+  assert.equal(
+    (await api("GET", `/uploads/${session.body.uploadId}`, undefined, other))
+      .status,
+    403,
+  );
+  assert.equal((await sign(session.body.uploadId, [1], other)).status, 403);
+  assert.equal(
+    (
+      await api(
+        "POST",
+        `/uploads/${session.body.uploadId}/complete`,
+        { parts: [] },
+        other,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await api("DELETE", `/uploads/${session.body.uploadId}`, undefined, other))
+      .status,
+    204,
+  );
 });

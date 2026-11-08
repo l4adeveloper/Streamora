@@ -55,7 +55,11 @@ function busy(): never {
 @Injectable()
 export class UploadsService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
-  private cleanup?: Promise<void>;
+  private cleanup?: Promise<{
+    scanned: number;
+    aborted: number;
+    failed: number;
+  }>;
   constructor(
     private readonly db: PrismaService,
     private readonly access: GroupAccessService,
@@ -273,6 +277,78 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
         "Phiên tải lên đã hết hạn. Hãy hủy và tải lại.",
       );
   }
+  async status(userId: string, id: string) {
+    const check = (upload: UploadSession) => {
+      if (
+        !["COMPLETED", "ABORTED"].includes(upload.status) &&
+        upload.expiresAt.getTime() <= Date.now()
+      )
+        fail(
+          410,
+          "UPLOAD_EXPIRED",
+          "Phiên tải lên đã hết hạn. Hãy hủy và chọn file để tải lại.",
+        );
+      return upload;
+    };
+    const upload = await this.locked(userId, id, async (current) =>
+      check(current),
+    );
+    // Storage I/O stays outside row locks. Terminal sessions never call ListParts.
+    let uploadedParts: Awaited<ReturnType<MultipartStorageService["list"]>> =
+      [];
+    let objectReady = false;
+    if (upload.status === "ACTIVE") {
+      try {
+        uploadedParts = await this.storage.list(
+          upload.objectKey,
+          upload.storageId,
+          upload.storageLocationId,
+        );
+      } catch (error) {
+        const latest = await this.locked(userId, id, async (current) =>
+          check(current),
+        );
+        if (latest.status === "ACTIVE") {
+          // Recover a storage completion whose DB commit/response was lost.
+          const missing =
+            (error as { name?: string }).name === "NoSuchUpload" ||
+            (error as { code?: string }).code === "ENOENT";
+          if (
+            missing &&
+            (await this.storage.size(
+              upload.objectKey,
+              upload.storageLocationId,
+            )) === Number(upload.size)
+          )
+            objectReady = true;
+          else
+            fail(
+              503,
+              "STORAGE_UNAVAILABLE",
+              "Chưa thể đối chiếu các phần tải lên. Hãy thử lại sau.",
+            );
+        }
+      }
+    }
+    const current = await this.locked(userId, id, async (current) =>
+      check(current),
+    );
+    return {
+      uploadId: id,
+      status: current.status,
+      filename: current.filename,
+      groupId: current.groupId,
+      size: Number(current.size),
+      fingerprint: current.fingerprint,
+      partSize: current.partSize,
+      totalParts: current.totalParts,
+      expiresAt: current.expiresAt.toISOString(),
+      objectReady,
+      uploadedParts: current.status === "ACTIVE" ? uploadedParts : [],
+      ...(current.fileId ? { fileId: current.fileId } : {}),
+    };
+  }
+
   async sign(userId: string, id: string, numbers: number[]) {
     const upload = await this.locked(userId, id, async (upload) => {
       this.active(upload);
@@ -542,9 +618,19 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
     }, 30000);
     this.timer.unref();
   }
-  cleanupExpired() {
+  cleanupExpired(options: { cutoffAt?: Date; limit?: number } = {}) {
+    if (
+      (options.cutoffAt && !Number.isFinite(options.cutoffAt.getTime())) ||
+      (options.limit !== undefined &&
+        (!Number.isInteger(options.limit) || options.limit < 1))
+    )
+      throw new RangeError("Invalid cleanup cutoffAt/limit");
     if (this.cleanup) return this.cleanup;
-    this.cleanup = this.processExpired()
+    const cutoff = new Date(
+      Math.min(options.cutoffAt?.getTime() ?? Date.now(), Date.now()),
+    );
+    const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 20)));
+    this.cleanup = this.processExpired(cutoff, limit)
       .catch((error) => {
         console.warn(
           JSON.stringify({
@@ -552,29 +638,47 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
             code: safeErrorCode(error),
           }),
         );
+        return { scanned: 0, aborted: 0, failed: 1 };
       })
       .finally(() => {
         this.cleanup = undefined;
       });
     return this.cleanup;
   }
-  private async processExpired() {
-    for (let n = 0; n < 20; n++) {
+  private async processExpired(cutoff: Date, limit: number) {
+    const result = { scanned: 0, aborted: 0, failed: 0 };
+    for (let n = 0; n < limit; n++) {
       const token = randomUUID();
       const rows = await this.db.$queryRaw<Array<{ id: string }>>`
         UPDATE upload_sessions SET status = 'ABORTING', operation_token = ${token}::uuid, operation_until = now() + interval '5 minutes'
         WHERE id = (SELECT id FROM upload_sessions
           WHERE status IN ('INITIALIZING', 'ACTIVE', 'COMPLETING', 'ABORTING')
-          AND (expires_at <= now() OR status IN ('INITIALIZING', 'ABORTING'))
+          AND (expires_at <= ${cutoff} OR status = 'ABORTING')
           AND (operation_until IS NULL OR operation_until <= now())
           ORDER BY expires_at FOR UPDATE SKIP LOCKED LIMIT 1)
         RETURNING id`;
-      if (!rows[0]) return;
+      if (!rows[0]) break;
+      result.scanned++;
       const upload = await this.db.uploadSession.findUnique({
         where: { id: rows[0].id },
       });
-      if (upload) await this.finishAbort(upload, token);
+      if (upload) {
+        try {
+          await this.finishAbort(upload, token);
+          result.aborted++;
+        } catch (error) {
+          result.failed++;
+          console.warn(
+            JSON.stringify({
+              event: "uploads.cleanup.v1",
+              uploadId: upload.id,
+              code: safeErrorCode(error),
+            }),
+          );
+        }
+      }
     }
+    return result;
   }
   async onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);

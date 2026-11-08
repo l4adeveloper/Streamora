@@ -134,3 +134,58 @@ test("T16 S3 scaffold signs real SigV4 UploadPart URLs without network or real c
     }
   }
 });
+
+test("Local resume reuses streamed ETags and invalidates the cache when a part changes", async () => {
+  const fs = require("node:fs");
+  const { writeFile, stat, utimes } = require("node:fs/promises");
+  const directory = await mkdtemp(join(tmpdir(), "streamora-part-cache-"));
+  const local = new LocalMultipartStorage({
+    directory,
+    secret: "cache-test",
+    origin: "http://127.0.0.1:3000",
+    port: 0,
+  });
+  const originalStream = fs.createReadStream;
+  let reads = 0;
+  try {
+    const id = await local.create(
+      "groups/test/cache",
+      1024,
+      1024,
+      Date.now() + 60000,
+    );
+    const url = await local.sign(id, 1, 60);
+    const uploaded = await fetch(url, {
+      method: "PUT",
+      body: Buffer.alloc(1024, 1),
+    });
+    assert.equal(uploaded.status, 200);
+    fs.createReadStream = (...args) => {
+      reads++;
+      return originalStream(...args);
+    };
+    const first = await local.list(id);
+    assert.equal(first[0].etag, uploaded.headers.get("etag"));
+    await local.list(id);
+    assert.equal(
+      reads,
+      0,
+      "Listing unchanged parts must not read or hash their contents again",
+    );
+    const path = join(directory, id, "1.part");
+    const before = await stat(path);
+    await writeFile(path, Buffer.alloc(1024, 2));
+    await utimes(path, before.atime, before.mtime); // ctime must also be checked, not just size/mtime.
+    const changed = await local.list(id);
+    assert.notEqual(changed[0].etag, first[0].etag);
+    assert.equal(reads, 1);
+    await local.list(id);
+    assert.equal(reads, 1);
+    await local.abort(id);
+    await assert.rejects(local.list(id), (error) => error.code === "ENOENT");
+  } finally {
+    fs.createReadStream = originalStream;
+    await local.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

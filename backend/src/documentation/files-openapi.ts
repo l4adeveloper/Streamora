@@ -5,7 +5,7 @@ import { UploadsModule } from "../modules/uploads/uploads.module";
 import { API_PREFIX } from "../config/auth-policy";
 export function createFilesDocument(app: INestApplication) {
   const config = new DocumentBuilder()
-    .setTitle("Streamora T15/T16 — thư viện và upload multipart")
+    .setTitle("Streamora T15/T16/T17 — thư viện, upload multipart và resume")
     .setVersion("1.0.0")
     .addBearerAuth(
       { type: "http", scheme: "bearer", bearerFormat: "JWT" },

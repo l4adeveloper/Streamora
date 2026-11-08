@@ -40,6 +40,25 @@ export class LocalMultipartStorage {
   private starting?: Promise<void>;
   private baseUrl = "";
   private locks = new Map<string, Promise<unknown>>();
+  private partCache = new Map<
+    string,
+    Map<number, { stamp: string; part: StoredPart }>
+  >();
+  private async stamp(path: string) {
+    const info = await stat(path, { bigint: true });
+    return {
+      size: Number(info.size),
+      key: `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`,
+    };
+  }
+  private remember(id: string, part: StoredPart, stamp: string) {
+    let cache = this.partCache.get(id);
+    if (!cache) {
+      cache = new Map();
+      this.partCache.set(id, cache);
+    }
+    cache.set(part.partNumber, { stamp, part });
+  }
   constructor(
     private readonly options: {
       directory: string;
@@ -180,15 +199,22 @@ export class LocalMultipartStorage {
           createWriteStream(temporary, { flags: "wx" }),
         );
         if (bytes !== expectedSize) throw new Error("Part size mismatch");
+        const etag = `"${hash.digest("hex")}"`;
         await this.exclusive(id, async () => {
           await this.manifest(id); // Abort/complete may have closed the session during streaming.
           await rename(
             temporary!,
             join(this.directory(id), `${partNumber}.part`),
           );
+          const path = join(this.directory(id), `${partNumber}.part`);
+          this.remember(
+            id,
+            { partNumber, etag, size: bytes },
+            (await this.stamp(path)).key,
+          );
         });
         temporary = undefined;
-        res.setHeader("ETag", `"${hash.digest("hex")}"`);
+        res.setHeader("ETag", etag);
         res.writeHead(200).end();
       }
     } catch {
@@ -202,13 +228,28 @@ export class LocalMultipartStorage {
     const result: StoredPart[] = [];
     for (const name of entries.filter((name) => /^\d+\.part$/.test(name))) {
       const path = join(this.directory(id), name);
+      const partNumber = parseInt(name);
+      const before = await this.stamp(path);
+      const cached = this.partCache.get(id)?.get(partNumber);
+      if (cached?.stamp === before.key) {
+        result.push({ ...cached.part });
+        continue;
+      }
       const hash = createHash("md5");
       for await (const chunk of createReadStream(path)) hash.update(chunk);
-      result.push({
-        partNumber: parseInt(name),
+      if ((await this.stamp(path)).key !== before.key)
+        throw new ApiError(
+          409,
+          "PART_CHANGED",
+          "Phần dữ liệu đã thay đổi trong lúc kiểm tra. Hãy thử lại.",
+        );
+      const part = {
+        partNumber,
         etag: `"${hash.digest("hex")}"`,
-        size: (await stat(path)).size,
-      });
+        size: before.size,
+      };
+      this.remember(id, part, before.key);
+      result.push({ ...part });
     }
     return result.sort((a, b) => a.partNumber - b.partNumber);
   }
@@ -248,9 +289,10 @@ export class LocalMultipartStorage {
     });
   }
   abort(id: string) {
-    return this.exclusive(id, () =>
-      rm(this.directory(id), { recursive: true, force: true }),
-    );
+    return this.exclusive(id, async () => {
+      await rm(this.directory(id), { recursive: true, force: true });
+      this.partCache.delete(id);
+    });
   }
   async close() {
     if (this.server?.listening)
