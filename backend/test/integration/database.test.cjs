@@ -173,18 +173,30 @@ test("a fresh database receives the complete auth, group, membership and class s
     "class_session_end_consumers",
     "class_session_end_events",
     "class_sessions",
+    "file_object_deletions",
+    "file_usages",
+    "files",
+    "group_chat_channels",
+    "group_chat_messages",
     "group_create_requests",
     "group_members",
     "group_rooms",
     "groups",
     "membership_changes",
     "membership_lookup_windows",
+    "recording_assets",
     "users",
   ]);
   const migrations = await sql.query(
     'SELECT finished_at FROM "_prisma_migrations"',
   );
-  assert.equal(migrations.rowCount, 9);
+  const migrationDirectories = require("node:fs")
+    .readdirSync(
+      require("node:path").resolve(__dirname, "../../prisma/migrations"),
+      { withFileTypes: true },
+    )
+    .filter((entry) => entry.isDirectory());
+  assert.equal(migrations.rowCount, migrationDirectories.length);
   assert.ok(migrations.rows.every((row) => row.finished_at));
 });
 
