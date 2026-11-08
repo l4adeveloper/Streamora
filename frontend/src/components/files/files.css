@@ -224,6 +224,12 @@
   overflow: auto;
   overscroll-behavior: contain;
 }
+.upload-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
 .upload-job {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
@@ -259,11 +265,41 @@
 .upload-job-heading button:hover {
   background: var(--hover);
 }
-.upload-job progress {
-  width: 100%;
+.upload-job-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  min-height: 30px;
+}
+.upload-job-progress progress {
+  flex: 1;
+  min-width: 0;
   height: 6px;
   accent-color: var(--accent);
-  margin-top: 12px;
+}
+.upload-job-percent {
+  min-width: 4ch;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.upload-job-control {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: var(--accent);
+}
+.upload-job-control:hover:not(:disabled) {
+  background: var(--hover);
+}
+.upload-job-control:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .upload-job p {
   margin: 6px 0 0;
