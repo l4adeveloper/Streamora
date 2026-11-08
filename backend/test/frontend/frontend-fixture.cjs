@@ -36,6 +36,7 @@ async function createFrontendFixture({
   shellProbe = false,
   sessionRealtime,
   docsEnabled = false,
+  localUploads = false,
 } = {}) {
   const previewRoot = join(root, ".preview");
   const directory = join(previewRoot, `auth-frontend-run-${randomUUID()}`);
@@ -66,6 +67,7 @@ async function createFrontendFixture({
   try {
     const port = await freePort();
     const webOrigin = `http://127.0.0.1:${port}`;
+    const uploadApiPort = localUploads ? await freePort() : 0;
     database = await createTestDatabase();
     prisma = new PrismaService(database.url);
     await prisma.onModuleInit();
@@ -76,6 +78,18 @@ async function createFrontendFixture({
       nodeEnv: "test",
       ...(sessionRealtime ? { sessionRealtime } : {}),
       docsEnabled,
+      ...(localUploads
+        ? {
+            files: {
+              ...database.config.files,
+              driver: "local",
+              localDirectory: join(directory, "storage/files"),
+              publicBaseUrl: `http://127.0.0.1:${uploadApiPort}`,
+              cleanupEnabled: false,
+            },
+            uploads: { ...database.config.uploads, localPort: 0 },
+          }
+        : {}),
       auth: {
         ...database.config.auth,
         accessTokenSecret: randomBytes(48).toString("base64url"),
@@ -90,7 +104,7 @@ async function createFrontendFixture({
       logger: false,
     });
     configureApplication(app, config, { requestLog: () => {} });
-    await app.listen(0, "127.0.0.1");
+    await app.listen(uploadApiPort, "127.0.0.1");
     const apiUrl = `${await app.getUrl()}/api/v1`;
     await mkdir(webRoot, { recursive: true });
     // Build an isolated source copy. Never overwrite the user's .next or local env files.
@@ -195,6 +209,7 @@ async function createFrontendFixture({
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     return {
+      app,
       webOrigin,
       apiUrl,
       prisma,
