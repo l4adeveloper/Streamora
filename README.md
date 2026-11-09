@@ -58,14 +58,14 @@ backend/                 # NestJS API (@streamora/api)
     auth/                # Đăng ký, đăng nhập, JWT và refresh rotation
     users/               # GET/PATCH hồ sơ với guard xác thực
     communities/         # Danh sách cộng đồng mẫu
-    memberships/         # Thành viên, quyền nhóm và thu hồi Socket.IO/LiveKit
-    rooms/               # Phòng theo nhóm và ánh xạ LiveKit trong DB
+    memberships/         # Thành viên, quyền nhóm và thu hồi Socket.IO
+    rooms/               # Phòng theo nhóm và kiểm tra quyền tài nguyên
     files/               # Tìm kiếm metadata tài liệu mẫu
   realtime/src/          # NestJS Socket.IO: tham gia kênh và phát tin nhắn
   test/                  # Test cấu hình, setup và HTTP nền tảng
   prisma/                # Schema và migration users/auth_sessions/refresh tokens
   services/
-    recording/           # Hướng tích hợp LiveKit Egress
+    recording/           # Hướng tích hợp IVS server-side composition
     video-worker/        # Hướng tích hợp RabbitMQ + FFmpeg + HLS
   contracts/src/         # Kiểu dữ liệu dùng chung FE/BE (@streamora/contracts)
   scripts/               # setup-env, demo, seed, export OpenAPI
@@ -75,6 +75,8 @@ backend/                 # NestJS API (@streamora/api)
 ```
 
 ## Các dịch vụ local
+
+Phòng video IVS T05: [cấu hình AWS, luồng tham gia và nghiệm thu](backend/docs/t05-handoff.md).
 
 ```sh
 npm run dev:api       # http://127.0.0.1:4000/api/v1/health
@@ -137,9 +139,11 @@ nên user trong `DATABASE_URL` cần quyền CREATEDB.
 
 ## Phần cần tích hợp tiếp
 
-Tích hợp guard T03 vào các module lớp học/tài liệu/bản ghi khi triển khai; LiveKit và token từ API đã xác thực;
-Egress + Web Audio API; HLS/hls.js với rolling DVR playlist; presigned multipart upload S3 có resume thật;
-worker FFmpeg, retry/DLQ; Redis adapter; replication GCS và định tuyến CDN; Kubernetes/HPA/WAF và metrics.
+IVS Real-Time và participant token sau khi kiểm tra quyền T03/lượt tham gia T04;
+IVS server-side composition cho ghi cloud, Web Audio API cho ghi cục bộ;
+HLS/hls.js và DVR cần kiểm chứng playlist khi LIVE; presigned multipart upload S3 có resume;
+SQS + MediaConvert, retry/DLQ; Azure Web PubSub for Socket.IO; replication GCS và CDN;
+triển khai EC2/ALB, autoscaling, WAF và metrics.
 
 API/realtime chỉ bind loopback. API phòng/tài liệu và Socket.IO hiện đã xác thực,
 kiểm tra quyền theo group và thu hồi truy cập khi xóa thành viên. Xem giới hạn media,

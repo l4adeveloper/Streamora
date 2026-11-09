@@ -1,7 +1,11 @@
 # Video worker — điểm tích hợp
 
-Pipeline dự kiến: RabbitMQ → tải bản ghi từ S3 → FFmpeg → HLS 720p/1080p + thumbnail → upload S3 → replicate GCS → cập nhật trạng thái API.
+Pipeline dự kiến của T13: SQS → MediaConvert cho file LOCAL_RECORDING/MP4 →
+HLS + thumbnail trên S3 → cập nhật trạng thái API. Bản ghi cloud dùng HLS do IVS
+đã tạo; replication GCS do T18 quản lý.
 
-Payload dùng `TranscodeJob` trong `backend/contracts`. Chưa có consumer hoặc FFmpeg chạy thực tế.
+Hợp đồng job `video.finalize.v1` cần được thống nhất với T11 trong contracts.
+Chưa có consumer hoặc MediaConvert chạy thực tế.
 Khi triển khai: ack sau khi lưu kết quả, idempotency theo recordingId, retry có backoff và dead-letter queue.
-DVR trực tiếp cần Egress/packager phát HLS rolling playlist trong lúc buổi học diễn ra; file MP4 sau cuộc gọi không đủ để triển khai tua lại trực tiếp.
+DVR trực tiếp cần POC T12 xác nhận IVS Channel ghi playlist/segment lên S3 kịp
+trong lúc LIVE; file MP4 sau cuộc gọi không đủ để triển khai tua lại trực tiếp.

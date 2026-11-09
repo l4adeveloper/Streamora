@@ -1,4 +1,6 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
+import { APP_CONFIG } from "../../config/configuration.module";
+import type { EnvironmentConfig } from "../../config/environment";
 import { isUUID } from "class-validator";
 import type {
   Prisma,
@@ -68,6 +70,7 @@ export class ClassAdmissionsService {
     private readonly prisma: PrismaService,
     private readonly access: ClassSessionAccessService,
     private readonly commands: ClassSessionCommandsService,
+    @Inject(APP_CONFIG) private readonly config: EnvironmentConfig,
   ) {}
 
   private async withSession<T>(
@@ -659,13 +662,38 @@ export class ClassAdmissionsService {
           orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
           take: query.limit + 1,
         });
+        const mediaRows = this.config?.ivs?.enabled
+          ? await tx.classMediaConnection.findMany({
+              where: {
+                participationId: { in: rows.map((row) => row.id) },
+                state: "ACTIVE",
+                lastSeenAt: { gt: new Date(now.getTime() - 30000) },
+              },
+              orderBy: { lastSeenAt: "desc" },
+            })
+          : [];
         const items = rows.slice(0, query.limit),
           last = items.at(-1);
         return {
-          items: items.map((visit) => ({
-            ...toClassParticipation(visit),
-            user: visit.user,
-          })),
+          items: items.map((visit) => {
+            const connections = mediaRows.filter(
+              (connection) => connection.participationId === visit.id,
+            );
+            return {
+              ...toClassParticipation(visit),
+              user: visit.user,
+              media: {
+                connected: connections.some((c) => c.connected),
+                micEnabled: connections.length
+                  ? connections.some((c) => c.micEnabled === true)
+                  : null,
+                cameraEnabled: connections.length
+                  ? connections.some((c) => c.cameraEnabled === true)
+                  : null,
+                checkedAt: connections[0]?.lastSeenAt.toISOString() ?? null,
+              },
+            };
+          }),
           nextCursor:
             rows.length > query.limit && last
               ? this.next(scope, last.joinedAt, last.id)

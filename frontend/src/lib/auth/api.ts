@@ -14,6 +14,16 @@ export class AuthApiError extends Error {
 }
 
 const messages: Record<string, string> = {
+  MEDIA_UNAVAILABLE: "Phòng video chưa sẵn sàng. Vui lòng thử lại sau.",
+  MEDIA_STARTING:
+    "Phòng video đang được chuẩn bị. Vui lòng thử lại sau vài giây.",
+  MEDIA_REVOKING: "Kết nối cũ đang được đóng. Vui lòng thử lại sau vài giây.",
+  MEDIA_REVOKED: "Quyền kết nối video đã kết thúc.",
+  MEDIA_REQUEST_EXPIRED:
+    "Yêu cầu kết nối đã hết hiệu lực. Hãy bấm kết nối để thử lại.",
+  STALE_MEDIA_REQUEST:
+    "Yêu cầu kết nối đã được thay thế. Hãy thử lại bằng thao tác mới.",
+  BANNED: "Bạn đã bị chặn khỏi buổi học này.",
   PDF_PREVIEW_UNSUPPORTED: "Chỉ hỗ trợ xem trước file PDF hợp lệ.",
   FILE_NOT_FOUND: "Tài liệu không tồn tại hoặc đã bị xóa.",
   FILE_NOT_READY: "Tài liệu đang được chuẩn bị. Vui lòng thử lại sau.",

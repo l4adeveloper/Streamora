@@ -92,7 +92,7 @@ export class GroupClassSessionsController {
   @ApiOperation({
     summary: "T04-01 — Tạo lịch học",
     description:
-      "HOST/OWNER/ADMIN. Chỉ tạo SCHEDULED; không tạo room LiveKit. Không có Idempotency-Key thì mỗi POST là một lần tạo mới.",
+      "HOST/OWNER/ADMIN. Chỉ tạo SCHEDULED; không tạo phòng media. Không có Idempotency-Key thì mỗi POST là một lần tạo mới.",
   })
   @idempotency()
   @ApiSuccess(201, ClassSessionResponseDto)
@@ -184,7 +184,7 @@ export class ClassSessionsController {
   @ApiOperation({
     summary: "T04-06 — Kết thúc",
     description:
-      "LIVE→ENDED. Đóng yêu cầu/lượt tham gia và lưu một sự kiện session.ended.v1 trong cùng transaction. ENDED trả hiện trạng. Realtime báo kết thúc; consumer nội bộ có checkpoint để T11 tích hợp sau, chưa gọi ghi hình/LiveKit.",
+      "LIVE→ENDED. Đóng yêu cầu/lượt tham gia và lưu một sự kiện session.ended.v1 trong cùng transaction. ENDED trả hiện trạng. Realtime báo kết thúc; consumer nội bộ có checkpoint để T11 tích hợp sau, chưa gọi dịch vụ ghi hình/media.",
   })
   @idempotency()
   @emptyBody()
@@ -230,7 +230,7 @@ export class MeetsController {
   @ApiOperation({
     summary: "T04 — Tạo meet độc lập",
     description:
-      "Người đăng nhập tạo phòng SCHEDULED, sau đó gọi start. Không tự tạo membership hay room LiveKit.",
+      "Người đăng nhập tạo phòng SCHEDULED, sau đó gọi start. Không tự tạo membership hay phòng media.",
   })
   @idempotency()
   @ApiSuccess(201, ClassSessionResponseDto)

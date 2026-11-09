@@ -80,6 +80,7 @@ export interface ClassParticipation {
 
 export interface ClassParticipationWithUser extends ClassParticipation {
   user: ClassSessionUser;
+  media?: import("./class-media").ClassMediaState;
 }
 
 export interface CreateGroupClassSessionRequest {

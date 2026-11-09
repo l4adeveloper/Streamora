@@ -1,4 +1,4 @@
-import { ApiProperty } from "@nestjs/swagger";
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import type {
   ClassAdmissionResponse,
   ClassJoinRequest,
@@ -44,8 +44,17 @@ export class ClassParticipationDto implements ClassParticipation {
 export class ClassJoinRequestWithUserDto extends ClassJoinRequestDto {
   @ApiProperty({ type: ClassSessionUserDto }) user!: ClassSessionUserDto;
 }
+export class ClassMediaStateDto {
+  @ApiProperty() connected!: boolean;
+  @ApiProperty({ type: Boolean, nullable: true }) micEnabled!: boolean | null;
+  @ApiProperty({ type: Boolean, nullable: true }) cameraEnabled!:
+    boolean | null;
+  @ApiProperty({ type: String, nullable: true, format: "date-time" })
+  checkedAt!: string | null;
+}
 export class ClassParticipationWithUserDto extends ClassParticipationDto {
   @ApiProperty({ type: ClassSessionUserDto }) user!: ClassSessionUserDto;
+  @ApiPropertyOptional({ type: ClassMediaStateDto }) media?: ClassMediaStateDto;
 }
 export class ClassJoinRequestResponseDto {
   @ApiProperty({ type: ClassJoinRequestDto }) request!: ClassJoinRequest;
