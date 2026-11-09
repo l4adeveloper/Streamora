@@ -45,7 +45,13 @@
     "dev:realtime": "npm run dev --workspace=@streamora/realtime",
     "test:t15": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/files.test.cjs backend/test/local-file-storage.test.cjs backend/test/local-file-import.test.cjs backend/test/integration/files.test.cjs",
     "test:t15:frontend": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/frontend/files-ui.test.cjs",
-    "files:import": "npm run build --workspace=@streamora/api && node backend/scripts/import-local-file.cjs"
+    "files:import": "npm run build --workspace=@streamora/api && node backend/scripts/import-local-file.cjs",
+    "dev:ivs-events": "npm run build --workspace=@streamora/api && node backend/dist/ivs-events.worker.js",
+    "test:t05": "npm run build --workspace=@streamora/api && node --test backend/test/class-media.test.cjs",
+    "test:t05:integration": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/integration/class-media.test.cjs",
+    "test:t05:frontend": "npm run build:contracts && npm run build --workspace=@streamora/web && node --test backend/test/frontend/class-media-ui.test.cjs",
+    "docs:t05": "npm run build --workspace=@streamora/api && node backend/scripts/export-class-media-openapi.cjs",
+    "docs:t05:check": "npm run build --workspace=@streamora/api && node backend/scripts/export-class-media-openapi.cjs --check"
   },
   "engines": {
     "node": ">=22.16.0",

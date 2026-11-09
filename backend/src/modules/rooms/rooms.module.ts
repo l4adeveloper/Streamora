@@ -54,7 +54,7 @@ class RoomsController {
       demo: true,
     };
   }
-  // T05 owns session lifecycle checks, bans and LiveKit token issuance.
+  // T05 owns session media mapping, bans and IVS participant token issuance.
 }
 @Module({ imports: [MembershipsModule], controllers: [RoomsController] })
 export class RoomsModule {}

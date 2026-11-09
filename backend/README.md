@@ -24,6 +24,8 @@ Mục 8 có `npm run test:t04` và [hướng dẫn nghiệm thu/bàn giao T04](d
 
 ## Chạy local
 
+Mic/camera và IVS T05: [cấu hình, API và kiểm thử](docs/t05-handoff.md).
+
 Yêu cầu Node.js >=22.16 và npm >=10; máy hiện tại được kiểm tra với Node.js 24.14.1.
 Chạy tại thư mục gốc repository:
 
@@ -39,7 +41,7 @@ API mẫu: `http://127.0.0.1:4000/api/v1/health`.
 `npm run dev:api` biên dịch rồi chạy; sau khi sửa TypeScript, dừng và chạy lại lệnh.
 Frontend chạy ở terminal riêng bằng `npm run dev`.
 Realtime chạy bằng `npm run dev:realtime`; service trong `backend/realtime/` dùng lại
-gateway xác thực của API. Thành viên, guard, hook, outbox và LiveKit xem
+gateway xác thực của API. Thành viên, guard, hook và outbox xem
 [hướng dẫn T03](docs/t03-handoff.md).
 
 `setup:env` tạo `backend/.env` cho server và `frontend/.env.local` cho Next.js.

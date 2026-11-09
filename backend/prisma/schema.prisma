@@ -44,6 +44,8 @@ model User {
   groupChatMessages    GroupChatMessage[]
   createdChatChannels  GroupChatChannel[]
   libraryFiles         LibraryFile[]
+  mediaConnections     ClassMediaConnection[]
+  mediaBans            SessionBan[]
 
   @@map("users")
 }
@@ -64,6 +66,7 @@ model AuthSession {
   user                 User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokens        AuthRefreshToken[]
   classPresenceLeases  ClassPresenceLease[]
+  mediaConnections    ClassMediaConnection[]
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
@@ -156,6 +159,7 @@ model MembershipChange {
   role          GroupMemberRole?
   removed       Boolean
   createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  // Legacy delivery cursors retained; T05 reconciles class_media_connections.
   mediaSyncedAt DateTime?        @map("media_synced_at") @db.Timestamptz(3)
   nextAttemptAt DateTime         @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
   attempts      Int              @default(0)
@@ -224,7 +228,7 @@ model GroupChatChannel {
   @@map("group_chat_channels")
 }
 
-// T04: application sessions/admission only; independent of LiveKit and auth sessions.
+// T04: application sessions/admission only; independent of media and auth sessions.
 enum ClassSessionKind {
   GROUP
   MEET
@@ -285,6 +289,8 @@ model ClassSession {
   changes        ClassSessionChange[]
   libraryFiles   LibraryFile[]
   recordingAssets RecordingAsset[]
+  mediaRoom      ClassMediaRoom?
+  mediaBans      SessionBan[]
 
   @@index([groupId, scheduledAt, id], map: "class_sessions_group_schedule_idx")
   @@index([groupId, status, scheduledAt, id], map: "class_sessions_group_status_schedule_idx")
@@ -331,6 +337,7 @@ model ClassParticipation {
   user              User                           @relation(fields: [userId], references: [id], onDelete: Restrict)
   joinRequest       ClassJoinRequest?              @relation(fields: [joinRequestId, sessionId, userId], references: [id, sessionId, userId], onDelete: Restrict, map: "class_participations_request_identity_fkey")
   leases            ClassPresenceLease[]
+  mediaConnections  ClassMediaConnection[]
 
   @@index([sessionId, leftAt, joinedAt, id], map: "class_participations_session_presence_idx")
   @@index([userId, leftAt], map: "class_participations_user_presence_idx")
@@ -476,4 +483,80 @@ model FileObjectDeletion {
   file LibraryFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
   @@index([completedAt, nextAttemptAt])
   @@map("file_object_deletions")
+}
+
+// T05: media resources and issuance are separate from T04 admission.
+model ClassMediaRoom {
+  sessionId String @id @map("session_id") @db.Uuid
+  stageArn String? @unique @map("stage_arn") @db.VarChar(200)
+  stageSessionId String? @map("stage_session_id") @db.VarChar(100)
+  state String @default("PROVISIONING") @db.VarChar(20)
+  leaseUntil DateTime? @map("lease_until") @db.Timestamptz(3)
+  checkedAt DateTime @default(now()) @map("checked_at") @db.Timestamptz(3)
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  connections ClassMediaConnection[]
+  events IvsEvent[]
+  @@map("class_media_rooms")
+}
+
+model ClassMediaConnection {
+  id String @id @default(uuid()) @db.Uuid
+  sessionId String @map("session_id") @db.Uuid
+  participationId String @map("participation_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  authSessionId String @map("auth_session_id") @db.Uuid
+  clientId String @map("client_id") @db.Uuid
+  requestId String @map("request_id") @db.Uuid
+  participantId String? @unique @map("participant_id") @db.VarChar(64)
+  tokenCiphertext String? @map("token_ciphertext") @db.Text
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+  leaseUntil DateTime? @map("lease_until") @db.Timestamptz(3)
+  state String @default("ISSUING") @db.VarChar(20)
+  connected Boolean @default(false)
+  micEnabled Boolean? @map("mic_enabled")
+  cameraEnabled Boolean? @map("camera_enabled")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  checkedAt DateTime @default(now()) @map("checked_at") @db.Timestamptz(3)
+  room ClassMediaRoom @relation(fields: [sessionId], references: [sessionId], onDelete: Restrict)
+  participation ClassParticipation @relation(fields: [participationId], references: [id], onDelete: Restrict)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  authSession AuthSession @relation(fields: [authSessionId], references: [id], onDelete: Restrict)
+  requests ClassMediaRequest[]
+  @@unique([participationId, clientId])
+  @@index([state, checkedAt])
+  @@map("class_media_connections")
+}
+
+model ClassMediaRequest {
+  id String @id @db.Uuid
+  connectionId String @map("connection_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  connection ClassMediaConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  @@map("class_media_requests")
+}
+
+// T07 can write bans through its own authorized moderation APIs.
+model SessionBan {
+  sessionId String @map("session_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  bannedAt DateTime @default(now()) @map("banned_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  @@id([sessionId, userId])
+  @@map("session_bans")
+}
+
+// Durable inbox: unhandled composition/recording events wait for a T11 handler.
+model IvsEvent {
+  id String @id @db.VarChar(100)
+  sessionId String @map("session_id") @db.Uuid
+  detailType String @map("detail_type") @db.VarChar(100)
+  occurredAt DateTime @map("occurred_at") @db.Timestamptz(3)
+  payload Json @db.JsonB
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+  handledAt DateTime? @map("handled_at") @db.Timestamptz(3)
+  room ClassMediaRoom @relation(fields: [sessionId], references: [sessionId], onDelete: Restrict)
+  @@index([handledAt, receivedAt])
+  @@map("ivs_events")
 }

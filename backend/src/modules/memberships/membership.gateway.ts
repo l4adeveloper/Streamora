@@ -26,7 +26,6 @@ import { GroupAccessService } from "./group-access.service";
 import { PrismaService } from "../../database/prisma.service";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
-import { MembershipMediaService } from "./membership-media.service";
 
 const RESERVED_CHAT_CHANNELS = new Set([
   "trò-chuyện-chung",
@@ -40,9 +39,7 @@ export class MembershipGateway
 {
   @WebSocketServer() server!: Namespace;
   private timer?: ReturnType<typeof setInterval>;
-  private mediaTimer?: ReturnType<typeof setInterval>;
   private busy = false;
-  private mediaBusy = false;
   private stopping = false;
   private version = 0n;
   private lastWarning = 0;
@@ -52,7 +49,6 @@ export class MembershipGateway
     private readonly sessions: SessionStore,
     private readonly access: GroupAccessService,
     private readonly prisma: PrismaService,
-    private readonly media: MembershipMediaService,
     @Inject(APP_CONFIG) private readonly config: EnvironmentConfig,
   ) {}
 
@@ -87,15 +83,11 @@ export class MembershipGateway
     this.version = last?.version ?? 0n;
     this.timer = setInterval(() => void this.flush(), 500);
     this.timer.unref();
-    this.mediaTimer = setInterval(() => void this.flushMedia(), 1000);
-    this.mediaTimer.unref();
   }
   async onModuleDestroy() {
     this.stopping = true;
     clearInterval(this.timer);
-    clearInterval(this.mediaTimer);
-    while (this.busy || this.mediaBusy)
-      await new Promise((resolve) => setTimeout(resolve, 25));
+    while (this.busy) await new Promise((resolve) => setTimeout(resolve, 25));
   }
 
   private async identity(client: Socket) {
@@ -494,50 +486,11 @@ export class MembershipGateway
       this.busy = false;
     }
   }
-  async flushMedia() {
-    if (this.mediaBusy || this.stopping) return;
-    this.mediaBusy = true;
-    try {
-      // Persistent retry survives restarts. Synchronize current DB permissions,
-      // so replaying an older event cannot restore an obsolete role.
-      const pending = await this.prisma.membershipChange.findMany({
-        where: { mediaSyncedAt: null, nextAttemptAt: { lte: new Date() } },
-        orderBy: [{ nextAttemptAt: "asc" }, { version: "asc" }],
-        take: 20,
-      });
-      for (const event of pending) {
-        if (this.stopping) break;
-        try {
-          await this.media.synchronize(event.groupId, event.userId);
-          await this.prisma.membershipChange.update({
-            where: { version: event.version },
-            data: { mediaSyncedAt: new Date() },
-          });
-        } catch {
-          await this.prisma.membershipChange.update({
-            where: { version: event.version },
-            data: {
-              attempts: { increment: 1 },
-              nextAttemptAt: new Date(
-                Date.now() +
-                  Math.min(30000, 500 * 2 ** Math.min(event.attempts, 6)),
-              ),
-            },
-          });
-          this.warn();
-        }
-      }
-    } catch {
-      this.warn();
-    } finally {
-      this.mediaBusy = false;
-    }
-  }
   private warn() {
     if (Date.now() - this.lastWarning < 60000) return;
     this.lastWarning = Date.now();
     this.logger.warn(
-      "Đồng bộ quyền đang chờ thử lại. Kiểm tra database và cấu hình LiveKit.",
+      "Thông báo thay đổi quyền đang chờ thử lại. Kiểm tra kết nối database.",
     );
   }
 }

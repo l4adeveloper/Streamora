@@ -125,7 +125,7 @@ export class MembershipsController {
   @ApiOperation({
     summary: "T03-05 — Xóa thành viên, thu hồi truy cập",
     description:
-      "Commit quyền trước; transactional outbox đồng bộ Socket.IO và LiveKit, retry khi media lỗi.",
+      "Commit quyền trước; transactional outbox thông báo Socket.IO. Worker T05 thu hồi IVS theo quyền và lượt tham gia hiện tại khi IVS được bật.",
   })
   @ApiSuccess(204)
   @ApiErrors(

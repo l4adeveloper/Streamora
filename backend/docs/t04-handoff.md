@@ -21,10 +21,10 @@ cập nhật realtime. Tài khoản/phiên dùng T01, nhóm dùng T02, quyền n
 - Heartbeat mặc định 10 giây, thời hạn khôi phục 30 giây. Quá hạn thì lượt đóng;
   người tham gia thường phải xin duyệt lại. Chủ phòng mất mạng không tự kết thúc buổi.
 
-T04 hoạt động khi LiveKit không chạy. Mic/camera/chia sẻ màn hình, token media,
+T04 hoạt động độc lập với dịch vụ media. Mic/camera/chia sẻ màn hình, token media,
 ghi hình, chat, mute/ban và DVR chưa được triển khai trong luồng này. Các màn
-demo cũ trong workspace không phải phòng T04 có media. T03 vẫn giữ worker
-đồng bộ quyền LiveKit đã có trước đó.
+demo cũ trong workspace không phải phòng T04 có media. T05 sẽ tích hợp IVS;
+T03 hiện chỉ thu hồi quyền API/Socket.IO, chưa có worker thu hồi kết nối media.
 
 ## Chuẩn bị sau khi lấy code
 

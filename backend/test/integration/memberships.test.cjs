@@ -2,8 +2,6 @@ const assert = require("node:assert/strict");
 const { test, before, after } = require("node:test");
 const { randomBytes, randomUUID } = require("node:crypto");
 const { once } = require("node:events");
-const { createServer } = require("node:http");
-const jwt = require("jsonwebtoken");
 const { io } = require("socket.io-client");
 const { NestFactory } = require("@nestjs/core");
 const { AppModule } = require("../../dist/modules/app.module");
@@ -12,9 +10,6 @@ const { PrismaService } = require("../../dist/database/prisma.service");
 const {
   MembershipGateway,
 } = require("../../dist/modules/memberships/membership.gateway");
-const {
-  MembershipMediaService,
-} = require("../../dist/modules/memberships/membership-media.service");
 const { createTestDatabase } = require("./database-fixture.cjs");
 let fixture,
   prisma,
@@ -646,137 +641,6 @@ test("lookup quota is atomic and shared by API instances", async () => {
     responses.filter((response) => response.status === 429).length,
     5,
   );
-});
-
-test("LiveKit updates only registered rooms, retries failures durably and removes using the current DB permission", async () => {
-  const id = await group();
-  await member(id, viewer, "HOST");
-  const room = (
-    await api(owner, "POST", "/rooms", { name: "Media T03", groupId: id })
-  ).body.data;
-  const registered = await prisma.groupRoom.findUnique({
-    where: { id: room.id },
-  });
-  const saved = Object.fromEntries(
-    ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"].map((key) => [
-      key,
-      process.env[key],
-    ]),
-  );
-  const requests = [];
-  let fail = false;
-  const mediaServer = createServer(async (request, response) => {
-    let text = "";
-    for await (const chunk of request) text += chunk;
-    const body = JSON.parse(text);
-    const claims = jwt.verify(
-      request.headers.authorization.slice(7),
-      "t03-media-test-secret",
-    );
-    assert.equal(claims.iss, "t03-media-key");
-    assert.deepEqual(claims.video, { roomAdmin: true, room: body.room });
-    requests.push({ method: request.url.split("/").at(-1), ...body });
-    response.writeHead(fail ? 503 : 200, {
-      "Content-Type": "application/json",
-    });
-    response.end(
-      JSON.stringify(
-        fail
-          ? { code: "unavailable", msg: "Temporary test outage" }
-          : { identity: body.identity },
-      ),
-    );
-  });
-  await new Promise((resolve) => mediaServer.listen(0, "127.0.0.1", resolve));
-  process.env.LIVEKIT_URL = `http://127.0.0.1:${mediaServer.address().port}`;
-  process.env.LIVEKIT_API_KEY = "t03-media-key";
-  process.env.LIVEKIT_API_SECRET = "t03-media-test-secret";
-  const media = app.get(MembershipMediaService);
-  try {
-    await media.synchronize(id, viewer.id);
-    assert.ok(
-      requests.some(
-        (request) =>
-          request.room === registered.roomName &&
-          request.identity === viewer.id &&
-          request.method === "UpdateParticipant",
-      ),
-    );
-    await api(owner, "PATCH", `/groups/${id}/members/${viewer.id}`, {
-      role: "VIEWER",
-    });
-    await media.synchronize(id, viewer.id);
-    const update = requests
-      .filter(
-        (request) =>
-          request.room === registered.roomName &&
-          request.method === "UpdateParticipant",
-      )
-      .at(-1);
-    assert.deepEqual(update.permission.canPublishSources, [
-      "CAMERA",
-      "MICROPHONE",
-    ]);
-    fail = true;
-    await api(owner, "DELETE", `/groups/${id}/members/${viewer.id}`);
-    const change = await prisma.membershipChange.findFirst({
-      where: { groupId: id, userId: viewer.id, removed: true },
-      orderBy: { version: "desc" },
-    });
-    await app.get(MembershipGateway).flushMedia();
-    await waitUntil(
-      async () =>
-        (
-          await prisma.membershipChange.findUnique({
-            where: { version: change.version },
-          })
-        ).attempts > 0,
-      10000,
-    );
-    assert.equal(
-      (
-        await prisma.membershipChange.findUnique({
-          where: { version: change.version },
-        })
-      ).mediaSyncedAt,
-      null,
-    );
-    assert.equal(
-      (await api(viewer, "GET", `/groups/${id}/permissions/me`)).status,
-      403,
-    );
-    fail = false;
-    await prisma.membershipChange.update({
-      where: { version: change.version },
-      data: { nextAttemptAt: new Date(0) },
-    });
-    await waitUntil(
-      async () =>
-        Boolean(
-          (
-            await prisma.membershipChange.findUnique({
-              where: { version: change.version },
-            })
-          ).mediaSyncedAt,
-        ),
-      10000,
-    );
-    assert.ok(
-      requests.some(
-        (request) =>
-          request.room === registered.roomName &&
-          request.identity === viewer.id &&
-          request.method === "RemoveParticipant",
-      ),
-    );
-    assert.ok(!requests.some((request) => request.room === id));
-  } finally {
-    for (const [key, value] of Object.entries(saved)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    await new Promise((resolve) => mediaServer.close(resolve));
-  }
 });
 
 test("socket handshake is authenticated and auth refresh cannot switch the connected user", async () => {

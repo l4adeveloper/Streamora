@@ -32,6 +32,7 @@ import { useCursorList } from "@/lib/class-sessions/use-cursor-list";
 import { useClassRealtime } from "@/lib/class-sessions/use-class-realtime";
 import { SessionStatus } from "./session-card";
 import { SessionForm } from "./session-form";
+import { ClassMediaRoom } from "./class-media-room";
 import "./sessions.css";
 
 interface RoomData {
@@ -594,6 +595,13 @@ export function SessionRoom({
                   />
                 )}
               </section>
+            )}
+            {status === "LIVE" && !error && (
+              <ClassMediaRoom
+                key={data.id}
+                sessionId={data.id}
+                participationId={active ? visit.id : null}
+              />
             )}
             <div className="class-grid">
               {manage && (

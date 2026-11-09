@@ -8,7 +8,6 @@ import {
   MembershipsController,
 } from "./memberships.controller";
 import { MembershipGateway } from "./membership.gateway";
-import { MembershipMediaService } from "./membership-media.service";
 
 @Module({
   imports: [SessionSecurityModule],
@@ -18,7 +17,6 @@ import { MembershipMediaService } from "./membership-media.service";
     GroupAccessGuard,
     MembershipsService,
     MembershipGateway,
-    MembershipMediaService,
   ],
   exports: [
     GroupAccessService,

@@ -506,7 +506,7 @@ export function Workspace({
       );
     } else
       notify(
-        "Mô phỏng ghi hình đã bật. Ghi hình thực tế cần kết nối LiveKit Egress.",
+        "Mô phỏng ghi hình đã bật. Ghi hình trên cloud sẽ được tích hợp ở T11.",
       );
     setRecording(!recording);
   }
