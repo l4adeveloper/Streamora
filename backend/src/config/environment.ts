@@ -21,6 +21,16 @@ export interface EnvironmentConfig {
     eventsQueueUrl: string;
     workerEnabled: boolean;
   };
+  uploads?: {
+    maxSize: number;
+    partSize: number;
+    ttlSeconds: number;
+    localPort: number;
+    maxActivePerUser?: number;
+    maxActivePerGroup?: number;
+    maxActiveBytesPerUser?: number;
+    maxActiveBytesPerGroup?: number;
+  };
   files?: {
     driver?: "local" | "s3";
     localDirectory?: string;
@@ -186,12 +196,13 @@ export function readEnvironment(
     invalid("FILES_S3_BUCKET");
   const fileRegion = env.FILES_S3_REGION ?? "ap-southeast-1";
   if (!/^[a-z]{2}(-[a-z]+)+-\d+$/.test(fileRegion)) invalid("FILES_S3_REGION");
-  const downloadTtlSeconds = positiveInteger(
+  const requestedDownloadTtl = positiveInteger(
     env,
     "FILES_DOWNLOAD_TTL_SECONDS",
-    120,
+    60,
   );
-  if (downloadTtlSeconds > 300) invalid("FILES_DOWNLOAD_TTL_SECONDS");
+  if (requestedDownloadTtl > 300) invalid("FILES_DOWNLOAD_TTL_SECONDS");
+  const downloadTtlSeconds = Math.min(60, requestedDownloadTtl);
   const cleanupEnabled = env.FILES_CLEANUP_ENABLED ?? "true";
   if (!["true", "false"].includes(cleanupEnabled))
     invalid("FILES_CLEANUP_ENABLED");
@@ -231,6 +242,7 @@ export function readEnvironment(
     invalid("IVS_WORKER_ENABLED");
   return {
     nodeEnv: nodeEnv as EnvironmentConfig["nodeEnv"],
+    uploads: readUploadConfig(env),
     host,
     port,
     docsEnabled: rawDocs === "true",
@@ -272,5 +284,56 @@ export function readEnvironment(
         sameSite: sameSite as EnvironmentConfig["auth"]["cookie"]["sameSite"],
       },
     },
+  };
+}
+
+function readUploadConfig(env: NodeJS.ProcessEnv) {
+  const maxSize = positiveInteger(env, "UPLOAD_MAX_SIZE_BYTES", 2 * 1024 ** 3);
+  const partSize = positiveInteger(
+    env,
+    "UPLOAD_PART_SIZE_BYTES",
+    8 * 1024 ** 2,
+  );
+  const ttlSeconds = positiveInteger(env, "UPLOAD_TTL_SECONDS", 86400);
+  const localPort = positiveInteger(env, "UPLOAD_LOCAL_PORT", 4002);
+  if (partSize < 5 * 1024 ** 2 || partSize > 64 * 1024 ** 2)
+    invalid("UPLOAD_PART_SIZE_BYTES");
+  if (maxSize > partSize * 10000 || !Number.isSafeInteger(maxSize))
+    invalid("UPLOAD_MAX_SIZE_BYTES");
+  if (ttlSeconds > 604800) invalid("UPLOAD_TTL_SECONDS");
+  if (localPort > 65535) invalid("UPLOAD_LOCAL_PORT");
+  const maxActivePerUser = positiveInteger(
+    env,
+    "UPLOAD_MAX_ACTIVE_PER_USER",
+    4,
+  );
+  const maxActivePerGroup = positiveInteger(
+    env,
+    "UPLOAD_MAX_ACTIVE_PER_GROUP",
+    32,
+  );
+  const maxActiveBytesPerUser = positiveInteger(
+    env,
+    "UPLOAD_MAX_ACTIVE_BYTES_PER_USER",
+    8 * 1024 ** 3,
+  );
+  const maxActiveBytesPerGroup = positiveInteger(
+    env,
+    "UPLOAD_MAX_ACTIVE_BYTES_PER_GROUP",
+    64 * 1024 ** 3,
+  );
+  if (maxActivePerUser > maxActivePerGroup)
+    invalid("UPLOAD_MAX_ACTIVE_PER_USER");
+  if (maxActiveBytesPerUser > maxActiveBytesPerGroup)
+    invalid("UPLOAD_MAX_ACTIVE_BYTES_PER_USER");
+  return {
+    maxSize,
+    partSize,
+    ttlSeconds,
+    localPort,
+    maxActivePerUser,
+    maxActivePerGroup,
+    maxActiveBytesPerUser,
+    maxActiveBytesPerGroup,
   };
 }

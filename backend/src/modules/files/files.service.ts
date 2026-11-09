@@ -1,10 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { isUUID } from "class-validator";
-import type {
-  FileResponse,
-  LibraryFile,
-  FileStatus,
-} from "@streamora/contracts";
+import type { FileResponse, FileStatus } from "@streamora/contracts";
 import type {
   LibraryFile as DbFile,
   Prisma,
@@ -12,24 +8,13 @@ import type {
 import { PrismaService } from "../../database/prisma.service";
 import { GroupAccessService } from "../memberships/group-access.service";
 import { ApiError } from "../../common/api-error";
+import { safeErrorCode } from "../../common/safe-error-code";
 import { FileStorageService } from "./file-storage.service";
+import { PREVIEW_TYPES } from "./file-preview";
+import { VideoPlaybackService } from "./video-playback.service";
 import type { FileListQueryDto } from "./files.dto";
+import { presentFile as present } from "./file-presenter";
 
-function present(file: DbFile): LibraryFile {
-  return {
-    id: file.id,
-    groupId: file.groupId,
-    name: file.name,
-    size: Number(file.size),
-    mimeType: file.mimeType,
-    source: file.source,
-    status: file.status,
-    sessionId: file.sessionId,
-    recordingId: file.recordingId,
-    createdBy: file.createdBy,
-    createdAt: file.createdAt.toISOString(),
-  };
-}
 function cursorFor(file: DbFile, groupId: string, query: FileListQueryDto) {
   return Buffer.from(
     JSON.stringify({
@@ -72,6 +57,7 @@ export class FilesService {
     private readonly prisma: PrismaService,
     private readonly access: GroupAccessService,
     private readonly storage: FileStorageService,
+    private readonly video: VideoPlaybackService,
   ) {}
 
   async list(userId: string, groupId: string, query: FileListQueryDto) {
@@ -171,7 +157,7 @@ export class FilesService {
     });
   }
   async remove(userId: string, fileId: string) {
-    await this.prisma.$transaction(async (tx) => {
+    const deletion = await this.prisma.$transaction(async (tx) => {
       const file = await this.mutationAccess(tx, userId, fileId);
       // PENDING can still be written by T16/T11. Recording links are retained
       // until T11 explicitly releases the recording retention/reference.
@@ -190,12 +176,90 @@ export class FilesService {
         data: { status: "DELETED", deletedAt: new Date() },
       });
       await tx.fileObjectDeletion.create({
-        data: { fileId, objectKey: file.objectKey },
+        data: {
+          fileId,
+          objectKey: file.objectKey,
+          storageLocationId: file.storageLocationId,
+        },
       });
+      return {
+        objectKey: file.objectKey,
+        storageLocationId: file.storageLocationId,
+      };
     });
+    // The durable deletion request is committed first; never hold DB locks for storage I/O.
+    try {
+      await this.storage.delete(deletion.objectKey, deletion.storageLocationId);
+      await this.prisma.fileObjectDeletion.update({
+        where: { fileId },
+        data: { completedAt: new Date() },
+      });
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "file_delete_retry_pending",
+          fileId,
+          code: safeErrorCode(error),
+        }),
+      );
+    }
   }
   async download(userId: string, fileId: string, preview = false) {
-    // Lock against concurrent membership revocation and soft deletion while signing.
+    const response = await this.withReadableFile(
+      userId,
+      fileId,
+      async (file) => {
+        if (preview && !PREVIEW_TYPES.has(file.mimeType))
+          throw new ApiError(
+            415,
+            "PDF_PREVIEW_UNSUPPORTED",
+            "Chỉ hỗ trợ xem trước PDF, ảnh và video tương thích.",
+          );
+        return this.storage.download(
+          file.objectKey,
+          file.name,
+          preview,
+          file.mimeType,
+          file.storageLocationId,
+        );
+      },
+    );
+    console.info(
+      JSON.stringify({
+        event: preview ? "file_preview_issued" : "file_download_issued",
+        fileId,
+        userId,
+        expiresAt: response.expiresAt,
+      }),
+    );
+    return response;
+  }
+  playback(userId: string, fileId: string) {
+    return this.withReadableFile(userId, fileId, (file, tx) =>
+      this.video.manifest(file, tx),
+    );
+  }
+  private async withReadableFile<T>(
+    userId: string,
+    fileId: string,
+    work: (file: DbFile, tx: Prisma.TransactionClient) => Promise<T>,
+  ) {
+    const file = await this.readableSnapshot(userId, fileId);
+    const grant = await work(file, this.prisma); // No DB transaction/row lock during storage I/O.
+    const current = await this.readableSnapshot(userId, fileId);
+    if (
+      current.objectKey !== file.objectKey ||
+      current.storageLocationId !== file.storageLocationId
+    )
+      throw new ApiError(
+        409,
+        "FILE_CHANGED",
+        "Vị trí file đã thay đổi. Hãy thử lại.",
+      );
+    return grant;
+  }
+  private readableSnapshot(userId: string, fileId: string) {
+    // Short authorization snapshots before and after signing; no URL escapes on revocation.
     return this.prisma.$transaction(
       async (tx) => {
         const target = await tx.libraryFile.findUnique({
@@ -204,8 +268,8 @@ export class FilesService {
         });
         if (!target)
           throw new ApiError(404, "FILE_NOT_FOUND", "Không tìm thấy tài liệu.");
-        await tx.$queryRaw`SELECT id FROM groups WHERE id = ${target.groupId}::uuid FOR UPDATE`;
-        await tx.$queryRaw`SELECT id FROM files WHERE id = ${fileId}::uuid FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM groups WHERE id = ${target.groupId}::uuid FOR SHARE`;
+        await tx.$queryRaw`SELECT id FROM files WHERE id = ${fileId}::uuid FOR SHARE`;
         const { file } = await this.authorized(userId, fileId, tx);
         if (file.status !== "AVAILABLE")
           throw new ApiError(
@@ -213,28 +277,9 @@ export class FilesService {
             "FILE_NOT_READY",
             "Tài liệu chưa sẵn sàng để tải.",
           );
-        if (preview && file.mimeType !== "application/pdf")
-          throw new ApiError(
-            415,
-            "PDF_PREVIEW_UNSUPPORTED",
-            "Chỉ hỗ trợ xem trước file PDF.",
-          );
-        const response = await this.storage.download(
-          file.objectKey,
-          file.name,
-          preview,
-        );
-        console.info(
-          JSON.stringify({
-            event: preview ? "file_preview_issued" : "file_download_issued",
-            fileId,
-            userId,
-            expiresAt: response.expiresAt,
-          }),
-        );
-        return response;
+        return file;
       },
-      { timeout: 15000 },
+      { timeout: 10000, maxWait: 5000 },
     );
   }
   // Trusted T11/worker boundary only. Not exposed as an HTTP route.
@@ -245,6 +290,7 @@ export class FilesService {
     size: number;
     mimeType: string;
     status: Exclude<FileStatus, "DELETED">;
+    storageLocationId?: string;
   }) {
     if (
       !isUUID(input.recordingId) ||
@@ -262,6 +308,10 @@ export class FilesService {
         "VALIDATION_ERROR",
         "Metadata bản ghi không hợp lệ.",
       );
+    const storageLocationId =
+      input.storageLocationId ?? (await this.storage.currentLocationId());
+    if (storageLocationId)
+      await this.storage.locations.resolve(storageLocationId);
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM recording_assets WHERE id = ${input.recordingId}::uuid FOR UPDATE`;
       const recording = await tx.recordingAsset.findUnique({
@@ -318,6 +368,7 @@ export class FilesService {
           recordingId: recording.id,
           sessionId: recording.sessionId,
           createdBy: recording.session.createdById,
+          storageLocationId,
         },
       });
       return { fileId: file.id };

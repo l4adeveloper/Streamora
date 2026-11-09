@@ -48,6 +48,7 @@ export function configureApplication(
       request.path.startsWith(`/${API_PREFIX}/sessions`) ||
       request.path.startsWith(`/${API_PREFIX}/meets`) ||
       request.path.startsWith(`/${API_PREFIX}/files`) ||
+      request.path.startsWith(`/${API_PREFIX}/uploads`) ||
       request.path.startsWith(`/${API_PREFIX}/file-downloads`) ||
       request.path === OPENAPI_PATH ||
       request.path.startsWith(DOCS_PATH)
@@ -65,9 +66,20 @@ export function configureApplication(
       callback: (error: Error | null, allow?: boolean) => void,
     ) => callback(null, origin === config.webOrigin),
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
-    exposedHeaders: ["X-Request-ID", "Retry-After"],
+    methods: ["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Idempotency-Key",
+      "Range",
+    ],
+    exposedHeaders: [
+      "X-Request-ID",
+      "Retry-After",
+      "Accept-Ranges",
+      "Content-Range",
+      "Content-Length",
+    ],
   });
   app.useGlobalPipes(createValidationPipe());
   if (config.docsEnabled) {

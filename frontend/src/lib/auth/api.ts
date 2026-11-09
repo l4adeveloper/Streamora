@@ -24,12 +24,36 @@ const messages: Record<string, string> = {
   STALE_MEDIA_REQUEST:
     "Yêu cầu kết nối đã được thay thế. Hãy thử lại bằng thao tác mới.",
   BANNED: "Bạn đã bị chặn khỏi buổi học này.",
-  PDF_PREVIEW_UNSUPPORTED: "Chỉ hỗ trợ xem trước file PDF hợp lệ.",
+  UPLOAD_LOCAL_STORAGE_UNAVAILABLE:
+    "Không thể lưu file để tiếp tục sau reload. Hãy kiểm tra dung lượng trống hoặc quyền lưu trữ của trình duyệt.",
+  UPLOAD_RESUME_UNAVAILABLE:
+    "API đang chạy chưa hỗ trợ tiếp tục tải lên. Hãy khởi động lại API bằng phiên bản mới.",
+  UPLOAD_NOT_FOUND: "Không tìm thấy phiên tải lên. Hãy chọn file để tải lại.",
+  UPLOAD_EXPIRED:
+    "Phiên tải lên đã hết hạn. Hãy hủy phiên rồi chọn file để tải lại.",
+  UPLOAD_NOT_ACTIVE:
+    "Phiên đang xử lý hoặc đã kết thúc. Hãy kiểm tra trạng thái trước khi tiếp tục.",
+  UPLOAD_FILE_MISMATCH:
+    "File không khớp phiên tải lên. Hãy chọn lại đúng file ban đầu.",
+  PDF_PREVIEW_UNSUPPORTED:
+    "Chỉ hỗ trợ xem trước PDF và ảnh JPEG, PNG, WebP hợp lệ.",
+  IMAGE_PREVIEW_UNSUPPORTED:
+    "Nội dung ảnh không hợp lệ. Hãy kiểm tra lại file.",
+  VIDEO_PREVIEW_UNSUPPORTED:
+    "Video không tương thích để xem trước. Hãy thử MP4 (H.264/AAC), WebM hoặc tải file xuống.",
+  VIDEO_OUTPUT_INVALID: "Các phiên bản video chưa sẵn sàng. Hãy thử lại sau.",
+  FILE_TOO_LARGE: "File vượt quá kích thước cho phép.",
+  UNSUPPORTED_TYPE:
+    "Loại file chưa được hỗ trợ. Hãy chọn tài liệu, ảnh, video hoặc âm thanh phù hợp.",
   FILE_NOT_FOUND: "Tài liệu không tồn tại hoặc đã bị xóa.",
   FILE_NOT_READY: "Tài liệu đang được chuẩn bị. Vui lòng thử lại sau.",
   FILE_IN_USE:
     "Tài liệu đang được tải lên, xử lý hoặc liên kết với bản ghi nên chưa thể xóa.",
   STORAGE_UNAVAILABLE: "Chưa thể kết nối kho tài liệu. Vui lòng thử lại sau.",
+  UPLOAD_QUOTA_EXCEEDED:
+    "Đã đạt giới hạn tải lên đồng thời. Hãy đợi hoặc hủy file đang tải rồi thử lại.",
+  UPLOAD_BUSY: "File đang được xử lý. Vui lòng thử lại sau.",
+  FILE_CHANGED: "Vị trí file đã thay đổi. Vui lòng mở lại file.",
   EMAIL_EXISTS:
     "Email này đã được sử dụng. Bạn có thể đăng nhập hoặc dùng email khác.",
   INVALID_CREDENTIALS: "Email hoặc mật khẩu không đúng. Vui lòng kiểm tra lại.",
