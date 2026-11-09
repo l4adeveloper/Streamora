@@ -75,6 +75,48 @@ async function file(data = {}) {
     },
   });
 }
+
+test("T15 slow download signing releases group locks and rechecks revocation before returning the grant", async () => {
+  const member = await actor("revoked-during-signing");
+  await db.groupMember.create({
+    data: { userId: member.id, groupId: group.id, role: "VIEWER" },
+  });
+  const target = await file();
+  const storage = app.get(FileStorageService),
+    original = storage.download;
+  let entered, release;
+  const ready = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  storage.download = async () => {
+    entered();
+    await gate;
+    return {
+      url: "https://storage.test/grant",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+    };
+  };
+  const pending = api(member, "POST", `/files/${target.id}/download-url`, {});
+  try {
+    await ready;
+    await db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '500ms'");
+      await tx.$queryRaw`SELECT id FROM groups WHERE id = ${group.id}::uuid FOR UPDATE`;
+      await tx.groupMember.delete({
+        where: { userId_groupId: { userId: member.id, groupId: group.id } },
+      });
+    });
+  } finally {
+    release();
+    storage.download = original;
+  }
+  const response = await pending;
+  assert.equal(response.status, 403);
+  assert.equal(response.body.url, undefined);
+});
 before(
   async () => {
     fixture = await createTestDatabase();
@@ -282,6 +324,10 @@ test("T15 local HTTP: import into a real group, download bytes without AWS, expi
       where: { id: imported.fileId },
     });
     await localFiles.remove(owner.id, imported.fileId);
+    await assert.rejects(
+      readFile(join(config.files.localDirectory, row.objectKey)),
+      (e) => e.code === "ENOENT",
+    );
     await localApp.get(FileCleanupService).tick();
     const deletion = await db.fileObjectDeletion.findUnique({
       where: { fileId: imported.fileId },
@@ -524,9 +570,10 @@ test("T15 internal recording registration: group validation, concurrent dedup, n
   );
   const doc = (await api(null, "GET", "/docs-files-json")).body;
   assert.equal(
-    Object.values(doc.paths)
-      .flatMap((p) => Object.keys(p))
+    Object.entries(doc.paths)
+      .filter(([path]) => !path.includes("/uploads"))
+      .flatMap(([, p]) => Object.keys(p))
       .filter((m) => ["get", "post", "patch", "delete"].includes(m)).length,
-    6,
+    7,
   );
 });

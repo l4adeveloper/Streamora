@@ -33,6 +33,20 @@ after(async () => {
   }
 });
 
+test(
+  "database bounds a stalled statement and accepts the next query after timeout",
+  { timeout: 30000 },
+  async () => {
+    const { safeErrorCode } = require("../../dist/common/safe-error-code");
+    const started = Date.now();
+    await assert.rejects(prisma.$queryRaw`SELECT pg_sleep(20)`, (error) =>
+      ["57014", "DATABASE_QUERY_TIMEOUT"].includes(safeErrorCode(error)),
+    );
+    assert.ok(Date.now() - started < 19000);
+    assert.equal((await prisma.$queryRaw`SELECT 1 AS ready`)[0].ready, 1);
+  },
+);
+
 test("the relocated API serves versioned routes, validation and credentialed CORS", async () => {
   const origin = "http://127.0.0.1:3000";
   const app = await createApplication({
@@ -190,6 +204,8 @@ test("a fresh database receives the complete auth, group, membership and class s
     "membership_lookup_windows",
     "recording_assets",
     "session_bans",
+    "storage_locations",
+    "upload_sessions",
     "users",
   ]);
   const migrations = await sql.query(

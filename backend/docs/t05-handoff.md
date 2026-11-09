@@ -152,13 +152,11 @@ Migration T05 là `20261108000400_class_media`. Trước khi deploy lên DB dùn
 
 - Build backend/Next.js, typecheck toàn workspace, các test T05 và bài kiểm tra
   giao diện desktop/mobile đã đạt. Các test backend đã theo dõi trong Git
-  cùng test T05 mới đã đạt; không bao gồm file thử nghiệm
-  `backend/test/database-startup.test.cjs` có sẵn nhưng chưa được theo dõi.
-- DB dùng chung đã áp dụng `20261108000200_multipart_uploads` và
-  `20261108000300_upload_capacity_and_locations`, nhưng hai file migration này
-  không có trong checkout, worktree còn lại hoặc nhánh upload trên remote đã
-  kiểm tra. Chưa deploy migration T05. Cần lấy lại đúng hai file từ nơi đã chạy
-  migration và đối chiếu checksum trong `_prisma_migrations` trước khi deploy.
+  cùng test T05 mới đã đạt.
+- Checkout đã có `20261108000200_multipart_uploads` và
+  `20261108000300_upload_capacity_and_locations` sau khi đồng bộ main T16/T17;
+  checksum Git của cả hai file khớp lịch sử DB đã đối chiếu. Chưa deploy
+  migration T05; kiểm tra `npm run db:status` trước khi chạy `npm run db:migrate`.
 - Tài khoản DB hiện tại không có quyền CREATEDB, nên chưa chạy được bộ
   integration PostgreSQL tạo DB tạm. Toàn bộ migration trong checkout đã chạy
   trên PostgreSQL WASM cô lập để kiểm tra SQL và constraints.

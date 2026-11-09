@@ -1,17 +1,20 @@
 import type { INestApplication } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { FilesModule } from "../modules/files/files.module";
+import { UploadsModule } from "../modules/uploads/uploads.module";
 import { API_PREFIX } from "../config/auth-policy";
 export function createFilesDocument(app: INestApplication) {
   const config = new DocumentBuilder()
-    .setTitle("Streamora T15 — thư viện tài liệu")
+    .setTitle("Streamora T15/T16/T17 — thư viện, upload multipart và resume")
     .setVersion("1.0.0")
     .addBearerAuth(
       { type: "http", scheme: "bearer", bearerFormat: "JWT" },
       "accessToken",
     )
     .build();
-  return SwaggerModule.createDocument(app, config, { include: [FilesModule] });
+  return SwaggerModule.createDocument(app, config, {
+    include: [FilesModule, UploadsModule],
+  });
 }
 export function setupFilesOpenApi(app: INestApplication) {
   SwaggerModule.setup(

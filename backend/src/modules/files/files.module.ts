@@ -5,6 +5,12 @@ import { FilesService } from "./files.service";
 import { FileStorageService } from "./file-storage.service";
 import { FileCleanupService } from "./file-cleanup.service";
 import { LocalFileDownloadController } from "./local-file-download.controller";
+import { VideoPlaybackService } from "./video-playback.service";
+import { StorageLocationsService } from "./storage-locations.service";
+import {
+  VideoRenditionCatalog,
+  SourceOnlyVideoCatalog,
+} from "./video-rendition-catalog";
 @Module({
   imports: [MembershipsModule],
   controllers: [
@@ -12,7 +18,14 @@ import { LocalFileDownloadController } from "./local-file-download.controller";
     GroupFilesController,
     LocalFileDownloadController,
   ],
-  providers: [FilesService, FileStorageService, FileCleanupService],
-  exports: [FilesService],
+  providers: [
+    FilesService,
+    FileStorageService,
+    FileCleanupService,
+    StorageLocationsService,
+    VideoPlaybackService,
+    { provide: VideoRenditionCatalog, useClass: SourceOnlyVideoCatalog },
+  ],
+  exports: [FilesService, FileStorageService],
 })
 export class FilesModule {}
