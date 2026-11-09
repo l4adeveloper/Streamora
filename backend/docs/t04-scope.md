@@ -16,7 +16,7 @@ Nghiệm thu toàn bộ và hướng dẫn demo: [bàn giao T04](t04-handoff.md)
 - Leader điều chỉnh T04 sang quản lý vào/ra, accept/reject, kiểm tra thành viên
   với phòng thuộc nhóm; meet độc lập chỉ áp dụng duyệt tham gia.
 - Người thực hiện giữ thêm lịch học và trạng thái bắt đầu/kết thúc, bỏ tích hợp
-  LiveKit khỏi T04.
+  media khỏi T04.
 - Kế hoạch đã thống nhất yêu cầu đăng nhập cho cả hai loại phòng. Thành viên
   thường phải được duyệt; người có quyền quản lý được vào trực tiếp.
 
@@ -24,9 +24,9 @@ Phạm vi T04 gồm lịch học, phòng meet độc lập, trạng thái buổi
 duyệt tham gia, danh sách người trong phòng, rời phòng và cập nhật realtime.
 T04 dùng tài khoản/phiên T01, nhóm T02 và phân quyền T03.
 
-T04 chưa truyền mic/camera/màn hình, cấp token media, tạo/đóng phòng LiveKit,
-ghi hình hoặc xử lý Egress. Code và cấu hình LiveKit đã có ở T03 được giữ nguyên;
-luồng T04 mới phải hoạt động khi LiveKit không chạy. Chat, mute, ban và chuyển
+T04 chưa truyền mic/camera/màn hình, cấp token media, tạo/đóng IVS Stage
+hoặc ghi hình cloud. Luồng T04 hoạt động độc lập với dịch vụ media.
+Chat, mute, ban và chuyển
 quyền host không thuộc phạm vi này. Reject một yêu cầu không phải ban tài khoản.
 
 ## 2. Hai loại phòng

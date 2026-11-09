@@ -201,7 +201,7 @@ export class ClassAdmissionsController {
   @ApiOperation({
     summary: "T04 — Xác nhận thực sự vào phòng",
     description:
-      "Chỉ LIVE; cần ACCEPTED trừ người quản lý. Nhiều tab/retry giữ một lượt đang mở. Không cấp token LiveKit. Replay key của lượt đã kết thúc bị từ chối.",
+      "Chỉ LIVE; cần ACCEPTED trừ người quản lý. Nhiều tab/retry giữ một lượt đang mở. Không cấp token media. Replay key của lượt đã kết thúc bị từ chối.",
   })
   @requiredKey()
   @emptyBody()

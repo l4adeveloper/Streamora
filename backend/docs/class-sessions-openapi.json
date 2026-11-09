@@ -3,7 +3,7 @@
   "paths": {
     "/api/v1/groups/{groupId}/sessions": {
       "post": {
-        "description": "HOST/OWNER/ADMIN. Chỉ tạo SCHEDULED; không tạo room LiveKit. Không có Idempotency-Key thì mỗi POST là một lần tạo mới.",
+        "description": "HOST/OWNER/ADMIN. Chỉ tạo SCHEDULED; không tạo phòng media. Không có Idempotency-Key thì mỗi POST là một lần tạo mới.",
         "operationId": "groupclasssessions_create",
         "parameters": [
           {
@@ -1317,7 +1317,7 @@
     },
     "/api/v1/sessions/{sessionId}/end": {
       "post": {
-        "description": "LIVE→ENDED. Đóng yêu cầu/lượt tham gia và lưu một sự kiện session.ended.v1 trong cùng transaction. ENDED trả hiện trạng. Realtime báo kết thúc; consumer nội bộ có checkpoint để T11 tích hợp sau, chưa gọi ghi hình/LiveKit.",
+        "description": "LIVE→ENDED. Đóng yêu cầu/lượt tham gia và lưu một sự kiện session.ended.v1 trong cùng transaction. ENDED trả hiện trạng. Realtime báo kết thúc; consumer nội bộ có checkpoint để T11 tích hợp sau, chưa gọi dịch vụ ghi hình/media.",
         "operationId": "classsessions_end",
         "parameters": [
           {
@@ -1863,7 +1863,7 @@
     },
     "/api/v1/meets": {
       "post": {
-        "description": "Người đăng nhập tạo phòng SCHEDULED, sau đó gọi start. Không tự tạo membership hay room LiveKit.",
+        "description": "Người đăng nhập tạo phòng SCHEDULED, sau đó gọi start. Không tự tạo membership hay phòng media.",
         "operationId": "meets_create",
         "parameters": [
           {
@@ -4206,7 +4206,7 @@
     },
     "/api/v1/sessions/{sessionId}/enter": {
       "post": {
-        "description": "Chỉ LIVE; cần ACCEPTED trừ người quản lý. Nhiều tab/retry giữ một lượt đang mở. Không cấp token LiveKit. Replay key của lượt đã kết thúc bị từ chối.",
+        "description": "Chỉ LIVE; cần ACCEPTED trừ người quản lý. Nhiều tab/retry giữ một lượt đang mở. Không cấp token media. Replay key của lượt đã kết thúc bị từ chối.",
         "operationId": "classadmissions_enter",
         "parameters": [
           {
@@ -5007,7 +5007,7 @@
   },
   "info": {
     "title": "Streamora T04 — lịch học và vòng đời buổi học",
-    "description": "Lịch học/meet và vòng đời; hàng chờ, accept/reject, vào/ra. Bearer và quyền hiện tại do server kiểm tra. Xin/vào yêu cầu Idempotency-Key. Sau enter cần attach Socket.IO /sessions và heartbeat mỗi 10 giây; hết kết nối 30 giây sẽ đóng lượt. Hợp đồng socket xem backend/docs/t04-realtime.md. Không tích hợp LiveKit.",
+    "description": "Lịch học/meet và vòng đời; hàng chờ, accept/reject, vào/ra. Bearer và quyền hiện tại do server kiểm tra. Xin/vào yêu cầu Idempotency-Key. Sau enter cần attach Socket.IO /sessions và heartbeat mỗi 10 giây; hết kết nối 30 giây sẽ đóng lượt. Hợp đồng socket xem backend/docs/t04-realtime.md. Media thuộc T05.",
     "version": "1.1.0",
     "contact": {}
   },
@@ -5617,6 +5617,33 @@
           "participation"
         ]
       },
+      "ClassMediaStateDto": {
+        "type": "object",
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "micEnabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "cameraEnabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "checkedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "connected",
+          "micEnabled",
+          "cameraEnabled",
+          "checkedAt"
+        ]
+      },
       "ClassParticipationWithUserDto": {
         "type": "object",
         "properties": {
@@ -5658,6 +5685,9 @@
           },
           "user": {
             "$ref": "#/components/schemas/ClassSessionUserDto"
+          },
+          "media": {
+            "$ref": "#/components/schemas/ClassMediaStateDto"
           }
         },
         "required": [

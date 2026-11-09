@@ -9,6 +9,18 @@ export interface EnvironmentConfig {
   docsEnabled: boolean;
   webOrigin: string;
   databaseUrl: string;
+  ivs?: {
+    enabled: boolean;
+    region: string;
+    credentials?: {
+      accessKeyId: string;
+      secretAccessKey: string;
+      sessionToken?: string;
+    };
+    tokenTtlSeconds: number;
+    eventsQueueUrl: string;
+    workerEnabled: boolean;
+  };
   files?: {
     driver?: "local" | "s3";
     localDirectory?: string;
@@ -183,6 +195,40 @@ export function readEnvironment(
   const cleanupEnabled = env.FILES_CLEANUP_ENABLED ?? "true";
   if (!["true", "false"].includes(cleanupEnabled))
     invalid("FILES_CLEANUP_ENABLED");
+  const ivsEnabled = env.IVS_ENABLED ?? "false";
+  const ivsWorker = env.IVS_WORKER_ENABLED ?? "false";
+  if (!["true", "false"].includes(ivsEnabled)) invalid("IVS_ENABLED");
+  if (!["true", "false"].includes(ivsWorker)) invalid("IVS_WORKER_ENABLED");
+  const ivsRegion = env.AWS_REGION ?? "ap-northeast-1";
+  if (!/^[a-z]{2}(-[a-z]+)+-\d+$/.test(ivsRegion)) invalid("AWS_REGION");
+  const awsAccessKeyId = env.AWS_ACCESS_KEY_ID?.trim() || undefined;
+  const awsSecretAccessKey = env.AWS_SECRET_ACCESS_KEY?.trim() || undefined;
+  const awsSessionToken = env.AWS_SESSION_TOKEN?.trim() || undefined;
+  if (awsAccessKeyId && !awsSecretAccessKey) invalid("AWS_SECRET_ACCESS_KEY");
+  if ((awsSecretAccessKey || awsSessionToken) && !awsAccessKeyId)
+    invalid("AWS_ACCESS_KEY_ID");
+  const ivsTtl = positiveInteger(env, "IVS_TOKEN_TTL_SECONDS", 60);
+  if (ivsTtl !== 60) invalid("IVS_TOKEN_TTL_SECONDS");
+  const eventsQueueUrl = env.IVS_EVENTS_QUEUE_URL ?? "";
+  if (eventsQueueUrl) {
+    try {
+      const url = new URL(eventsQueueUrl);
+      if (
+        url.protocol !== "https:" ||
+        url.hostname !== `sqs.${ivsRegion}.amazonaws.com` ||
+        !/^\/\d{12}\/[\w-]+$/.test(url.pathname) ||
+        url.search ||
+        url.hash ||
+        url.username ||
+        url.password
+      )
+        invalid("IVS_EVENTS_QUEUE_URL");
+    } catch {
+      invalid("IVS_EVENTS_QUEUE_URL");
+    }
+  }
+  if (ivsWorker === "true" && (ivsEnabled !== "true" || !eventsQueueUrl))
+    invalid("IVS_WORKER_ENABLED");
   return {
     nodeEnv: nodeEnv as EnvironmentConfig["nodeEnv"],
     host,
@@ -190,6 +236,21 @@ export function readEnvironment(
     docsEnabled: rawDocs === "true",
     webOrigin,
     databaseUrl: databaseUrl!,
+    ivs: {
+      enabled: ivsEnabled === "true",
+      region: ivsRegion,
+      credentials:
+        awsAccessKeyId && awsSecretAccessKey
+          ? {
+              accessKeyId: awsAccessKeyId,
+              secretAccessKey: awsSecretAccessKey,
+              ...(awsSessionToken ? { sessionToken: awsSessionToken } : {}),
+            }
+          : undefined,
+      tokenTtlSeconds: ivsTtl,
+      eventsQueueUrl,
+      workerEnabled: ivsWorker === "true",
+    },
     files: {
       driver: fileDriver as "local" | "s3",
       localDirectory,

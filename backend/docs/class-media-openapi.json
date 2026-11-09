@@ -1,0 +1,311 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1/sessions/{sessionId}/join": {
+      "post": {
+        "description": "clientId theo tab; requestId giữ nguyên khi retry. Không nhận userId/role/stageArn từ client.",
+        "operationId": "ClassMediaController_join",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinClassMediaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinClassMediaResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "T05 — Cấp token IVS cho đúng lượt đang tham gia",
+        "tags": [
+          "Class media T05"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/media/{connectionId}/heartbeat": {
+      "post": {
+        "operationId": "ClassMediaController_heartbeat",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassMediaHeartbeatDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassMediaAckDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "T05 — Gia hạn kết nối media và báo trạng thái thiết bị",
+        "tags": [
+          "Class media T05"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/media/{connectionId}/leave": {
+      "post": {
+        "operationId": "ClassMediaController_leave",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassMediaLeaveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassMediaAckDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "T05 — Đóng kết nối media của phiên hiện tại",
+        "tags": [
+          "Class media T05"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Streamora T05 — mic, camera và IVS",
+    "description": "",
+    "version": "1.0.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "accessToken": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "JoinClassMediaDto": {
+        "type": "object",
+        "properties": {
+          "participationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "clientId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceLabel": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "participationId",
+          "clientId",
+          "requestId"
+        ],
+        "additionalProperties": false
+      },
+      "JoinClassMediaResponseDto": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "participantToken": {
+            "type": "string",
+            "description": "Opaque IVS token; keep in memory only"
+          },
+          "participantId": {
+            "type": "string"
+          },
+          "expiresIn": {
+            "type": "number"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PUBLISH",
+                "SUBSCRIBE"
+              ]
+            }
+          }
+        },
+        "required": [
+          "requestId",
+          "connectionId",
+          "participantToken",
+          "participantId",
+          "expiresIn",
+          "expiresAt",
+          "capabilities"
+        ]
+      },
+      "ClassMediaHeartbeatDto": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "participationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "clientId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "micEnabled": {
+            "type": "boolean"
+          },
+          "cameraEnabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "requestId",
+          "participationId",
+          "clientId",
+          "connected",
+          "micEnabled",
+          "cameraEnabled"
+        ],
+        "additionalProperties": false
+      },
+      "ClassMediaAckDto": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "ClassMediaLeaveDto": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "requestId"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

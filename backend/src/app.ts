@@ -11,6 +11,7 @@ import { createValidationPipe } from "./common/validation";
 import { setupOpenApi, DOCS_PATH, OPENAPI_PATH } from "./documentation/openapi";
 import { setupMembershipsOpenApi } from "./documentation/memberships-openapi";
 import { setupClassSessionsOpenApi } from "./documentation/class-sessions-openapi";
+import { setupClassMediaOpenApi } from "./documentation/class-media-openapi";
 import { setupFilesOpenApi } from "./documentation/files-openapi";
 import {
   requestContextMiddleware,
@@ -73,6 +74,7 @@ export function configureApplication(
     setupOpenApi(app);
     setupMembershipsOpenApi(app);
     setupClassSessionsOpenApi(app);
+    setupClassMediaOpenApi(app);
     setupFilesOpenApi(app);
   }
   app.enableShutdownHooks();

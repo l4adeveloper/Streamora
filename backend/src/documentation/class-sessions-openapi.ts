@@ -8,7 +8,7 @@ export function createClassSessionsDocument(app: INestApplication) {
     .setTitle("Streamora T04 — lịch học và vòng đời buổi học")
     .setVersion("1.1.0")
     .setDescription(
-      "Lịch học/meet và vòng đời; hàng chờ, accept/reject, vào/ra. Bearer và quyền hiện tại do server kiểm tra. Xin/vào yêu cầu Idempotency-Key. Sau enter cần attach Socket.IO /sessions và heartbeat mỗi 10 giây; hết kết nối 30 giây sẽ đóng lượt. Hợp đồng socket xem backend/docs/t04-realtime.md. Không tích hợp LiveKit.",
+      "Lịch học/meet và vòng đời; hàng chờ, accept/reject, vào/ra. Bearer và quyền hiện tại do server kiểm tra. Xin/vào yêu cầu Idempotency-Key. Sau enter cần attach Socket.IO /sessions và heartbeat mỗi 10 giây; hết kết nối 30 giây sẽ đóng lượt. Hợp đồng socket xem backend/docs/t04-realtime.md. Media thuộc T05.",
     )
     .addBearerAuth(
       { type: "http", scheme: "bearer", bearerFormat: "JWT" },

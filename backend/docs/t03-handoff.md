@@ -31,7 +31,7 @@ dùng lại cùng module, DB và bộ xác thực. Đã loại bỏ gateway chat
 Nếu không đặt `NEXT_PUBLIC_REALTIME_URL`, frontend dùng host của API. Khi đã đặt
 biến này, cần chạy service tương ứng. Sau khi nhận sự kiện/reconnect/focus,
 frontend đọc lại quyền server; kiểm tra bổ sung mỗi 15 giây khi socket bị chặn.
-Không đưa secret LiveKit vào biến `NEXT_PUBLIC_*`.
+Không đưa thông tin xác thực AWS vào biến `NEXT_PUBLIC_*`.
 
 Schema kế thừa `group_members` của T02. Migration T03 thêm index phân trang,
 outbox `membership_changes`, quota lookup dùng chung instance và ánh xạ `group_rooms`.
@@ -85,11 +85,11 @@ query groupId không vượt quyền đọc phòng.
 `POST /rooms` hiện yêu cầu Bearer, `{name,groupId}` và canHost, lưu ánh xạ phòng vào DB.
 `GET /rooms/:id` xác thực membership theo ánh xạ đó. `GET /files` yêu cầu Bearer,
 query `groupId` và quyền hiện hành; danh sách nội dung vẫn là dữ liệu minh họa của T15.
-Không có endpoint cấp token LiveKit hoặc URL phát/tải trong scaffold hiện tại.
+T03 không có endpoint cấp token media; T05 chịu trách nhiệm cấp token IVS.
 T05/T14/T15/T16 phải gọi cùng service ngay trước khi phát hành token/URL và áp dụng
 cùng guard với groupId resolve từ session/recording/file của mình.
 
-## Thu hồi online và LiveKit
+## Thu hồi online và điểm tích hợp media
 
 Mỗi thay đổi membership và event outbox được commit trong cùng transaction.
 Khóa hàng group ngăn các thao tác đồng thời vượt quyền hoặc làm mất owner.
@@ -104,28 +104,22 @@ outbox kế tiếp. Socket rời room `group:<uuid>` và nhận membership.chang
 `user:<uuid>`. `auth:refresh` thay access token cùng user, từ chối đổi danh tính socket.
 Chat vẫn là scaffold cục bộ từng instance, chưa có lịch sử/dedup/Redis fanout của T08.
 
-Worker LiveKit đọc outbox riêng với worker phát sự kiện, tránh để lỗi media làm
-chậm thông báo quyền. Mỗi group room lấy `room_name` đã lưu từ server.
-Khi xóa: `RoomServiceClient.removeParticipant(roomName,userId)`.
-Khi đổi vai trò: `updateParticipant` cập nhật metadata/và quyền publish tương ứng;
-VIEWER được mic/camera, screen share cần HOST/OWNER/ADMIN cho tới khi T06 có policy.
-Identity LiveKit phải là userId đã xác thực trong T05.
+Gateway chỉ đọc outbox cho thông báo quyền Socket.IO, polling mỗi 500 ms.
+Service và vòng polling/retry media cũ đã được gỡ. [T05](t05-handoff.md) lưu ánh xạ
+session → IVS Stage và participant ID. Khi IVS được bật, worker T05 đối chiếu
+quyền/lượt/auth/ban hiện tại để gọi `DisconnectParticipant`; không phụ thuộc
+việc sự kiện ngoài có đến hay không. T05 không dùng cursor `mediaSyncedAt` cũ.
 
-Cấu hình backend: `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`.
-Nếu thiếu cấu hình hoặc LiveKit lỗi, event vẫn ở DB, retry backoff tới 30 giây,
-log cảnh báo tối đa mỗi phút. Đồng bộ media khóa cùng hàng group với mutation,
-đọc quyền hiện tại để event cũ không khôi phục quyền đã thu hồi. Không tìm thấy
-participant/room được coi là đã đồng bộ. Đã kiểm tra chữ ký và request SDK với
-máy chủ RoomService giả lập, cùng failure/retry; chưa kiểm thử media/WebRTC thật.
+Outbox, `group_rooms` và các cột trạng thái media vẫn giữ nguyên để bảo toàn
+dữ liệu/migration và API kiểm tra quyền tài nguyên hiện có. Không có worker
+media đang đọc hoặc đánh dấu các event membership này; trạng thái retry media
+thật nằm ở `class_media_connections`.
 
-Mục tiêu local: API thu hồi khi transaction commit; Socket.IO poll mỗi 500 ms;
-LiveKit worker mỗi 1 giây khi dịch vụ sẵn sàng. Đây là chu kỳ cấu hình, không phải
-cam kết SLA qua sự cố mạng. T05/T14/T15 phải giới hạn token/URL TTL tối đa 60 giây
-khi tích hợp. URL đã cấp và token LiveKit tự triển khai có thể còn dùng được tới
-khi hết TTL; cần kiểm thử reconnect và cơ chế edge nếu muốn thu hồi sớm hơn.
-T03 không tự cấp URL/token để tránh thêm đường truy cập bỏ qua các module đó.
+API thu hồi quyền khi transaction commit. Việc thu hồi ở dịch vụ media và
+token/URL đã phát hành cần cơ chế riêng của T05/T14/T15; không coi thông báo UI
+hoặc token TTL là bằng chứng người đang kết nối đã bị ngắt.
 
-## Bằng chứng kiểm thử
+## Bằng chứng kiểm thử trước khi gỡ tích hợp media cũ
 
 Kết quả local ngày 22/10/2026: `npm run test:t03` qua typecheck toàn monorepo,
 build API và 13/13 kiểm thử. OpenAPI T03 khớp bản lưu. Bộ hồi quy đầy đủ chạy
@@ -140,15 +134,13 @@ Migration T03 đã được áp dụng thành công vào database local.
   xóa ngăn token cũ đọc lớp, tài liệu và quyền xem bản ghi.
 - Socket.IO thật: handshake, refresh không đổi danh tính; sự kiện chỉ gửi user
   đích; xóa online ngừng nhận/gửi chat và rejoin thất bại, rời group room.
-- LiveKit RoomService giả lập HTTP: xác minh JWT room-admin, room mapping,
-  cập nhật sources khi hạ vai trò, RemoveParticipant và retry outbox khi 503.
 - Trình duyệt: sidebar, thêm bằng email, không thấy tài khoản, Host/Viewer,
   owner được bảo vệ, xác nhận xóa/hủy, tìm kiếm không nhận response cũ,
   phân trang, chuyển nhóm, thu hồi màn hình đang mở và bố cục 390 px.
 
 Ảnh kiểm tra được tạo lại bởi test giao diện trong `.preview/t03-members-*.png`.
 File Job.xlsx giữ nguyên. T03 chưa tự đánh dấu hoàn thành trong bảng kế hoạch vì
-review, staging và kiểm thử LiveKit/WebRTC thật là bước nghiệm thu của nhóm.
+review, staging và kiểm thử IVS/WebRTC thật là bước nghiệm thu của nhóm.
 
 ## T04: quyền nhóm và quyền tham gia buổi học
 

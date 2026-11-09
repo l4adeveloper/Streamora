@@ -37,6 +37,7 @@ async function createClassSessionApiFixture(options = {}) {
       nodeEnv: "test",
       docsEnabled: true,
       webOrigin: origin,
+      ...(options.ivs ? { ivs: options.ivs } : {}),
       ...(options.sessionRealtime
         ? { sessionRealtime: options.sessionRealtime }
         : {}),

@@ -166,6 +166,9 @@ test("a fresh database receives the complete auth, group, membership and class s
     "auth_refresh_tokens",
     "auth_sessions",
     "class_join_requests",
+    "class_media_connections",
+    "class_media_requests",
+    "class_media_rooms",
     "class_participations",
     "class_presence_leases",
     "class_session_changes",
@@ -182,9 +185,11 @@ test("a fresh database receives the complete auth, group, membership and class s
     "group_members",
     "group_rooms",
     "groups",
+    "ivs_events",
     "membership_changes",
     "membership_lookup_windows",
     "recording_assets",
+    "session_bans",
     "users",
   ]);
   const migrations = await sql.query(

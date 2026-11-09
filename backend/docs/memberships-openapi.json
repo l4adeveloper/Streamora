@@ -928,7 +928,7 @@
         "tags": ["Memberships"]
       },
       "delete": {
-        "description": "Commit quyền trước; transactional outbox đồng bộ Socket.IO và LiveKit, retry khi media lỗi.",
+        "description": "Commit quyền trước; transactional outbox thông báo Socket.IO. Worker T05 thu hồi IVS theo quyền và lượt tham gia hiện tại khi IVS được bật.",
         "operationId": "memberships_remove",
         "parameters": [
           {
