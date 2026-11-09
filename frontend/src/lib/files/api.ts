@@ -4,6 +4,7 @@ import type {
   FileListQuery,
   FileListResponse,
   FileResponse,
+  VideoPlaybackResponse,
 } from "@streamora/contracts";
 import { apiRequest } from "@/lib/api";
 export function listFiles(groupId: string, query: FileListQuery = {}) {
@@ -36,6 +37,12 @@ export function getFileDownload(fileId: string) {
 }
 export function getFilePreview(fileId: string) {
   return apiRequest<FileDownloadResponse>(`/files/${fileId}/preview-url`, {
+    method: "POST",
+    body: {},
+  });
+}
+export function getVideoPlayback(fileId: string) {
+  return apiRequest<VideoPlaybackResponse>(`/files/${fileId}/playback`, {
     method: "POST",
     body: {},
   });

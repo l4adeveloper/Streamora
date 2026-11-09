@@ -19,6 +19,9 @@ const {
   FileStorageService,
 } = require("../dist/modules/files/file-storage.service");
 const {
+  StorageLocationsService,
+} = require("../dist/modules/files/storage-locations.service");
+const {
   loadEnvironmentFile,
   readEnvironment,
 } = require("../dist/config/environment");
@@ -64,12 +67,15 @@ async function importLocalFile(config, input, shared) {
     throw new Error("Tên file phải có 1–255 ký tự hợp lệ.");
   const prisma = shared?.prisma ?? new PrismaService(config.databaseUrl);
   const access = shared?.access ?? new GroupAccessService(prisma);
-  const storage = shared?.storage ?? new FileStorageService(config);
+  const storage =
+    shared?.storage ??
+    new FileStorageService(config, new StorageLocationsService(config, prisma));
   let id,
     copied = false;
   const objectKey = `local/${randomUUID()}`;
   if (!shared) await prisma.onModuleInit();
   try {
+    const storageLocationId = await storage.currentLocationId();
     const user = await prisma.user.findUnique({
       where: { email: input.email.trim().toLowerCase() },
     });
@@ -99,6 +105,7 @@ async function importLocalFile(config, input, shared) {
           status: "PENDING",
           sessionId: input.session ?? null,
           objectKey,
+          storageLocationId,
         },
       });
     });
@@ -174,7 +181,10 @@ async function importLocalFolder(config, input, onImported = () => {}) {
   const shared = {
     prisma,
     access: new GroupAccessService(prisma),
-    storage: new FileStorageService(config),
+    storage: new FileStorageService(
+      config,
+      new StorageLocationsService(config, prisma),
+    ),
   };
   let count = 0;
   try {

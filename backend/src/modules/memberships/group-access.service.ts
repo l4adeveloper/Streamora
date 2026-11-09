@@ -59,7 +59,7 @@ export class GroupAccessService {
       role,
       canManageMembers: role === "OWNER" || role === "ADMIN",
       canHost: role !== "VIEWER",
-      canUpload: true,
+      canUpload: role !== "VIEWER",
       canViewRecordings: true,
     };
     if (permission && !permissions[permission])

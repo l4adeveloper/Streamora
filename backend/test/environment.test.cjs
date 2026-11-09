@@ -23,6 +23,9 @@ test("local defaults resolve prefix cookie scope and token lifetimes", () => {
   assert.equal(config.auth.refreshTokenTtlSeconds, 604800);
   assert.equal(config.files.driver, "local");
   assert.equal(config.files.publicBaseUrl, "http://127.0.0.1:4000");
+  assert.equal(config.files.downloadTtlSeconds, 60);
+  assert.equal(config.uploads.maxActivePerUser, 4);
+  assert.equal(config.uploads.maxActivePerGroup, 32);
   assert.deepEqual(config.auth.cookie, {
     name: "refreshToken",
     path: "/api/v1/auth",
@@ -30,6 +33,24 @@ test("local defaults resolve prefix cookie scope and token lifetimes", () => {
     secure: false,
     sameSite: "lax",
   });
+});
+
+test("upload capacity validation and legacy download TTL stay within server policy", () => {
+  assert.equal(
+    readEnvironment(environment({ FILES_DOWNLOAD_TTL_SECONDS: "120" })).files
+      .downloadTtlSeconds,
+    60,
+  );
+  for (const overrides of [
+    { UPLOAD_MAX_ACTIVE_PER_USER: "0" },
+    { UPLOAD_MAX_ACTIVE_PER_USER: "33" },
+    { UPLOAD_MAX_ACTIVE_BYTES_PER_USER: "68719476737" },
+    { UPLOAD_MAX_ACTIVE_BYTES_PER_GROUP: "9007199254740992" },
+  ])
+    assert.throws(
+      () => readEnvironment(environment(overrides)),
+      /UPLOAD_MAX_ACTIVE/,
+    );
 });
 
 test("local downloads validate their public origin while production defaults to S3", () => {
