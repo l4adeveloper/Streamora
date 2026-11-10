@@ -27,7 +27,7 @@ test(
         String(port),
       ],
       {
-        cwd: resolve(root, "frontend"),
+        cwd: process.env.STREAMORA_TEST_WEB_ROOT ?? resolve(root, "frontend"),
         env: { ...process.env, NODE_ENV: "production" },
         stdio: "ignore",
         windowsHide: true,
@@ -113,6 +113,22 @@ test(
         if (path.endsWith("/auth/refresh"))
           body = { accessToken: "test-bearer", expiresIn: 900, user };
         else if (path.endsWith("/users/me")) body = { user };
+        else if (
+          path.endsWith("/access") ||
+          path === `/api/v1/meets/${session.joinCode}`
+        )
+          body = {
+            meet: {
+              id: sessionId,
+              title: session.title,
+              host: user,
+              status: "LIVE",
+              groupId: null,
+              allowGuests: false,
+              mode: "STANDALONE",
+              joinCode: session.joinCode,
+            },
+          };
         else if (path.endsWith("/admission"))
           body = {
             request: null,

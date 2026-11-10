@@ -6,6 +6,7 @@ import {
 import { Transform } from "class-transformer";
 import {
   IsIn,
+  IsBoolean,
   IsISO8601,
   IsString,
   Length,
@@ -51,6 +52,10 @@ class SessionContentDto {
   @trim
   @IsString()
   @Length(1, CLASS_SESSION_CONSTRAINTS.titleMaxLength)
+  @ValidateIf(
+    (object, value) =>
+      !(object instanceof CreateGroupClassSessionDto) || value !== undefined,
+  )
   title!: string;
 
   @ApiPropertyOptional({
@@ -67,12 +72,27 @@ export class CreateGroupClassSessionDto
   extends SessionContentDto
   implements CreateGroupClassSessionRequest
 {
-  @ApiProperty({
+  @ApiPropertyOptional({
+    minLength: 1,
+    maxLength: 100,
+    description: "Bỏ trống để tự sinh Cuộc họp 1, 2, 3… trong nhóm.",
+  })
+  declare title: string;
+  @ApiPropertyOptional({ default: false })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsBoolean()
+  allowGuests?: boolean;
+  @ApiPropertyOptional({ enum: ["DIRECT", "APPROVAL"], default: "DIRECT" })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsIn(["DIRECT", "APPROVAL"])
+  memberAdmission?: "DIRECT" | "APPROVAL";
+  @ApiPropertyOptional({
     format: "date-time",
     description: "ISO8601 có múi giờ; ví dụ 2026-10-25T19:00:00+07:00.",
   })
+  @ValidateIf((_object, value) => value !== undefined)
   @timestamp()
-  scheduledAt!: string;
+  scheduledAt?: string;
 }
 
 export class CreateMeetDto

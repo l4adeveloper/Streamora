@@ -128,6 +128,9 @@ export function useGroupChat(groupId: string | null, channel: string) {
       },
     );
     socketRef.current = socket;
+    socket.on("meeting.created", () =>
+      window.dispatchEvent(new Event("streamora:meetings-changed")),
+    );
 
     const receive = (value: unknown) => {
       if (

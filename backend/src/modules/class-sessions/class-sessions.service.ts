@@ -33,6 +33,8 @@ export function toClassSession(row: StoredSession): ClassSession {
     id: row.id,
     createdById: row.createdById,
     title: row.title,
+    allowGuests: row.allowGuests,
+    memberAdmission: row.memberAdmission as "DIRECT" | "APPROVAL",
     description: row.description,
     joinCode: row.joinCode,
     status: row.status,
@@ -133,7 +135,13 @@ export class ClassSessionsService {
     const operation = groupId ? "CREATE_GROUP" : "CREATE_MEET";
     const input = {
       groupId,
-      title: dto.title.trim(),
+      memberAdmission: groupId
+        ? ((dto as CreateGroupClassSessionDto).memberAdmission ?? "DIRECT")
+        : "APPROVAL",
+      title: dto.title?.trim() || null,
+      allowGuests: groupId
+        ? ((dto as CreateGroupClassSessionDto).allowGuests ?? false)
+        : false,
       description: dto.description?.trim() || null,
       scheduledAt: dto.scheduledAt
         ? new Date(dto.scheduledAt).toISOString()
@@ -168,19 +176,51 @@ export class ClassSessionsService {
             const joinCode = Array.from({ length: 12 }, () =>
               randomInt(36).toString(36).toUpperCase(),
             ).join("");
+            const sequence = groupId
+              ? (
+                  await tx.group.update({
+                    where: { id: groupId },
+                    data: { meetingSequence: { increment: 1 } },
+                    select: { meetingSequence: true },
+                  })
+                ).meetingSequence
+              : 0;
             const row = await tx.classSession.create({
               data: {
                 kind: groupId ? "GROUP" : "MEET",
                 groupId,
                 createdById: userId,
-                title: input.title,
+                title: input.title ?? `Cuộc họp ${sequence || 1}`,
+                allowGuests: input.allowGuests,
+                memberAdmission: input.memberAdmission,
                 description: input.description,
                 joinCode,
                 scheduledAt: input.scheduledAt
                   ? new Date(input.scheduledAt)
-                  : null,
+                  : groupId
+                    ? new Date()
+                    : null,
               },
             });
+            if (groupId) {
+              const creator = await tx.user.findUniqueOrThrow({
+                where: { id: userId },
+                select: { fullName: true },
+              });
+              await tx.groupChatMessage.create({
+                data: {
+                  groupId,
+                  senderId: userId,
+                  senderName: creator.fullName,
+                  senderRole: "HOST",
+                  channel: "thông-báo",
+                  meetingId: row.id,
+                  text: `Đã tạo cuộc họp: ${row.title}\nTham gia: /meet/${row.joinCode}`,
+                },
+              });
+              // Durable invalidation consumed independently by every realtime instance.
+              await tx.$executeRaw`SELECT class_realtime_change(${row.id}::uuid, 'meeting.created')`;
+            }
             const response = { session: toClassSession(row) };
             await this.saveCommand(
               tx,
@@ -311,17 +351,38 @@ export class ClassSessionsService {
         where: { joinCode: code },
         include: { createdBy: { select: { id: true, fullName: true } } },
       });
-      if (!row || row.kind !== "MEET")
+      if (!row)
         throw new ApiError(404, "SESSION_NOT_FOUND", "Phòng không tồn tại.");
+      await this.policy.eligible(tx, userId, row);
+      const member = row.groupId
+        ? await this.policy.isMember(tx, userId, row.groupId)
+        : false;
       return {
         meet: {
           id: row.id,
           title: row.title,
           host: row.createdBy,
           status: row.status,
+          groupId: row.groupId,
+          allowGuests: row.allowGuests,
+          joinCode: row.joinCode,
+          mode: member ? "WORKSPACE" : "STANDALONE",
         },
       };
     });
+  }
+
+  async resolve(
+    userId: string,
+    sessionId: string,
+  ): Promise<MeetPreviewResponse> {
+    const row = await this.prisma.classSession.findUnique({
+      where: { id: sessionId },
+      select: { joinCode: true },
+    });
+    if (!row)
+      throw new ApiError(404, "SESSION_NOT_FOUND", "Phòng không tồn tại.");
+    return this.preview(userId, row.joinCode);
   }
 
   update(
@@ -333,7 +394,7 @@ export class ClassSessionsService {
       await this.actor(tx, userId, true);
       const row = await this.session(tx, sessionId, true);
       await this.authorize(tx, userId, row, true);
-      if (row.status !== "SCHEDULED")
+      if (!["SCHEDULED", "LIVE"].includes(row.status))
         throw new ApiError(
           409,
           "SESSION_NOT_EDITABLE",
@@ -344,6 +405,15 @@ export class ClassSessionsService {
           400,
           "VALIDATION_ERROR",
           "Buổi học theo nhóm phải có lịch dự kiến.",
+        );
+      if (
+        row.status === "LIVE" &&
+        (dto.description !== undefined || dto.scheduledAt !== undefined)
+      )
+        throw new ApiError(
+          409,
+          "SESSION_NOT_EDITABLE",
+          "Chỉ có thể đổi tên khi cuộc họp đang diễn ra.",
         );
       const data: Prisma.ClassSessionUpdateInput = {};
       if (dto.title !== undefined) data.title = dto.title.trim();

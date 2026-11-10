@@ -42,6 +42,7 @@ export class MembershipGateway
   private busy = false;
   private stopping = false;
   private version = 0n;
+  private meetingVersion = 0n;
   private lastWarning = 0;
   private readonly logger = new Logger(MembershipGateway.name);
   constructor(
@@ -81,6 +82,11 @@ export class MembershipGateway
       orderBy: { version: "desc" },
     });
     this.version = last?.version ?? 0n;
+    const meeting = await this.prisma.classSessionChange.findFirst({
+      where: { kind: "meeting.created" },
+      orderBy: { version: "desc" },
+    });
+    this.meetingVersion = meeting?.version ?? 0n;
     this.timer = setInterval(() => void this.flush(), 500);
     this.timer.unref();
   }
@@ -131,6 +137,7 @@ export class MembershipGateway
     channel: string;
     text: string;
     replyToId: string | null;
+    meetingId?: string | null;
     createdAt: Date;
     editedAt: Date | null;
   }): GroupChatMessage {
@@ -144,6 +151,7 @@ export class MembershipGateway
       channel: row.channel,
       text: row.text,
       replyToId: row.replyToId,
+      meetingId: row.meetingId ?? null,
       createdAt: row.createdAt.toISOString(),
       editedAt: row.editedAt?.toISOString() ?? null,
     };
@@ -381,6 +389,7 @@ export class MembershipGateway
           channel,
           senderId: userId,
           deletedAt: null,
+          meetingId: null,
         },
         select: { id: true },
       });
@@ -420,6 +429,7 @@ export class MembershipGateway
           channel,
           senderId: userId,
           deletedAt: null,
+          meetingId: null,
         },
         select: { id: true },
       });
@@ -456,6 +466,29 @@ export class MembershipGateway
     if (this.busy || this.stopping) return;
     this.busy = true;
     try {
+      const meetings = await this.prisma.classSessionChange.findMany({
+        where: {
+          kind: "meeting.created",
+          version: { gt: this.meetingVersion },
+        },
+        orderBy: { version: "asc" },
+        take: 100,
+        include: { session: { include: { announcement: true } } },
+      });
+      for (const event of meetings) {
+        const message = event.session.announcement;
+        if (message) {
+          await this.broadcastGroup(
+            message.groupId,
+            "chat:message",
+            this.chatMessage(message),
+          );
+          await this.broadcastGroup(message.groupId, "meeting.created", {
+            groupId: message.groupId,
+          });
+        }
+        this.meetingVersion = event.version;
+      }
       const events = await this.prisma.membershipChange.findMany({
         where: { version: { gt: this.version } },
         orderBy: { version: "asc" },

@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -53,6 +54,7 @@ import { LoadingState, RequestError } from "./common/feedback";
 import { MembersPanel, NoGroupSelected } from "./memberships/members-panel";
 import { GroupsListPage } from "./groups/groups-list-page";
 import { MeetHub } from "./class-sessions/meet-hub";
+import { MeetingsHub } from "./class-sessions/meetings-hub";
 import { useWorkspaceGroup } from "@/lib/memberships/use-workspace-group";
 import { useGroupPermissions } from "@/lib/memberships/use-group-permissions";
 import { useGroupChat } from "@/lib/memberships/use-group-chat";
@@ -83,17 +85,35 @@ function groupInitials(name: string) {
 export function Workspace({
   view,
   channel = "trò-chuyện-chung",
+  children,
+  meetingTitle,
+  meetingGroupId,
+  meetingCode,
 }: {
   view: View;
   channel?: string;
+  children?: React.ReactNode;
+  meetingTitle?: string;
+  meetingGroupId?: string;
+  meetingCode?: string;
 }) {
+  const router = useRouter();
   const { notify } = useToast();
   const { user } = useAuth();
-  const workspaceGroup = useWorkspaceGroup();
+  const workspaceGroup = useWorkspaceGroup(meetingGroupId);
+  function openMeetingCreation() {
+    if (view === "meetings" && !children) {
+      window.dispatchEvent(new Event("streamora:meeting-create"));
+      return;
+    }
+    router.push(
+      `/workspace/meetings?create=1${workspaceGroup.groupId ? `&groupId=${workspaceGroup.groupId}` : ""}`,
+    );
+  }
   const groupAccess = useGroupPermissions(workspaceGroup.groupId);
   const permissions = groupAccess.permissions;
   const [membersView, setMembersView] = useState(false);
-  const [panel, setPanel] = useState(view !== "files");
+  const [panel, setPanel] = useState(view !== "files" && view !== "meetings");
   const [panelTab, setPanelTab] = useState<"chat" | "members">(
     view === "chat" ? "members" : "chat",
   );
@@ -159,6 +179,7 @@ export function Workspace({
       }),
       createdAt: message.createdAt,
       replyToId: message.replyToId,
+      meetingId: message.meetingId,
       editedAt: message.editedAt,
       host: message.senderRole !== "VIEWER",
     }),
@@ -477,7 +498,7 @@ export function Workspace({
   const inviteUrl =
     typeof location === "undefined"
       ? ""
-      : `${location.origin}${view === "room" ? location.pathname : "/rooms/htpt-buoi-05"}`;
+      : `${location.origin}${meetingCode ? `/meet/${meetingCode}` : view === "meetings" ? `/workspace/meetings?groupId=${workspaceGroup.groupId ?? ""}` : view === "room" ? location.pathname : "/rooms/htpt-buoi-05"}`;
   async function copyInvite() {
     const url = inviteUrl;
     try {
@@ -511,15 +532,17 @@ export function Workspace({
     setRecording(!recording);
   }
   const title =
-    view === "live"
-      ? "Lớp học trực tiếp"
-      : view === "meet"
-        ? "Cuộc họp của bạn"
-        : view === "files"
-          ? "Tài liệu chung"
-          : view === "chat"
-            ? channel
-            : activeRoomName;
+    view === "meetings"
+      ? (meetingTitle ?? "Meeting")
+      : view === "live"
+        ? "Lớp học trực tiếp"
+        : view === "meet"
+          ? "Cuộc họp của bạn"
+          : view === "files"
+            ? "Tài liệu chung"
+            : view === "chat"
+              ? channel
+              : activeRoomName;
   const currentSection = membersView
     ? "Thành viên"
     : view === "chat"
@@ -720,12 +743,12 @@ export function Workspace({
               <button
                 type="button"
                 aria-label="Tạo phòng học"
-                onClick={() => setModal("meet")}
+                onClick={openMeetingCreation}
               >
                 <Plus size={14} />
               </button>
             </div>
-            {workspaceGroup.groupId && (
+            {workspaceGroup.groupId && view !== "meetings" && (
               <Link
                 href={`/groups/${workspaceGroup.groupId}/sessions`}
                 onClick={navigateWorkspace}
@@ -736,31 +759,43 @@ export function Workspace({
               </Link>
             )}
             <Link
-              href="/workspace"
+              href={`/workspace/meetings${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
               onClick={navigateWorkspace}
-              className={`channel live-channel ${!membersView && view === "live" ? "selected" : ""}`}
+              className={`channel ${!membersView && view === "meetings" ? "selected" : ""}`}
             >
-              <Radio size={19} /> Lớp học trực tiếp{" "}
-              <span className="live-dot" />
+              <Video size={19} />
+              Meeting
             </Link>
-            <div className="channel-participants">
-              <div className="stacked-avatars">
-                <Avatar initials="NH" small />
-                <Avatar initials="MA" color="pink" small />
-                <Avatar initials="TP" color="blue" small />
-              </div>
-              <span>+21 đang tham gia</span>
-            </div>
-            <Link
-              href="/rooms/nhom-01"
-              onClick={navigateWorkspace}
-              className={`channel ${!membersView && view === "room" ? "selected" : ""}`}
-            >
-              <Volume2 size={19} /> Phòng học nhóm <small>4</small>
-            </Link>
+            {view !== "meetings" && (
+              <>
+                <Link
+                  href="/workspace"
+                  onClick={navigateWorkspace}
+                  className={`channel live-channel ${!membersView && view === "live" ? "selected" : ""}`}
+                >
+                  <Radio size={19} /> Lớp học trực tiếp{" "}
+                  <span className="live-dot" />
+                </Link>
+                <div className="channel-participants">
+                  <div className="stacked-avatars">
+                    <Avatar initials="NH" small />
+                    <Avatar initials="MA" color="pink" small />
+                    <Avatar initials="TP" color="blue" small />
+                  </div>
+                  <span>+21 đang tham gia</span>
+                </div>
+                <Link
+                  href="/rooms/nhom-01"
+                  onClick={navigateWorkspace}
+                  className={`channel ${!membersView && view === "room" ? "selected" : ""}`}
+                >
+                  <Volume2 size={19} /> Phòng học nhóm <small>4</small>
+                </Link>
+              </>
+            )}
             <button
               type="button"
-              onClick={() => setModal("meet")}
+              onClick={openMeetingCreation}
               className={`channel ${!membersView && view === "meet" ? "selected" : ""}`}
             >
               <Video size={19} /> Tạo cuộc họp <Plus size={14} />
@@ -927,6 +962,14 @@ export function Workspace({
               )
             ) : (
               <>
+                {view === "meetings" &&
+                  (children ?? (
+                    <MeetingsHub
+                      groups={workspaceGroup.groups}
+                      groupId={workspaceGroup.groupId}
+                      onSelect={workspaceGroup.selectGroup}
+                    />
+                  ))}
                 {view === "live" && (
                   <>
                     <div className="session-info">

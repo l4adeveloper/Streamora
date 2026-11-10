@@ -209,7 +209,7 @@ export function ClassMediaRoom({
       </div>
       {!participationId && (
         <p className="class-muted">
-          Bạn cần hoàn tất bước vào phòng bên trên trước khi kết nối video.
+          Tham gia phòng trước khi kết nối video.
         </p>
       )}
     </section>

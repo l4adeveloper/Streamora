@@ -11,6 +11,8 @@ interface ClassSessionBase {
   id: string;
   createdById: string;
   title: string;
+  allowGuests: boolean;
+  memberAdmission: "DIRECT" | "APPROVAL";
   description: string | null;
   /** Discovery only; knowing the code never grants admission. */
   joinCode: string;
@@ -49,6 +51,11 @@ export interface MeetPreview {
   title: string;
   host: ClassSessionUser;
   status: ClassSessionStatus;
+  groupId: string | null;
+  allowGuests: boolean;
+  /** Resolved by the server from current membership, never from URL parameters. */
+  mode: "WORKSPACE" | "STANDALONE";
+  joinCode: string;
 }
 
 export interface ClassJoinRequest {
@@ -84,9 +91,12 @@ export interface ClassParticipationWithUser extends ClassParticipation {
 }
 
 export interface CreateGroupClassSessionRequest {
-  title: string;
+  title?: string;
+  allowGuests?: boolean;
+  /** Compatibility for scheduled classes using the existing approval workflow. */
+  memberAdmission?: "DIRECT" | "APPROVAL";
   description?: string;
-  scheduledAt: string;
+  scheduledAt?: string;
 }
 
 export interface CreateMeetRequest {

@@ -15,6 +15,9 @@ export class ClassSessionDto {
     string | null;
   @ApiProperty({ format: "uuid" }) createdById!: string;
   @ApiProperty({ maxLength: 100 }) title!: string;
+  @ApiProperty() allowGuests!: boolean;
+  @ApiProperty({ enum: ["DIRECT", "APPROVAL"] }) memberAdmission!:
+    "DIRECT" | "APPROVAL";
   @ApiProperty({ type: String, nullable: true, maxLength: 2000 }) description!:
     string | null;
   @ApiProperty({ pattern: "^[A-Z0-9]{12}$" }) joinCode!: string;
@@ -46,6 +49,11 @@ export class MeetPreviewDto implements MeetPreview {
   @ApiProperty() title!: string;
   @ApiProperty({ type: ClassSessionUserDto }) host!: ClassSessionUser;
   @ApiProperty({ enum: SESSION_STATUSES }) status!: ClassSessionStatus;
+  @ApiProperty({ type: String, nullable: true }) groupId!: string | null;
+  @ApiProperty() allowGuests!: boolean;
+  @ApiProperty({ enum: ["WORKSPACE", "STANDALONE"] }) mode!:
+    "WORKSPACE" | "STANDALONE";
+  @ApiProperty() joinCode!: string;
 }
 export class MeetPreviewResponseDto {
   @ApiProperty({ type: MeetPreviewDto }) meet!: MeetPreview;

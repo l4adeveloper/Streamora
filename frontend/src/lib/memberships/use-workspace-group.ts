@@ -4,7 +4,7 @@ import type { Group } from "@streamora/contracts";
 import { useAuth } from "@/components/auth/auth-provider";
 import { listGroups } from "@/lib/groups/api";
 
-export function useWorkspaceGroup() {
+export function useWorkspaceGroup(forcedGroupId?: string) {
   const { user } = useAuth();
   const [state, setState] = useState<{
     userId: string;
@@ -29,6 +29,7 @@ export function useWorkspaceGroup() {
         cursor = page.nextCursor ?? undefined;
       } while (cursor);
       const requested =
+        forcedGroupId ??
         new URLSearchParams(location.search).get("groupId") ??
         sessionStorage.getItem(`streamora-group:${user.id}`);
       const groupId =
@@ -47,7 +48,7 @@ export function useWorkspaceGroup() {
     } finally {
       if (request === sequence.current) setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, forcedGroupId]);
   useEffect(() => {
     void load();
     return () => {
@@ -60,6 +61,12 @@ export function useWorkspaceGroup() {
     if (!user) return;
     setState((previous) => ({ ...previous, groupId }));
     sessionStorage.setItem(`streamora-group:${user.id}`, groupId);
+    if (/^\/workspace\/meetings\/[^/]+/.test(location.pathname)) {
+      location.assign(
+        `/workspace/meetings?groupId=${encodeURIComponent(groupId)}`,
+      );
+      return;
+    }
     const url = new URL(location.href);
     url.searchParams.set("groupId", groupId);
     history.replaceState(null, "", url);

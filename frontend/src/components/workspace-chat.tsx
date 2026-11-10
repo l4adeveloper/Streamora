@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import {
   useEffect,
@@ -150,7 +151,9 @@ export function WorkspaceChat({
               : undefined;
             const ownMessage =
               Boolean(currentUserId) && message.senderId === currentUserId;
-            const canAct = Boolean(message.id && !message.pending);
+            const canAct = Boolean(
+              message.id && !message.pending && !message.meetingId,
+            );
             return (
               <div
                 className={[
@@ -242,7 +245,23 @@ export function WorkspaceChat({
                     </form>
                   ) : (
                     <div className="message-text">
-                      <p>{message.text}</p>
+                      <p>
+                        {message.text
+                          .split(/(\/meet\/[A-Z0-9]{12})/g)
+                          .map((part, i) =>
+                            /^\/meet\/[A-Z0-9]{12}$/.test(part) ? (
+                              <Link
+                                key={i}
+                                href={part}
+                                className="meeting-chat-link"
+                              >
+                                Tham gia cuộc họp →
+                              </Link>
+                            ) : (
+                              part
+                            ),
+                          )}
+                      </p>
                       {message.editedAt && (
                         <small className="message-edited">(đã chỉnh sửa)</small>
                       )}

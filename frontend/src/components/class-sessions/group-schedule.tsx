@@ -81,6 +81,7 @@ export function GroupSchedule({ groupId }: { groupId: string }) {
                     title: body.title,
                     description: body.description ?? undefined,
                     scheduledAt: body.scheduledAt!,
+                    memberAdmission: "APPROVAL",
                   },
                   key,
                 );

@@ -17,7 +17,6 @@ import type {
   ClassSession,
   MeetPreview,
 } from "@streamora/contracts";
-import { PageShell } from "@/components/shell/page-shell";
 import {
   EmptyState,
   InlineNotice,
@@ -52,9 +51,13 @@ const closedMessages = {
 export function SessionRoom({
   sessionId,
   meetCode,
+  embedded = false,
+  onTitle,
 }: {
   sessionId?: string;
   meetCode?: string;
+  embedded?: boolean;
+  onTitle?: (title: string) => void;
 }) {
   const { notify } = useToast();
   const [id, setId] = useState<string | null>(sessionId ?? null);
@@ -165,9 +168,9 @@ export function SessionRoom({
   useEffect(() => {
     setShareLink(
       window.location.origin +
-        (meetCode ? `/meet/${meetCode}` : `/sessions/${sessionId}`),
+        `/meet/${data?.session?.joinCode ?? data?.preview?.joinCode ?? meetCode ?? ""}`,
     );
-  }, [meetCode, sessionId]);
+  }, [meetCode, data?.session?.joinCode, data?.preview?.joinCode]);
   useEffect(() => {
     if (confirmation) confirmButton.current?.focus();
   }, [confirmation]);
@@ -204,9 +207,35 @@ export function SessionRoom({
   }
   const disabled = !!pending || !!error || !data;
   const title = session?.title ?? preview?.title ?? "Buổi học";
+  useEffect(() => {
+    if (data) onTitle?.(title);
+  }, [data, title, onTitle]);
   const currentRequest = admission?.request;
+  const autoEntered = useRef(false);
+  useEffect(() => {
+    if (
+      embedded &&
+      session?.memberAdmission === "DIRECT" &&
+      status === "LIVE" &&
+      admission?.permissions.canEnter &&
+      !active &&
+      !autoEntered.current &&
+      !closedId
+    ) {
+      autoEntered.current = true;
+      void run("enter", () => api.enterClass(data!.id, key("enter")));
+    }
+  }, [
+    embedded,
+    session?.memberAdmission,
+    status,
+    admission?.permissions.canEnter,
+    active,
+    closedId,
+  ]);
+  const RoomShell = embedded ? EmbeddedRoomShell : StandaloneRoomShell;
   return (
-    <PageShell
+    <RoomShell
       title={title}
       eyebrow={
         session?.kind === "GROUP" ? "BUỔI HỌC CỦA NHÓM" : "KHÔNG GIAN BUỔI HỌC"
@@ -217,11 +246,13 @@ export function SessionRoom({
         <div className="class-toolbar">
           <Link
             href={
-              session?.groupId ? `/groups/${session.groupId}/sessions` : "/meet"
+              embedded
+                ? `/workspace/meetings?groupId=${session?.groupId}`
+                : "/meet"
             }
             className="button secondary"
           >
-            {session?.groupId ? "Lịch học của nhóm" : "Danh sách cuộc họp"}
+            {embedded ? "Meeting của lớp" : "Danh sách cuộc họp"}
           </Link>
           <button
             type="button"
@@ -503,14 +534,23 @@ export function SessionRoom({
                     </>
                   )}
                   {status === "LIVE" && (
-                    <button
-                      className="button danger"
-                      disabled={disabled}
-                      onClick={() => setConfirmation("end")}
-                    >
-                      <Square size={16} />
-                      Kết thúc buổi học
-                    </button>
+                    <>
+                      <button
+                        className="button secondary"
+                        disabled={disabled}
+                        onClick={() => setEditing(!editing)}
+                      >
+                        {editing ? "Đóng chỉnh sửa" : "Đổi tên cuộc họp"}
+                      </button>
+                      <button
+                        className="button danger"
+                        disabled={disabled}
+                        onClick={() => setConfirmation("end")}
+                      >
+                        <Square size={16} />
+                        Kết thúc buổi học
+                      </button>
+                    </>
                   )}
                   {["ENDED", "CANCELLED"].includes(status) && (
                     <p>
@@ -572,28 +612,34 @@ export function SessionRoom({
                     </div>
                   </div>
                 )}
-                {editing && status === "SCHEDULED" && session && (
-                  <SessionForm
-                    key={session.updatedAt}
-                    initial={session}
-                    group={session.kind === "GROUP"}
-                    label="Lưu thay đổi"
-                    onSave={async (body) => {
-                      if (busy.current) return;
-                      busy.current = true;
-                      setPending("edit");
-                      try {
-                        await api.updateClassSession(data.id, body);
-                        setEditing(false);
-                        notify("Đã cập nhật lịch học.", { tone: "success" });
-                      } finally {
-                        await refresh();
-                        busy.current = false;
-                        setPending("");
-                      }
-                    }}
-                  />
-                )}
+                {editing &&
+                  ["SCHEDULED", "LIVE"].includes(status) &&
+                  session && (
+                    <SessionForm
+                      key={session.updatedAt}
+                      initial={session}
+                      group={session.kind === "GROUP"}
+                      renameOnly={status === "LIVE"}
+                      label="Lưu thay đổi"
+                      onSave={async (body) => {
+                        if (busy.current) return;
+                        busy.current = true;
+                        setPending("edit");
+                        try {
+                          await api.updateClassSession(
+                            data.id,
+                            status === "LIVE" ? { title: body.title } : body,
+                          );
+                          setEditing(false);
+                          notify("Đã cập nhật lịch học.", { tone: "success" });
+                        } finally {
+                          await refresh();
+                          busy.current = false;
+                          setPending("");
+                        }
+                      }}
+                    />
+                  )}
               </section>
             )}
             {status === "LIVE" && !error && (
@@ -623,7 +669,53 @@ export function SessionRoom({
           </>
         )}
       </div>
-    </PageShell>
+    </RoomShell>
+  );
+}
+
+function EmbeddedRoomShell({
+  children,
+  title,
+}: {
+  children: React.ReactNode;
+  title: string;
+  eyebrow?: string;
+  breadcrumb?: string;
+}) {
+  return (
+    <div className="meeting-room meeting-room-workspace">
+      <div className="meeting-room-heading">
+        <span className="eyebrow">MEETING CỦA LỚP</span>
+        <h1>{title}</h1>
+      </div>
+      {children}
+    </div>
+  );
+}
+function StandaloneRoomShell({
+  children,
+  title,
+}: {
+  children: React.ReactNode;
+  title: string;
+  eyebrow?: string;
+  breadcrumb?: string;
+}) {
+  return (
+    <div className="meeting-standalone">
+      <header className="meeting-standalone-header">
+        <Link href="/meet" className="meeting-wordmark">
+          Streamora <span>Meet</span>
+        </Link>
+        <span>Không gian gặp gỡ của bạn</span>
+      </header>
+      <main className="meeting-room">
+        <div className="meeting-room-heading">
+          <h1>{title}</h1>
+        </div>
+        {children}
+      </main>
+    </div>
   );
 }
 

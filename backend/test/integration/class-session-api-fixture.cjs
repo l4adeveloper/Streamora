@@ -133,6 +133,7 @@ async function createClassSessionApiFixture(options = {}) {
       const session = expect(
         await api(owner, "POST", `/groups/${g.id}/sessions`, {
           title: "Admission class",
+          memberAdmission: "APPROVAL",
           scheduledAt: "2026-10-25T12:00:00Z",
         }),
         201,
