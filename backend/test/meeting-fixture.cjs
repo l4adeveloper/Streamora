@@ -5,7 +5,10 @@ const { tmpdir } = require("node:os");
 const { resolve, join, dirname, basename } = require("node:path");
 const { createServer } = require("node:net");
 
-async function createMeetingFixture(webOrigin = "http://127.0.0.1:3000") {
+async function createMeetingFixture(
+  webOrigin = "http://127.0.0.1:3000",
+  { ivs } = {},
+) {
   const { PGlite } = await import("@electric-sql/pglite");
   const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
   const { PGLiteSocketServer } = await import("@electric-sql/pglite-socket");
@@ -46,6 +49,9 @@ async function createMeetingFixture(webOrigin = "http://127.0.0.1:3000") {
     FILES_CLEANUP_ENABLED: "false",
     IVS_ENABLED: "false",
   });
+  // Live smoke checks may explicitly inject IVS credentials. Never consume the
+  // application's event queue into the isolated test database.
+  if (ivs) config.ivs = { ...ivs, workerEnabled: false };
   // PGlite has one database connection. Keep the test adapter serialized so
   // PostgreSQL wire messages from concurrent browser reads cannot interleave.
   const { PrismaClient } = require("../dist/generated/prisma/client");

@@ -146,6 +146,23 @@ Request history trong `class_media_requests` ngăn join retry cũ hoặc leave c
 
 `npm run test:t05:frontend` build Next.js rồi kiểm tra preview/stop tracks, lỗi IVS chưa cấu hình và bố cục desktop/mobile với thiết bị/API giả lập. Không gọi AWS hay dùng tài khoản thật.
 
+Để nghiệm thu với cấu hình AWS thật trong `backend/.env`, chạy:
+
+```sh
+npm run test:ivs:live
+```
+
+Lệnh này kiểm tra quyền truy cập IVS/SQS, đọc thử PostgreSQL và các cột Meeting
+trong database được cấu hình; sau đó tạo một database tạm, một Stage AWS tạm và
+hai tài khoản kiểm thử. Hai trình duyệt dùng mic/camera giả lập nhưng kết nối
+AWS IVS thật. Kiểm thử xác nhận RTP audio/video hai chiều, duy trì qua heartbeat,
+AWS xác nhận presence, bật/tắt thiết bị, rời phòng, thu hồi media và đóng Stage.
+Không ghi vào database ứng dụng, không nhận/xóa thông báo từ SQS đang dùng.
+Stage của bài kiểm thử được dọn sau khi chạy; dữ liệu báo cáo không chứa
+credentials/token nằm tại `.preview/ivs-live-review/report.json`, kèm ảnh phòng.
+Lệnh cần Edge trên Windows (hoặc Chromium của Playwright trên hệ điều hành khác)
+và sử dụng AWS trong thời gian ngắn; không chạy trong bộ test mặc định.
+
 Migration T05 là `20261108000400_class_media`. Trước khi deploy lên DB dùng chung, đối chiếu `npm run db:status`: checkout và DB cần có cùng lịch sử migration. Không reset DB để xử lý nhánh có lịch sử khác.
 
 ## Trạng thái kiểm chứng tại workspace
@@ -153,13 +170,13 @@ Migration T05 là `20261108000400_class_media`. Trước khi deploy lên DB dùn
 - Build backend/Next.js, typecheck toàn workspace, các test T05 và bài kiểm tra
   giao diện desktop/mobile đã đạt. Các test backend đã theo dõi trong Git
   cùng test T05 mới đã đạt.
-- Checkout đã có `20261108000200_multipart_uploads` và
-  `20261108000300_upload_capacity_and_locations` sau khi đồng bộ main T16/T17;
-  checksum Git của cả hai file khớp lịch sử DB đã đối chiếu. Chưa deploy
-  migration T05; kiểm tra `npm run db:status` trước khi chạy `npm run db:migrate`.
-- Tài khoản DB hiện tại không có quyền CREATEDB, nên chưa chạy được bộ
-  integration PostgreSQL tạo DB tạm. Toàn bộ migration trong checkout đã chạy
-  trên PostgreSQL WASM cô lập để kiểm tra SQL và constraints.
-- Local giữ `IVS_ENABLED=false`; chưa có AWS credentials hoặc queue
-  sự kiện IVS. Cần cấu hình các mục ở trên và chạy nghiệm thu hai browser/máy
-  để xác nhận media và EventBridge/SQS thật.
+- Ngày 10/11/2026, cấu hình IVS mới tại Tokyo đã vượt qua `test:ivs:live`:
+  tạo Stage/token thật, hai browser truyền audio/video hai chiều, duy trì qua
+  heartbeat với presence do AWS xác nhận, bật/tắt thiết bị, rời phòng, thu hồi
+  kết nối và tự xóa Stage khi kết thúc. Mic/camera dùng nguồn giả lập;
+  đường truyền và dịch vụ AWS là thật.
+- PostgreSQL được cấu hình đã kết nối thành công và có các cột cần thiết cho
+  Meeting/media. Bài live check không ghi dữ liệu vào database ứng dụng hoặc
+  thay đổi migration; database kiểm thử chạy toàn bộ migration trên PGlite.
+- SQS đã trả HTTP 200 cho truy vấn thuộc tính queue. Chưa nghiệm thu toàn bộ
+  đường EventBridge → SQS → consumer hoặc thiết bị vật lý/mạng của từng người.
