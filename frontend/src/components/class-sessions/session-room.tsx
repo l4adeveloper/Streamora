@@ -1,6 +1,13 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import {
   CalendarDays,
   Copy,
@@ -10,6 +17,11 @@ import {
   Square,
   Users,
   UserRoundCheck,
+  Info,
+  Settings2,
+  PhoneOff,
+  Video,
+  X,
 } from "lucide-react";
 import type {
   ClassAdmissionResponse,
@@ -31,7 +43,7 @@ import { useCursorList } from "@/lib/class-sessions/use-cursor-list";
 import { useClassRealtime } from "@/lib/class-sessions/use-class-realtime";
 import { SessionStatus } from "./session-card";
 import { SessionForm } from "./session-form";
-import { ClassMediaRoom } from "./class-media-room";
+import { ClassMediaRoom, type ClassMediaHandle } from "./class-media-room";
 import "./sessions.css";
 
 interface RoomData {
@@ -48,16 +60,37 @@ const closedMessages = {
   ACCESS_REVOKED: "Quyền tham gia của bạn đã bị thu hồi.",
 };
 
+export interface MeetingRoomState {
+  sessionId: string;
+  revision: number;
+  canManage: boolean;
+  canViewParticipants: boolean;
+  pending: boolean;
+}
+export interface SessionRoomHandle {
+  leave: () => Promise<void>;
+  decide: (requestId: string, decision: "ACCEPT" | "REJECT") => Promise<void>;
+}
 export function SessionRoom({
   sessionId,
   meetCode,
   embedded = false,
   onTitle,
+  onSession,
+  onExit,
+  onState,
+  onOpenPeople,
+  ref,
 }: {
   sessionId?: string;
   meetCode?: string;
   embedded?: boolean;
   onTitle?: (title: string) => void;
+  onSession?: (session: ClassSession) => void;
+  onExit?: () => void;
+  onState?: (state: MeetingRoomState) => void;
+  onOpenPeople?: () => void;
+  ref?: Ref<SessionRoomHandle>;
 }) {
   const { notify } = useToast();
   const [id, setId] = useState<string | null>(sessionId ?? null);
@@ -76,6 +109,7 @@ export function SessionRoom({
   const [closedId, setClosedId] = useState<string | null>(null),
     [notice, setNotice] = useState("");
   const [shareLink, setShareLink] = useState("");
+  const [callPanel, setCallPanel] = useState<"info" | "manage" | null>(null);
   const sequence = useRef(0),
     busy = useRef(false),
     scheduledRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -83,6 +117,33 @@ export function SessionRoom({
     );
   const intent = useRef<{ signature: string; key: string } | null>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
+  const mediaRef = useRef<ClassMediaHandle>(null);
+  const actionFlight = useRef<Promise<unknown> | null>(null);
+  useImperativeHandle(
+    ref,
+    () => ({
+      decide: (requestId, decision) =>
+        run("decide", () =>
+          api.decideClassJoin(sessionId!, requestId, decision),
+        ),
+      leave: async () => {
+        await actionFlight.current?.catch(() => {});
+        mediaRef.current?.stop();
+        if (!sessionId) return;
+        try {
+          const current = await api.getAdmission(sessionId);
+          const visit = current.participation;
+          if (visit && !visit.leftAt) {
+            await api.leaveClass(sessionId, visit.id);
+            setClosedId(visit.id);
+          }
+        } catch (error) {
+          if (![401, 403, 404].includes(asApiError(error).status)) throw error;
+        }
+      },
+    }),
+    [sessionId],
+  );
 
   const refresh = useCallback(async () => {
     const request = ++sequence.current;
@@ -194,22 +255,37 @@ export function SessionRoom({
     setActionError(null);
     setNotice("");
     try {
-      await work();
+      const task = work();
+      actionFlight.current = task;
+      await task;
       if (message) notify(message, { tone: "success" });
       setConfirmation(null);
+      if (["start", "end", "cancel"].includes(name)) setCallPanel(null);
     } catch (error) {
       setActionError(error);
     } finally {
       await refresh();
       busy.current = false;
       setPending("");
+      actionFlight.current = null;
     }
   }
   const disabled = !!pending || !!error || !data;
   const title = session?.title ?? preview?.title ?? "Buổi học";
   useEffect(() => {
     if (data) onTitle?.(title);
-  }, [data, title, onTitle]);
+    if (session) onSession?.(session);
+  }, [data, session, title, onTitle, onSession]);
+  useEffect(() => {
+    if (id)
+      onState?.({
+        sessionId: id,
+        revision,
+        canManage: !!admission?.permissions.canManage,
+        canViewParticipants: !!admission?.permissions.canViewParticipants,
+        pending: !!pending,
+      });
+  }, [id, revision, admission, pending, onState]);
   const currentRequest = admission?.request;
   const autoEntered = useRef(false);
   useEffect(() => {
@@ -233,7 +309,411 @@ export function SessionRoom({
     active,
     closedId,
   ]);
-  const RoomShell = embedded ? EmbeddedRoomShell : StandaloneRoomShell;
+  const managementPanel = manage && data && status && (
+    <section className="class-panel" aria-labelledby="class-manager-title">
+      <h2 id="class-manager-title">Quản lý buổi học</h2>
+      <div className="class-actions">
+        {status === "SCHEDULED" && (
+          <>
+            <button
+              className="button primary"
+              disabled={disabled}
+              onClick={() =>
+                void run(
+                  "start",
+                  () => api.changeClassStatus(data.id, "start", key("start")),
+                  "Đã bắt đầu buổi học.",
+                )
+              }
+            >
+              <Play size={16} />
+              {pending === "start" ? "Đang bắt đầu…" : "Bắt đầu buổi học"}
+            </button>
+            <button
+              className="button secondary"
+              disabled={disabled}
+              onClick={() => setEditing(!editing)}
+            >
+              {editing ? "Đóng chỉnh sửa" : "Chỉnh sửa lịch"}
+            </button>
+            <button
+              className="button danger"
+              disabled={disabled}
+              onClick={() => setConfirmation("cancel")}
+            >
+              Hủy buổi học
+            </button>
+          </>
+        )}
+        {status === "LIVE" && (
+          <>
+            <button
+              className="button secondary"
+              disabled={disabled}
+              onClick={() => setEditing(!editing)}
+            >
+              {editing ? "Đóng chỉnh sửa" : "Đổi tên cuộc họp"}
+            </button>
+            <button
+              className="button danger"
+              disabled={disabled}
+              onClick={() => setConfirmation("end")}
+            >
+              <Square size={16} />
+              Kết thúc buổi học
+            </button>
+          </>
+        )}
+        {["ENDED", "CANCELLED"].includes(status) && (
+          <p>
+            Trạng thái đã được chốt; muốn tổ chức lại, hãy tạo buổi học mới.
+          </p>
+        )}
+      </div>
+      {confirmation && (
+        <div
+          className="class-confirm"
+          role="alertdialog"
+          aria-labelledby="class-confirm-title"
+          aria-describedby="class-confirm-description"
+        >
+          <h3 id="class-confirm-title">
+            {confirmation === "end"
+              ? "Kết thúc buổi học này?"
+              : "Hủy lịch học này?"}
+          </h3>
+          <p id="class-confirm-description">
+            {confirmation === "end"
+              ? "Các lượt tham gia và yêu cầu đang chờ sẽ được đóng. Buổi học không thể mở lại."
+              : "Lịch sẽ chuyển sang đã hủy và không thể bắt đầu."}
+          </p>
+          <div className="class-actions">
+            <button
+              ref={confirmButton}
+              className="button danger"
+              disabled={disabled}
+              onClick={() =>
+                void run(
+                  confirmation,
+                  () =>
+                    api.changeClassStatus(
+                      data.id,
+                      confirmation,
+                      key(confirmation),
+                    ),
+                  confirmation === "end"
+                    ? "Đã kết thúc buổi học."
+                    : "Đã hủy lịch học.",
+                )
+              }
+            >
+              {pending
+                ? "Đang xử lý…"
+                : confirmation === "end"
+                  ? "Xác nhận kết thúc"
+                  : "Xác nhận hủy"}
+            </button>
+            <button
+              className="button secondary"
+              disabled={!!pending}
+              onClick={() => setConfirmation(null)}
+            >
+              Quay lại
+            </button>
+          </div>
+        </div>
+      )}
+      {editing && ["SCHEDULED", "LIVE"].includes(status) && session && (
+        <SessionForm
+          key={session.updatedAt}
+          initial={session}
+          group={session.kind === "GROUP"}
+          renameOnly={status === "LIVE"}
+          label="Lưu thay đổi"
+          onSave={async (body) => {
+            if (busy.current) return;
+            busy.current = true;
+            setPending("edit");
+            try {
+              await api.updateClassSession(
+                data.id,
+                status === "LIVE" ? { title: body.title } : body,
+              );
+              setEditing(false);
+              notify("Đã cập nhật lịch học.", { tone: "success" });
+            } finally {
+              await refresh();
+              busy.current = false;
+              setPending("");
+            }
+          }}
+        />
+      )}
+    </section>
+  );
+  if (embedded)
+    return (
+      <section
+        className="meeting-room meeting-room-workspace workspace-call"
+        aria-label={title}
+      >
+        {loading && <LoadingState message="Đang mở cuộc họp…" />}
+        {!!error && (
+          <RequestError error={error} onRetry={() => void refresh()} />
+        )}
+        {!!actionError && (
+          <InlineNotice tone="error">
+            {asApiError(actionError).message}
+          </InlineNotice>
+        )}
+        {notice && <InlineNotice>{notice}</InlineNotice>}
+        {data && status && (
+          <>
+            <ClassMediaRoom
+              key={data.id}
+              ref={mediaRef}
+              sessionId={data.id}
+              participationId={active ? visit.id : null}
+              layout="workspace"
+              disabled={["ENDED", "CANCELLED"].includes(status)}
+              canManage={manage}
+              headerDetail={
+                <span>
+                  {active
+                    ? "Bạn đang ở trong phòng"
+                    : status === "LIVE"
+                      ? "Phòng đang mở"
+                      : status === "SCHEDULED"
+                        ? "Đã lên lịch"
+                        : "Phòng đã đóng"}
+                </span>
+              }
+              emptyContent={
+                <>
+                  <Video size={42} />
+                  <strong>
+                    {status === "ENDED"
+                      ? "Cuộc họp đã kết thúc"
+                      : status === "CANCELLED"
+                        ? "Cuộc họp đã hủy"
+                        : title}
+                  </strong>
+                  {status === "SCHEDULED" && (
+                    <>
+                      <p>Chờ người quản lý bắt đầu cuộc họp.</p>
+                      {manage && (
+                        <button
+                          className="button primary"
+                          disabled={disabled}
+                          onClick={() =>
+                            void run("start", () =>
+                              api.changeClassStatus(
+                                data.id,
+                                "start",
+                                key("start"),
+                              ),
+                            )
+                          }
+                        >
+                          Bắt đầu buổi học
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {status === "LIVE" &&
+                    (active ? (
+                      <p>Bật thiết bị hoặc kết nối để nghe cuộc họp.</p>
+                    ) : (
+                      <div className="workspace-call-admission">
+                        {currentRequest?.status === "PENDING" && (
+                          <>
+                            <p>Đang chờ người quản lý duyệt</p>
+                            <button
+                              className="button secondary compact"
+                              disabled={disabled}
+                              onClick={() =>
+                                void run("cancel-request", () =>
+                                  api.cancelClassJoin(
+                                    data.id,
+                                    currentRequest.id,
+                                  ),
+                                )
+                              }
+                            >
+                              Hủy yêu cầu
+                            </button>
+                          </>
+                        )}
+                        {admission?.permissions.canRequestJoin && (
+                          <button
+                            className="button primary"
+                            disabled={disabled}
+                            onClick={() =>
+                              void run("request", () =>
+                                api.requestClassJoin(data.id, key("request")),
+                              )
+                            }
+                          >
+                            {pending === "request"
+                              ? "Đang gửi…"
+                              : currentRequest
+                                ? "Xin vào lại"
+                                : "Xin vào phòng"}
+                          </button>
+                        )}
+                        {admission?.permissions.canEnter && (
+                          <button
+                            className="button primary"
+                            disabled={disabled}
+                            onClick={() =>
+                              void run("enter", () =>
+                                api.enterClass(data.id, key("enter")),
+                              )
+                            }
+                          >
+                            {pending === "enter" ? "Đang vào…" : "Vào phòng"}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                </>
+              }
+              actions={
+                <>
+                  <button
+                    type="button"
+                    className="workspace-call-action"
+                    aria-label="Liên kết"
+                    title="Liên kết"
+                    onClick={() => setCallPanel("info")}
+                  >
+                    <Copy size={15} />
+                    <span className="workspace-call-action-label">
+                      Liên kết
+                    </span>
+                  </button>
+                  {onOpenPeople && (
+                    <button
+                      type="button"
+                      className="workspace-call-action"
+                      aria-label="Người tham gia"
+                      title="Người tham gia"
+                      onClick={onOpenPeople}
+                    >
+                      <Users size={15} />
+                      <span className="workspace-call-action-label">
+                        Người tham gia
+                      </span>
+                    </button>
+                  )}
+                  {manage && (
+                    <button
+                      type="button"
+                      className="workspace-call-action"
+                      aria-label="Quản lý phòng"
+                      title="Quản lý phòng"
+                      onClick={() => setCallPanel("manage")}
+                    >
+                      <Settings2 size={15} />
+                      <span className="workspace-call-action-label">
+                        Quản lý phòng
+                      </span>
+                    </button>
+                  )}
+                </>
+              }
+              leaveAction={
+                <button
+                  type="button"
+                  className="leave-button"
+                  onClick={onExit}
+                  disabled={!!pending}
+                >
+                  <PhoneOff size={17} />
+                  Rời phòng
+                </button>
+              }
+            />
+            <div className="workspace-call-summary">
+              <strong>Trong cuộc họp này</strong>
+              <SessionStatus status={status} />
+              <span>
+                {session?.allowGuests
+                  ? "Cho phép khách tham gia qua duyệt"
+                  : "Dành cho thành viên trong Group"}
+              </span>
+              <button type="button" onClick={() => setCallPanel("info")}>
+                <Info size={15} />
+                Thông tin cuộc họp
+              </button>
+            </div>
+            {callPanel && (
+              <MeetingDialog
+                title={
+                  callPanel === "manage"
+                    ? "Quản lý cuộc họp"
+                    : "Thông tin cuộc họp"
+                }
+                onClose={() => setCallPanel(null)}
+              >
+                {callPanel === "manage" ? (
+                  managementPanel
+                ) : (
+                  <div className="class-page">
+                    <p>{session?.description || title}</p>
+                    <p className="class-muted">
+                      {session?.allowGuests
+                        ? "Khách cần đăng nhập và được chủ phòng duyệt."
+                        : "Liên kết chỉ dành cho thành viên của Group."}
+                    </p>
+                    <div className="class-share">
+                      <label htmlFor="workspace-share-link">
+                        Liên kết tham gia
+                      </label>
+                      <div className="class-row">
+                        <input
+                          id="workspace-share-link"
+                          readOnly
+                          value={shareLink}
+                          onFocus={(event) => event.target.select()}
+                        />
+                        <button
+                          type="button"
+                          className="button secondary"
+                          onClick={() => {
+                            void navigator.clipboard
+                              ?.writeText(shareLink)
+                              .then(() =>
+                                notify("Đã sao chép liên kết.", {
+                                  tone: "success",
+                                }),
+                              )
+                              .catch(() =>
+                                notify(
+                                  "Chọn và sao chép liên kết trong ô bên cạnh.",
+                                ),
+                              );
+                          }}
+                        >
+                          <Copy size={16} />
+                          Sao chép
+                        </button>
+                      </div>
+                    </div>
+                    {session?.scheduledAt && (
+                      <p className="class-muted">
+                        Dự kiến: {displayTime(session.scheduledAt)}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </MeetingDialog>
+            )}
+          </>
+        )}
+      </section>
+    );
+  const RoomShell = StandaloneRoomShell;
   return (
     <RoomShell
       title={title}
@@ -244,16 +724,22 @@ export function SessionRoom({
     >
       <div className="class-page">
         <div className="class-toolbar">
-          <Link
-            href={
-              embedded
-                ? `/workspace/meetings?groupId=${session?.groupId}`
-                : "/meet"
-            }
-            className="button secondary"
-          >
-            {embedded ? "Meeting của lớp" : "Danh sách cuộc họp"}
-          </Link>
+          {embedded && onExit ? (
+            <button type="button" className="button secondary" onClick={onExit}>
+              Quay lại Workspace
+            </button>
+          ) : (
+            <Link
+              href={
+                embedded
+                  ? `/workspace/meetings?groupId=${session?.groupId}`
+                  : "/meet"
+              }
+              className="button secondary"
+            >
+              {embedded ? "Meeting của lớp" : "Danh sách cuộc họp"}
+            </Link>
+          )}
           <button
             type="button"
             className="button secondary"
@@ -487,163 +973,10 @@ export function SessionRoom({
                 </>
               )}
             </section>
-            {manage && (
-              <section
-                className="class-panel"
-                aria-labelledby="class-manager-title"
-              >
-                <h2 id="class-manager-title">Quản lý buổi học</h2>
-                <div className="class-actions">
-                  {status === "SCHEDULED" && (
-                    <>
-                      <button
-                        className="button primary"
-                        disabled={disabled}
-                        onClick={() =>
-                          void run(
-                            "start",
-                            () =>
-                              api.changeClassStatus(
-                                data.id,
-                                "start",
-                                key("start"),
-                              ),
-                            "Đã bắt đầu buổi học.",
-                          )
-                        }
-                      >
-                        <Play size={16} />
-                        {pending === "start"
-                          ? "Đang bắt đầu…"
-                          : "Bắt đầu buổi học"}
-                      </button>
-                      <button
-                        className="button secondary"
-                        disabled={disabled}
-                        onClick={() => setEditing(!editing)}
-                      >
-                        {editing ? "Đóng chỉnh sửa" : "Chỉnh sửa lịch"}
-                      </button>
-                      <button
-                        className="button danger"
-                        disabled={disabled}
-                        onClick={() => setConfirmation("cancel")}
-                      >
-                        Hủy buổi học
-                      </button>
-                    </>
-                  )}
-                  {status === "LIVE" && (
-                    <>
-                      <button
-                        className="button secondary"
-                        disabled={disabled}
-                        onClick={() => setEditing(!editing)}
-                      >
-                        {editing ? "Đóng chỉnh sửa" : "Đổi tên cuộc họp"}
-                      </button>
-                      <button
-                        className="button danger"
-                        disabled={disabled}
-                        onClick={() => setConfirmation("end")}
-                      >
-                        <Square size={16} />
-                        Kết thúc buổi học
-                      </button>
-                    </>
-                  )}
-                  {["ENDED", "CANCELLED"].includes(status) && (
-                    <p>
-                      Trạng thái đã được chốt; muốn tổ chức lại, hãy tạo buổi
-                      học mới.
-                    </p>
-                  )}
-                </div>
-                {confirmation && (
-                  <div
-                    className="class-confirm"
-                    role="alertdialog"
-                    aria-labelledby="class-confirm-title"
-                    aria-describedby="class-confirm-description"
-                  >
-                    <h3 id="class-confirm-title">
-                      {confirmation === "end"
-                        ? "Kết thúc buổi học này?"
-                        : "Hủy lịch học này?"}
-                    </h3>
-                    <p id="class-confirm-description">
-                      {confirmation === "end"
-                        ? "Các lượt tham gia và yêu cầu đang chờ sẽ được đóng. Buổi học không thể mở lại."
-                        : "Lịch sẽ chuyển sang đã hủy và không thể bắt đầu."}
-                    </p>
-                    <div className="class-actions">
-                      <button
-                        ref={confirmButton}
-                        className="button danger"
-                        disabled={disabled}
-                        onClick={() =>
-                          void run(
-                            confirmation,
-                            () =>
-                              api.changeClassStatus(
-                                data.id,
-                                confirmation,
-                                key(confirmation),
-                              ),
-                            confirmation === "end"
-                              ? "Đã kết thúc buổi học."
-                              : "Đã hủy lịch học.",
-                          )
-                        }
-                      >
-                        {pending
-                          ? "Đang xử lý…"
-                          : confirmation === "end"
-                            ? "Xác nhận kết thúc"
-                            : "Xác nhận hủy"}
-                      </button>
-                      <button
-                        className="button secondary"
-                        disabled={!!pending}
-                        onClick={() => setConfirmation(null)}
-                      >
-                        Quay lại
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {editing &&
-                  ["SCHEDULED", "LIVE"].includes(status) &&
-                  session && (
-                    <SessionForm
-                      key={session.updatedAt}
-                      initial={session}
-                      group={session.kind === "GROUP"}
-                      renameOnly={status === "LIVE"}
-                      label="Lưu thay đổi"
-                      onSave={async (body) => {
-                        if (busy.current) return;
-                        busy.current = true;
-                        setPending("edit");
-                        try {
-                          await api.updateClassSession(
-                            data.id,
-                            status === "LIVE" ? { title: body.title } : body,
-                          );
-                          setEditing(false);
-                          notify("Đã cập nhật lịch học.", { tone: "success" });
-                        } finally {
-                          await refresh();
-                          busy.current = false;
-                          setPending("");
-                        }
-                      }}
-                    />
-                  )}
-              </section>
-            )}
+            {managementPanel}
             {status === "LIVE" && !error && (
               <ClassMediaRoom
+                ref={mediaRef}
                 key={data.id}
                 sessionId={data.id}
                 participationId={active ? visit.id : null}
@@ -673,22 +1006,76 @@ export function SessionRoom({
   );
 }
 
-function EmbeddedRoomShell({
-  children,
+function MeetingDialog({
   title,
+  children,
+  onClose,
 }: {
-  children: React.ReactNode;
   title: string;
-  eyebrow?: string;
-  breadcrumb?: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => {
+      if (element?.open) element.close();
+    };
+  }, []);
+  return (
+    <dialog
+      ref={dialog}
+      className="workspace-call-dialog"
+      aria-labelledby="workspace-call-dialog-title"
+      onCancel={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="workspace-call-dialog-content">
+        <header className="class-toolbar">
+          <h2 id="workspace-call-dialog-title">{title}</h2>
+          <button
+            type="button"
+            className="modal-close"
+            aria-label="Đóng thông tin cuộc họp"
+            onClick={onClose}
+          >
+            <X size={20} />
+          </button>
+        </header>
+        {children}
+      </div>
+    </dialog>
+  );
+}
+
+export function MeetingPeoplePanel({
+  state,
+  decide,
+}: {
+  state: MeetingRoomState;
+  decide: (id: string, decision: "ACCEPT" | "REJECT") => Promise<void>;
 }) {
   return (
-    <div className="meeting-room meeting-room-workspace">
-      <div className="meeting-room-heading">
-        <span className="eyebrow">MEETING CỦA LỚP</span>
-        <h1>{title}</h1>
-      </div>
-      {children}
+    <div className="workspace-meeting-people">
+      {state.canManage && (
+        <JoinQueue
+          sessionId={state.sessionId}
+          revision={state.revision}
+          pending={state.pending}
+          decide={decide}
+        />
+      )}
+      {state.canViewParticipants ? (
+        <Participants sessionId={state.sessionId} revision={state.revision} />
+      ) : (
+        <EmptyState
+          title="Tham gia phòng để xem thành viên"
+          description="Danh sách chỉ hiển thị sau khi bạn được vào cuộc họp."
+        />
+      )}
     </div>
   );
 }

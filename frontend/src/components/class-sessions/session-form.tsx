@@ -141,14 +141,20 @@ export function SessionForm({
               id="class-scheduled"
               type="datetime-local"
               label={
-                group ? "Thời gian dự kiến" : "Thời gian dự kiến (tùy chọn)"
+                group && !meeting
+                  ? "Thời gian dự kiến"
+                  : "Thời gian dự kiến (tùy chọn)"
               }
               value={scheduledAt}
               onChange={(e) => setSchedule(e.target.value)}
               required={group && !meeting}
               disabled={locked}
               error={fields.scheduledAt}
-              hint="Theo giờ trên thiết bị của bạn. Buổi học chỉ mở khi người quản lý bấm bắt đầu."
+              hint={
+                meeting && !initial
+                  ? "Theo giờ trên thiết bị. Để trống để mở phòng ngay sau khi tạo."
+                  : "Theo giờ trên thiết bị của bạn. Buổi học chỉ mở khi người quản lý bấm bắt đầu."
+              }
             />
           </>
         )}

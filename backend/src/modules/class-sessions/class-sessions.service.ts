@@ -353,7 +353,7 @@ export class ClassSessionsService {
       });
       if (!row)
         throw new ApiError(404, "SESSION_NOT_FOUND", "Phòng không tồn tại.");
-      await this.policy.eligible(tx, userId, row);
+      const canManage = await this.policy.eligible(tx, userId, row);
       const member = row.groupId
         ? await this.policy.isMember(tx, userId, row.groupId)
         : false;
@@ -366,7 +366,8 @@ export class ClassSessionsService {
           groupId: row.groupId,
           allowGuests: row.allowGuests,
           joinCode: row.joinCode,
-          mode: member ? "WORKSPACE" : "STANDALONE",
+          mode:
+            row.groupId && (member || canManage) ? "WORKSPACE" : "STANDALONE",
         },
       };
     });

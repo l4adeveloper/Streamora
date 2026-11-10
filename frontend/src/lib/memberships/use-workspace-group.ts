@@ -4,13 +4,15 @@ import type { Group } from "@streamora/contracts";
 import { useAuth } from "@/components/auth/auth-provider";
 import { listGroups } from "@/lib/groups/api";
 
-export function useWorkspaceGroup(forcedGroupId?: string) {
+export function useWorkspaceGroup() {
   const { user } = useAuth();
   const [state, setState] = useState<{
     userId: string;
     groups: Group[];
     groupId: string | null;
   }>({ userId: "", groups: [], groupId: null });
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const sequence = useRef(0);
@@ -29,7 +31,6 @@ export function useWorkspaceGroup(forcedGroupId?: string) {
         cursor = page.nextCursor ?? undefined;
       } while (cursor);
       const requested =
-        forcedGroupId ??
         new URLSearchParams(location.search).get("groupId") ??
         sessionStorage.getItem(`streamora-group:${user.id}`);
       const groupId =
@@ -48,7 +49,7 @@ export function useWorkspaceGroup(forcedGroupId?: string) {
     } finally {
       if (request === sequence.current) setLoading(false);
     }
-  }, [user?.id, forcedGroupId]);
+  }, [user?.id]);
   useEffect(() => {
     void load();
     return () => {
@@ -57,19 +58,36 @@ export function useWorkspaceGroup(forcedGroupId?: string) {
   }, [load]);
   const current =
     state.userId === user?.id ? state : { groups: [], groupId: null };
-  function selectGroup(groupId: string) {
-    if (!user) return;
-    setState((previous) => ({ ...previous, groupId }));
-    sessionStorage.setItem(`streamora-group:${user.id}`, groupId);
-    if (/^\/workspace\/meetings\/[^/]+/.test(location.pathname)) {
-      location.assign(
-        `/workspace/meetings?groupId=${encodeURIComponent(groupId)}`,
+  useEffect(() => {
+    const sync = () => {
+      const groupId = new URLSearchParams(location.search).get("groupId");
+      setState((previous) =>
+        previous.userId === user?.id &&
+        previous.groups.some((group) => group.id === groupId)
+          ? { ...previous, groupId }
+          : previous,
       );
-      return;
-    }
-    const url = new URL(location.href);
-    url.searchParams.set("groupId", groupId);
-    history.replaceState(null, "", url);
-  }
+    };
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, [user?.id]);
+  const selectGroup = useCallback(
+    (groupId: string) => {
+      if (
+        !user ||
+        stateRef.current.userId !== user.id ||
+        !stateRef.current.groups.some((group) => group.id === groupId)
+      )
+        return;
+      setState((previous) => ({ ...previous, groupId }));
+      sessionStorage.setItem(`streamora-group:${user.id}`, groupId);
+      const url = new URL(location.href);
+      url.searchParams.set("groupId", groupId);
+      url.searchParams.delete("meetingId");
+      url.searchParams.delete("create");
+      history.replaceState(null, "", url);
+    },
+    [user?.id],
+  );
   return { ...current, selectGroup, loading, error, reload: load };
 }

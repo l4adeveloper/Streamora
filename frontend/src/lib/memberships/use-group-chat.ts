@@ -128,9 +128,16 @@ export function useGroupChat(groupId: string | null, channel: string) {
       },
     );
     socketRef.current = socket;
-    socket.on("meeting.created", () =>
-      window.dispatchEvent(new Event("streamora:meetings-changed")),
-    );
+    const meetingsChanged = (value: { groupId?: string }) => {
+      if (active && value?.groupId === groupId)
+        window.dispatchEvent(
+          new CustomEvent("streamora:meetings-changed", {
+            detail: { groupId },
+          }),
+        );
+    };
+    socket.on("meeting.created", meetingsChanged);
+    socket.on("meeting.updated", meetingsChanged);
 
     const receive = (value: unknown) => {
       if (
@@ -197,6 +204,7 @@ export function useGroupChat(groupId: string | null, channel: string) {
           );
           setError(null);
           setStatus("connected");
+          meetingsChanged({ groupId });
         },
       );
     });

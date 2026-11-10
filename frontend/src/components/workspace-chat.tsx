@@ -54,6 +54,7 @@ export function WorkspaceChat({
   onCancelReply,
   onEdit,
   onDelete,
+  onMeetingOpen,
   welcome,
   infoText = "Cuộc trò chuyện được lưu trong cộng đồng",
   disabled = false,
@@ -68,6 +69,7 @@ export function WorkspaceChat({
   onCancelReply?: () => void;
   onEdit?: (id: string, text: string) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
+  onMeetingOpen?: (id: string) => void;
   welcome?: ReactNode;
   infoText?: string;
   disabled?: boolean;
@@ -254,6 +256,19 @@ export function WorkspaceChat({
                                 key={i}
                                 href={part}
                                 className="meeting-chat-link"
+                                onClick={(event) => {
+                                  if (
+                                    message.meetingId &&
+                                    onMeetingOpen &&
+                                    !event.metaKey &&
+                                    !event.ctrlKey &&
+                                    !event.shiftKey &&
+                                    !event.altKey
+                                  ) {
+                                    event.preventDefault();
+                                    onMeetingOpen(message.meetingId);
+                                  }
+                                }}
                               >
                                 Tham gia cuộc họp →
                               </Link>

@@ -8,8 +8,9 @@ Không tạo phòng video hay hệ thống tài khoản thứ hai.
 - Link chia sẻ chuẩn cho cả hai loại phòng: `/meet/:joinCode`.
 - `GET /api/v1/meets/:code` và `GET /api/v1/sessions/:sessionId/access` xác minh
   tài khoản, trạng thái nhóm, membership và ban, trả `mode` do backend quyết định.
-- Thành viên nhóm vào `/workspace/meetings/:id?groupId=...`. Group trong shell lấy
-  từ kết quả server; sửa query không thể chọn nhóm khác cho phòng đó.
+- Thành viên nhóm và ADMIN có quyền quản lý mở phòng trong Workspace tại
+  `/workspace?groupId=...&meetingId=...`. Backend phân giải Group từ cuộc họp;
+  phòng chỉ được render khi khớp lớp đang mở và người gọi có quyền.
 - Khách của nhóm chỉ được khám phá phòng khi `allowGuests=true`. Khách vẫn phải
   đăng nhập, xin vào và được chủ phòng duyệt. Không có quyền quản lý nhóm, lịch,
   file hoặc hàng chờ chỉ nhờ biết link hoặc được duyệt vào Meeting.
@@ -23,9 +24,23 @@ Không tạo phòng video hay hệ thống tài khoản thứ hai.
 
 ## Tạo và quản lý
 
-`/workspace/meetings` có tab cho từng nhóm người dùng truy cập được, danh sách
-theo nhóm và bộ lọc Sắp diễn ra / Đang diễn ra / Đã kết thúc / Đã hủy.
-Tạo cuộc họp tự gắn groupId của tab hiện tại. OWNER/HOST/ADMIN được tạo.
+Các phòng SCHEDULED/LIVE xuất hiện bằng tên trong mục **Phòng học** ở thanh bên
+của Group hiện tại. Không có nút Meeting mặc định khi danh sách rỗng, trang hub,
+tab chọn nhóm hoặc bộ chọn Group trong biểu mẫu. OWNER/HOST/ADMIN mở hộp thoại
+tạo phòng bằng dấu cộng hoặc **Tạo cuộc họp**; Group được cố định theo lớp đang mở.
+
+Nhấn tên phòng cập nhật nội dung và URL bằng History API, giữ nguyên shell và
+document hiện tại. Chuyển phòng/Group rời lượt cũ và tắt thiết bị trước khi mở
+phòng mới. Nếu không rời được do lỗi mạng, giữ phòng hiện tại để thử lại. Nút
+Back/Forward khôi phục lựa chọn. Phòng đã kết thúc/hủy được gỡ khỏi danh sách
+đang mở; lịch nhóm cũ vẫn cung cấp thông tin lịch sử.
+
+Phòng trong Workspace dùng sân khấu video lớn, thanh mic/camera và thao tác
+phòng phía dưới, chat Group hoặc người đang tham gia ở cột phải. Liên kết,
+thông tin và quản lý mở bằng hộp thoại. Video của thành viên có thể được ghim
+lên sân khấu; camera của mình hiển thị ở góc khi đang xem người khác. Bố cục
+thích ứng với chế độ sáng/tối và màn hình nhỏ, dùng cùng `useClassMedia` với
+phòng độc lập. Không dùng slide, người tham gia hoặc trạng thái video giả.
 
 `POST /groups/:groupId/sessions` bổ sung `allowGuests` (mặc định false).
 `title` và `scheduledAt` có thể bỏ trống. Không đặt lịch thì UI tạo rồi bắt đầu;
@@ -37,10 +52,15 @@ sửa thời gian/mô tả. Quyền khách được chọn lúc tạo, không nh
 Tạo cuộc họp thành công lưu thông báo vào kênh `thông-báo` và invalidation bền trong
 cùng transaction. Một `meeting_id` chỉ có một thông báo. Mỗi gateway đọc cursor
 riêng và kiểm tra quyền người nhận trước broadcast; reconnect đọc lịch sử DB.
+`meeting.created` và `meeting.updated` làm mới danh sách theo Group khi tạo,
+đổi tên, bắt đầu, kết thúc hoặc hủy phòng. Trình duyệt tải đủ các trang phòng
+đang mở, làm mới khi reconnect và có polling dự phòng. Kênh **thông-báo** hiển
+thị thông báo thật; nhấn liên kết từ thông báo cũng mở phòng ngay trong Workspace.
 Thông báo hệ thống không được chỉnh sửa/xóa qua API chat thường.
 
 Tạo bên ngoài nhóm tại `/meet` vẫn dùng `POST /meets`, không gắn nhóm.
-`/sessions/:id` được đưa qua cùng luồng điều hướng. Lịch nhóm cũ vẫn có thể
+Các link cũ `/sessions/:id`, `/workspace/meetings/:id` và `/workspace/meetings`
+được đưa qua cùng luồng điều hướng. Lịch nhóm cũ vẫn có thể
 lên lịch, còn liên kết vào phòng từ đó đi qua bộ phân giải quyền chung.
 
 ## Cập nhật và kiểm tra
@@ -66,7 +86,8 @@ node --test backend/test/frontend/meeting-ui.test.cjs
 
 Hai test dùng PGlite/PostgreSQL protocol trên loopback với toàn bộ migration và
 NestJS thật. Test UI build frontend riêng trong `.preview`, dùng Edge headless
-trên Windows, kiểm tra tạo phòng, tab lớp, link riêng/công khai/độc lập và
-desktop/mobile. Không gọi AWS. Kiểm thử media thật vẫn cần môi trường AWS IVS
+trên Windows, kiểm tra tạo phòng cố định Group, danh sách hơn một trang, chuyển
+Group/phòng trong cùng document, đóng lượt cũ/tắt tracks, đồng bộ nhiều client,
+link riêng/công khai/độc lập và desktop/mobile. Không gọi AWS. Kiểm thử media thật vẫn cần môi trường AWS IVS
 và thiết bị của từng người dùng; các luồng chia sẻ/ghi hình demo không được
 chuyển thành tính năng cloud trong thay đổi này.

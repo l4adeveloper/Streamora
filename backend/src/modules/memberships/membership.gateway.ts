@@ -32,6 +32,11 @@ const RESERVED_CHAT_CHANNELS = new Set([
   "hỏi-đáp",
   "thông-báo",
 ]);
+const GROUP_MEETING_EVENTS = [
+  "meeting.created",
+  "session.changed",
+  "session.ended",
+];
 
 @WebSocketGateway({ namespace: "/classroom", maxHttpBufferSize: 16384 })
 export class MembershipGateway
@@ -83,7 +88,7 @@ export class MembershipGateway
     });
     this.version = last?.version ?? 0n;
     const meeting = await this.prisma.classSessionChange.findFirst({
-      where: { kind: "meeting.created" },
+      where: { kind: { in: GROUP_MEETING_EVENTS } },
       orderBy: { version: "desc" },
     });
     this.meetingVersion = meeting?.version ?? 0n;
@@ -468,7 +473,7 @@ export class MembershipGateway
     try {
       const meetings = await this.prisma.classSessionChange.findMany({
         where: {
-          kind: "meeting.created",
+          kind: { in: GROUP_MEETING_EVENTS },
           version: { gt: this.meetingVersion },
         },
         orderBy: { version: "asc" },
@@ -477,7 +482,7 @@ export class MembershipGateway
       });
       for (const event of meetings) {
         const message = event.session.announcement;
-        if (message) {
+        if (message && event.kind === "meeting.created") {
           await this.broadcastGroup(
             message.groupId,
             "chat:message",
@@ -485,6 +490,12 @@ export class MembershipGateway
           );
           await this.broadcastGroup(message.groupId, "meeting.created", {
             groupId: message.groupId,
+          });
+        }
+        if (event.session.groupId && event.kind !== "meeting.created") {
+          await this.broadcastGroup(event.session.groupId, "meeting.updated", {
+            groupId: event.session.groupId,
+            sessionId: event.sessionId,
           });
         }
         this.meetingVersion = event.version;

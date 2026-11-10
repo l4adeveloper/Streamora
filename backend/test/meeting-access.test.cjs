@@ -25,6 +25,7 @@ test(
           },
         },
       });
+      const admin = await f.account("Quản trị viên", "ADMIN");
       const create = async (body, key = randomUUID()) => {
         const result = await f.api(
           owner,
@@ -40,6 +41,10 @@ test(
       const closed = await create({}, key);
       assert.equal(closed.title, "Cuộc họp 1");
       assert.equal((await create({}, key)).id, closed.id);
+      assert.equal(
+        (await f.api(admin, "GET", `/meets/${closed.joinCode}`)).body.meet.mode,
+        "WORKSPACE",
+      );
       assert.equal(
         await f.prisma.groupChatMessage.count({
           where: { meetingId: closed.id },
@@ -61,12 +66,10 @@ test(
           socket.once("connect", resolve);
           socket.once("connect_error", reject);
         });
-        const history = await socket
-          .timeout(5000)
-          .emitWithAck("channel:join", {
-            groupId: group.id,
-            channel: "thông-báo",
-          });
+        const history = await socket.timeout(5000).emitWithAck("channel:join", {
+          groupId: group.id,
+          channel: "thông-báo",
+        });
         assert.equal(history.ok, true);
         assert.ok(
           history.messages.some((message) => message.meetingId === closed.id),
@@ -81,8 +84,67 @@ test(
             resolve(payload);
           });
         });
-        await create({ title: "Kiểm tra thông báo" });
+        const announced = await create({ title: "Kiểm tra thông báo" });
         assert.equal((await delivery).groupId, group.id);
+        const update = () =>
+          new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              socket.off("meeting.updated", receive);
+              reject(new Error("Room state was not synchronized"));
+            }, 5000);
+            const receive = (payload) => {
+              if (payload.sessionId === announced.id) {
+                clearTimeout(timer);
+                socket.off("meeting.updated", receive);
+                resolve(payload);
+              }
+            };
+            socket.on("meeting.updated", receive);
+          });
+        let updated = update();
+        assert.equal(
+          (
+            await f.api(
+              owner,
+              "POST",
+              `/sessions/${announced.id}/start`,
+              {},
+              randomUUID(),
+            )
+          ).status,
+          200,
+        );
+        await updated;
+        updated = update();
+        assert.equal(
+          (
+            await f.api(owner, "PATCH", `/sessions/${announced.id}`, {
+              title: "Tên đã đổi",
+            })
+          ).status,
+          200,
+        );
+        await updated;
+        updated = update();
+        assert.equal(
+          (
+            await f.api(
+              owner,
+              "POST",
+              `/sessions/${announced.id}/end`,
+              {},
+              randomUUID(),
+            )
+          ).status,
+          200,
+        );
+        await updated;
+        assert.equal(
+          await f.prisma.groupChatMessage.count({
+            where: { meetingId: announced.id },
+          }),
+          1,
+        );
       } finally {
         socket.disconnect();
       }
