@@ -763,6 +763,7 @@ export function SessionRoom({
                 onClose={() => setChatOpen(false)}
               >
                 <MeetingChatPanel
+                  key={id ?? undefined}
                   messages={meetingChat.messages}
                   status={meetingChat.status}
                   error={meetingChat.error}
@@ -1069,6 +1070,7 @@ export function SessionRoom({
               <section className="class-panel" aria-labelledby="standalone-chat-title">
                 <h2 id="standalone-chat-title">Chat phòng họp</h2>
                 <MeetingChatPanel
+                  key={id ?? undefined}
                   messages={meetingChat.messages}
                   status={meetingChat.status}
                   error={meetingChat.error}
@@ -1184,6 +1186,7 @@ export function MeetingChatSidePanel({
       }}
     >
       <MeetingChatPanel
+        key={sessionId}
         messages={meetingChat.messages}
         status={meetingChat.status}
         error={meetingChat.error}

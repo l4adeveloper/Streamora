@@ -1702,6 +1702,7 @@ export function Workspace({
               )}
               {view === "meetings" && activeMeetingId && panelTab === "chat" ? (
                 <MeetingChatSidePanel
+                  key={activeMeetingId}
                   sessionId={activeMeetingId}
                   participationId={roomState?.participationId ?? null}
                   canManage={!!roomState?.canManage}

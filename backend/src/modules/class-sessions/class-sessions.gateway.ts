@@ -383,6 +383,13 @@ export class ClassSessionsGateway
       // Check access permission without blocking transactions
       await this.checkMeetingAccess(state.connection.userId, sessionId);
 
+      // Leave any other meeting chat rooms on this socket to prevent cross-meeting message leakage
+      for (const room of socket.rooms) {
+        if (room.startsWith("meeting-chat:") && room !== `meeting-chat:${sessionId}`) {
+          void socket.leave(room);
+        }
+      }
+
       await socket.join(`meeting-chat:${sessionId}`);
       const messages = (this.meetingMessages.get(sessionId) ?? []).slice(-200);
       return {
@@ -391,6 +398,18 @@ export class ClassSessionsGateway
         messages,
       };
     });
+  }
+
+  @SubscribeMessage("meeting-chat:leave")
+  leaveMeetingChat(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() value: unknown,
+  ) {
+    const body = value as Record<string, unknown> | null;
+    if (body && typeof body.sessionId === "string") {
+      void socket.leave(`meeting-chat:${body.sessionId}`);
+    }
+    return { ok: true as const };
   }
 
   @SubscribeMessage("meeting-chat:send")
@@ -595,7 +614,7 @@ export class ClassSessionsGateway
         take: 100,
       });
       for (const event of changes) {
-        if (event.kind === "session.ended") {
+        if (event.kind === "session.ended" || event.kind === "session.cancelled") {
           this.meetingMessages.delete(event.sessionId);
         }
       }
