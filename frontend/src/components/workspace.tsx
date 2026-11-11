@@ -64,7 +64,7 @@ import {
 } from "./class-sessions/session-room";
 import type { ClassSession } from "@streamora/contracts";
 import { useWorkspaceMeetings } from "@/lib/class-sessions/use-workspace-meetings";
-import { getClassSession } from "@/lib/class-sessions/api";
+import { getClassSession, listClassSessions } from "@/lib/class-sessions/api";
 import { useWorkspaceGroup } from "@/lib/memberships/use-workspace-group";
 import { useGroupPermissions } from "@/lib/memberships/use-group-permissions";
 import { useGroupChat } from "@/lib/memberships/use-group-chat";
@@ -124,6 +124,63 @@ export function Workspace({
     meetingSelection?.groupId === workspaceGroup.groupId
       ? meetingSelection?.id
       : null;
+  const [meetingMinimized, setMeetingMinimized] = useState(false);
+  // Track live meetings across all groups
+  const [liveGroupIds, setLiveGroupIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!user || !workspaceGroup.groups.length) return;
+    let active = true;
+    const checkLiveGroups = async () => {
+      try {
+        const results = await Promise.allSettled(
+          workspaceGroup.groups.map(async (g) => {
+            const res = await listClassSessions(g.id, undefined, "LIVE");
+            return {
+              groupId: g.id,
+              hasLive: res.items.some((s) => s.status === "LIVE"),
+            };
+          }),
+        );
+        if (!active) return;
+        const liveSet = new Set<string>();
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value.hasLive) {
+            liveSet.add(r.value.groupId);
+          }
+        }
+        if (
+          workspaceGroup.groupId &&
+          rooms.items.some((r) => r.status === "LIVE")
+        ) {
+          liveSet.add(workspaceGroup.groupId);
+        }
+        setLiveGroupIds(liveSet);
+      } catch {
+        // tolerate errors during live polling
+      }
+    };
+    void checkLiveGroups();
+    const interval = setInterval(checkLiveGroups, 15000);
+    window.addEventListener("streamora:meetings-changed", checkLiveGroups);
+    return () => {
+      active = false;
+      clearInterval(interval);
+      window.removeEventListener("streamora:meetings-changed", checkLiveGroups);
+    };
+  }, [user?.id, workspaceGroup.groups, workspaceGroup.groupId]);
+
+  useEffect(() => {
+    if (!workspaceGroup.groupId) return;
+    const hasLiveNow = rooms.items.some((r) => r.status === "LIVE");
+    setLiveGroupIds((prev) => {
+      const next = new Set(prev);
+      if (hasLiveNow) next.add(workspaceGroup.groupId!);
+      else next.delete(workspaceGroup.groupId!);
+      return next;
+    });
+  }, [rooms.items, workspaceGroup.groupId]);
+
   // Track pending room switch to show confirm dialog
   const [pendingRoomSwitch, setPendingRoomSwitch] = useState<ClassSession | null>(null);
   const [roomInfo, setRoomInfo] = useState<ClassSession | null>(null);
@@ -166,7 +223,7 @@ export function Workspace({
   workspaceScope.current = `${user?.id ?? ""}:${workspaceGroup.groupId ?? ""}`;
   const switching = useRef(false);
   const [roomSwitching, setRoomSwitching] = useState(false);
-  const view: View = activeMeetingId
+  const view: View = activeMeetingId && !meetingMinimized
     ? "meetings"
     : baseView === "meetings" ||
         (baseView === "live" && !!workspaceGroup.groupId)
@@ -195,6 +252,7 @@ export function Workspace({
   function returnToChat() {
     void changeWorkspace(() => {
       setMeetingSelection(null);
+      setMeetingMinimized(false);
       setRoomInfo(null);
       setPanelTab("chat");
       setMembersView(false);
@@ -223,10 +281,13 @@ export function Workspace({
   );
   function openRoom(session: ClassSession) {
     if (
-      session.id === activeMeetingId ||
-      session.groupId !== workspaceGroup.groupId
-    )
+      session.id === activeMeetingId &&
+      session.groupId === workspaceGroup.groupId
+    ) {
+      setMeetingMinimized(false);
       return;
+    }
+    if (session.groupId !== workspaceGroup.groupId) return;
     // If already in another room, show confirm dialog first
     if (activeMeetingId) {
       setPendingRoomSwitch(session);
@@ -234,6 +295,7 @@ export function Workspace({
     }
     void changeWorkspace(() => {
       setMeetingSelection({ id: session.id, groupId: session.groupId! });
+      setMeetingMinimized(false);
       setRoomInfo(session);
       setMembersView(false);
       setMobileNav(false);
@@ -254,6 +316,7 @@ export function Workspace({
     if (!session) return;
     void changeWorkspace(() => {
       setMeetingSelection({ id: session.id, groupId: session.groupId! });
+      setMeetingMinimized(false);
       setRoomInfo(session);
       setMembersView(false);
       setMobileNav(false);
@@ -334,7 +397,7 @@ export function Workspace({
   }, [user?.id]);
   const [membersView, setMembersView] = useState(false);
   const [panel, setPanel] = useState(view !== "files" && view !== "meetings");
-  const [panelTab, setPanelTab] = useState<"chat" | "group-chat" | "members">(
+  const [panelTab, setPanelTab] = useState<"chat" | "members">(
     view === "chat" ? "members" : "chat",
   );
   const [modal, setModal] = useState<string | null>(null);
@@ -651,7 +714,23 @@ export function Workspace({
               audio: true,
             })
           : await navigator.mediaDevices.getUserMedia(
-              kind === "camera" ? { video: true } : { audio: true },
+              kind === "camera"
+                ? {
+                    video: {
+                      width: { ideal: 1920, min: 640 },
+                      height: { ideal: 1080, min: 480 },
+                      frameRate: { ideal: 30, max: 60 },
+                      facingMode: "user",
+                      aspectRatio: { ideal: 1.7777777778 },
+                    },
+                  }
+                : {
+                    audio: {
+                      echoCancellation: true,
+                      noiseSuppression: true,
+                      autoGainControl: true,
+                    },
+                  },
             );
       ref.current = stream;
       setter(true);
@@ -827,18 +906,23 @@ export function Workspace({
       return;
     setMembersView(false);
     setMobileNav(false);
+    const url = new URL(location.href);
+    url.searchParams.delete("tab");
+    history.replaceState(null, "", url);
     if (activeMeetingId) {
       const targetHref = event.currentTarget.getAttribute("href") ?? "";
       if (targetHref.startsWith("/community")) {
         event.preventDefault();
-        setPanel(true);
-        setPanelTab("group-chat");
+        setMeetingMinimized(true);
+        const href = event.currentTarget.href;
+        router.push(href);
         return;
       }
       event.preventDefault();
       const href = event.currentTarget.href;
       void changeWorkspace(() => {
         setMeetingSelection(null);
+        setMeetingMinimized(false);
         setRoomInfo(null);
         router.push(href);
       });
@@ -887,10 +971,7 @@ export function Workspace({
             </span>
           )}
           {workspaceGroup.groups.map((item) => {
-            const isCurrentGroup = item.id === workspaceGroup.groupId;
-            const hasLive = isCurrentGroup
-              ? rooms.items.some((r) => r.status === "LIVE")
-              : false;
+            const hasLive = liveGroupIds.has(item.id);
             return (
               <button
                 key={item.id}
@@ -909,12 +990,19 @@ export function Workspace({
                 }}
               >
                 {groupInitials(item.name)}
-                {isCurrentGroup && (
-                  <span
-                    className={`group-live-dot ${hasLive ? "has-live" : "no-live"}`}
-                    aria-label={hasLive ? "Có phòng họp đang diễn ra" : "Không có phòng họp đang diễn ra"}
-                  />
-                )}
+                <span
+                  className={`group-live-dot ${hasLive ? "has-live" : "no-live"}`}
+                  aria-label={
+                    hasLive
+                      ? "Có phòng họp đang diễn ra"
+                      : "Không có phòng họp đang diễn ra"
+                  }
+                  title={
+                    hasLive
+                      ? "Có cuộc họp đang diễn ra"
+                      : "Không có cuộc họp đang diễn ra"
+                  }
+                />
               </button>
             );
           })}
@@ -980,11 +1068,17 @@ export function Workspace({
             <button
               className={`channel ${membersView ? "selected" : ""}`}
               onClick={() => {
+                if (activeMeetingId) {
+                  setPanel(true);
+                  setPanelTab("members");
+                  return;
+                }
                 void changeWorkspace(() => {
                   setMeetingSelection(null);
                   setRoomInfo(null);
                   const url = new URL(location.href);
                   url.searchParams.delete("meetingId");
+                  url.searchParams.set("tab", "members");
                   history.replaceState(null, "", url);
                   setMembersView(true);
                   setPanel(false);
@@ -1059,29 +1153,42 @@ export function Workspace({
               aria-label="Phòng họp của lớp"
               aria-busy={rooms.loading || roomSwitching}
             >
-              {rooms.items.map((room) => (
-                <button
-                  key={room.id}
-                  type="button"
-                  className={`channel workspace-meeting-channel ${!membersView && activeMeetingId === room.id ? "selected" : ""}`}
-                  aria-current={
-                    !membersView && activeMeetingId === room.id
-                      ? "page"
-                      : undefined
-                  }
-                  disabled={roomSwitching}
-                  title={`${room.title} · ${room.status === "LIVE" ? "Đang diễn ra" : "Sắp diễn ra"}`}
-                  onClick={() => openRoom(room)}
-                >
-                  <Video size={19} />
-                  <span className="workspace-meeting-name">{room.title}</span>
-                  <span
-                    className={`workspace-meeting-status ${room.status.toLowerCase()}`}
+              {rooms.items.map((room) => {
+                const isCurrentActive = activeMeetingId === room.id;
+                return (
+                  <button
+                    key={room.id}
+                    type="button"
+                    className={`channel workspace-meeting-channel ${!membersView && isCurrentActive ? "selected" : ""}`}
+                    aria-current={
+                      !membersView && isCurrentActive
+                        ? "page"
+                        : undefined
+                    }
+                    disabled={roomSwitching}
+                    title={`${room.title} · ${room.status === "LIVE" ? "Đang diễn ra" : "Sắp diễn ra"}`}
+                    onClick={() => {
+                      if (isCurrentActive) {
+                        setMeetingMinimized(false);
+                        return;
+                      }
+                      openRoom(room);
+                    }}
                   >
-                    {room.status === "LIVE" ? "Trực tiếp" : "Sắp tới"}
-                  </span>
-                </button>
-              ))}
+                    <Video size={19} />
+                    <span className="workspace-meeting-name">{room.title}</span>
+                    <span
+                      className={`workspace-meeting-status ${room.status.toLowerCase()}`}
+                    >
+                      {isCurrentActive && meetingMinimized
+                        ? "Đang kết nối"
+                        : room.status === "LIVE"
+                          ? "Trực tiếp"
+                          : "Sắp tới"}
+                    </span>
+                  </button>
+                );
+              })}
               {rooms.loading && !rooms.items.length && (
                 <span className="workspace-meeting-loading" role="status">
                   Đang tải phòng…
@@ -1227,7 +1334,12 @@ export function Workspace({
                 className="button secondary workspace-back"
                 aria-label="Quay lại không gian"
                 title="Quay lại không gian"
-                onClick={() => setMembersView(false)}
+                onClick={() => {
+                  setMembersView(false);
+                  const url = new URL(location.href);
+                  url.searchParams.delete("tab");
+                  history.replaceState(null, "", url);
+                }}
               >
                 <ArrowLeft size={18} />
                 <span>Quay lại không gian</span>
@@ -1256,6 +1368,33 @@ export function Workspace({
           </div>
         </header>
         <div className="workspace-body">
+          {activeMeetingId && meetingMinimized && (
+            <div className="active-meeting-banner" role="status">
+              <div className="active-meeting-banner-left">
+                <span className="live-meeting-indicator" />
+                <span className="active-meeting-title">
+                  Đang trong cuộc họp: <strong>{selectedMeeting?.title ?? "Cuộc họp"}</strong>
+                </span>
+              </div>
+              <div className="active-meeting-banner-actions">
+                <button
+                  type="button"
+                  className="button primary compact"
+                  onClick={() => setMeetingMinimized(false)}
+                >
+                  <Video size={14} /> Quay lại cuộc họp
+                </button>
+                <button
+                  type="button"
+                  className="button danger compact"
+                  onClick={returnToChat}
+                  title="Rời phòng họp"
+                >
+                  <PhoneOff size={14} /> Rời phòng
+                </button>
+              </div>
+            </div>
+          )}
           <main
             className={`main-content view-${view} ${membersView ? "membership-main" : ""}`}
           >
@@ -1304,9 +1443,15 @@ export function Workspace({
               )
             ) : (
               <>
-                {view === "meetings" &&
-                  activeMeetingId &&
-                  workspaceGroup.groupId && (
+                {activeMeetingId && workspaceGroup.groupId && (
+                  <div
+                    style={{
+                      display:
+                        view === "meetings" && !meetingMinimized
+                          ? "contents"
+                          : "none",
+                    }}
+                  >
                     <WorkspaceMeetingRoom
                       key={activeMeetingId}
                       ref={roomRef}
@@ -1324,7 +1469,8 @@ export function Workspace({
                         setPanelTab("chat");
                       }}
                     />
-                  )}
+                  </div>
+                )}
                 {view === "live" && (
                   <>
                     <div className="session-info">
@@ -1636,7 +1782,23 @@ export function Workspace({
                         {camera ? (
                           <video ref={localVideo} autoPlay playsInline muted />
                         ) : (
-                          <Avatar initials="BA" />
+                          <div
+                            className={`avatar-speaking-wrapper ${
+                              mic ? "speaking" : ""
+                            }`}
+                          >
+                            {mic && (
+                              <div
+                                className="audio-sound-waves"
+                                aria-hidden="true"
+                              >
+                                <span className="sound-wave wave-1" />
+                                <span className="sound-wave wave-2" />
+                                <span className="sound-wave wave-3" />
+                              </div>
+                            )}
+                            <Avatar initials="BA" />
+                          </div>
                         )}
                         <div className="participant-label">
                           Bạn <small>Người tổ chức</small>
@@ -1788,15 +1950,6 @@ export function Workspace({
                     {view === "meetings" ? "Chat cuộc họp" : "Trò chuyện"}{" "}
                     {view !== "meetings" && <span>{messages.length}</span>}
                   </button>
-                  {view === "meetings" && (
-                    <button
-                      className={panelTab === "group-chat" ? "selected" : ""}
-                      onClick={() => setPanelTab("group-chat")}
-                    >
-                      Trò chuyện chung{" "}
-                      {messages.length > 0 && <span>{messages.length}</span>}
-                    </button>
-                  )}
                   <button
                     className={panelTab === "members" ? "selected" : ""}
                     onClick={() => setPanelTab("members")}
@@ -1820,8 +1973,7 @@ export function Workspace({
                   canChat={roomState?.active || !!roomState?.canManage}
                   userId={roomState?.userId ?? user?.id}
                 />
-              ) : (view === "meetings" && panelTab === "group-chat") ||
-                (view !== "chat" && panelTab === "chat") ? (
+              ) : view !== "chat" && panelTab === "chat" ? (
                 <WorkspaceChat {...chatProps} />
               ) : view === "meetings" && activeMeetingId ? (
                 roomState?.sessionId === activeMeetingId ? (
