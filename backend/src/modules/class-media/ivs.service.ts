@@ -10,9 +10,14 @@ import {
   ListParticipantsCommand,
   ListCompositionsCommand,
 } from "@aws-sdk/client-ivs-realtime";
+import type { ClassMediaSource, MediaCapability } from "@streamora/contracts";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
 import { ApiError } from "../../common/api-error";
+
+export function mediaCapabilities(source: ClassMediaSource): MediaCapability[] {
+  return source === "SCREEN" ? ["PUBLISH"] : ["PUBLISH", "SUBSCRIBE"];
+}
 
 @Injectable()
 export class IvsService implements OnModuleDestroy {
@@ -64,14 +69,20 @@ export class IvsService implements OnModuleDestroy {
     if (!result.stage?.arn) throw new Error("IVS_INVALID_RESPONSE");
     return result.stage.arn;
   }
-  async token(stageArn: string, userId: string, fullName: string) {
+  async token(
+    stageArn: string,
+    userId: string,
+    fullName: string,
+    source: ClassMediaSource = "CAMERA",
+  ) {
     const result = await this.client.send(
       new CreateParticipantTokenCommand({
         stageArn,
         userId,
         duration: 1,
-        capabilities: ["PUBLISH", "SUBSCRIBE"],
-        attributes: { fullName },
+        capabilities: mediaCapabilities(source),
+        attributes:
+          source === "SCREEN" ? { fullName, "screen-share": "true" } : { fullName },
       }),
     );
     const value = result.participantToken;

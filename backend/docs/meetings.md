@@ -65,6 +65,18 @@ lên lịch, còn liên kết vào phòng từ đó đi qua bộ phân giải qu
 
 ## Cập nhật và kiểm tra
 
+Khi vào phòng, Meet tự kết nối để nhận âm thanh và video. Mic và camera
+khởi đầu ở trạng thái tắt. Người đã vào phòng được hiển thị kể cả khi họ chưa
+phát mic hoặc camera. Khi đã kết nối, chọn **Chia sẻ màn hình** rồi chọn tab,
+cửa sổ hoặc màn hình trong trình duyệt. Mic và camera có thể bật hoặc tắt
+trong khi chia sẻ.
+Âm thanh tab và âm thanh hệ thống không được chia sẻ. Trong Workspace, màn
+hình chia sẻ được ưu tiên trên sân khấu. Có thể dừng từ Meet hoặc từ trình
+duyệt. Rời phòng hoặc ngắt video cũng dừng chia sẻ.
+
+Chia sẻ màn hình cần AWS IVS, HTTPS hoặc địa chỉ loopback và migration
+`20261111000100_class_media_screen_share`.
+
 Chạy tại gốc repository khi đưa phiên bản mới vào môi trường ứng dụng:
 
 ```sh
@@ -89,5 +101,4 @@ NestJS thật. Test UI build frontend riêng trong `.preview`, dùng Edge headle
 trên Windows, kiểm tra tạo phòng cố định Group, danh sách hơn một trang, chuyển
 Group/phòng trong cùng document, đóng lượt cũ/tắt tracks, đồng bộ nhiều client,
 link riêng/công khai/độc lập và desktop/mobile. Không gọi AWS. Kiểm thử media thật vẫn cần môi trường AWS IVS
-và thiết bị của từng người dùng; các luồng chia sẻ/ghi hình demo không được
-chuyển thành tính năng cloud trong thay đổi này.
+và thiết bị của từng người dùng.

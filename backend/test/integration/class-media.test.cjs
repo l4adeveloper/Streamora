@@ -147,6 +147,32 @@ test("T05 ban blocks issuance and existing connections are revoked by the worker
     "REVOKED",
   );
 });
+test("screen sharing retries independently and stopping it preserves the camera connection", async () => {
+  const { session, body } = await entered();
+  const root = `/sessions/${session.id}`;
+  const camera = expect(await f.api(f.owner, "POST", `${root}/join`, body), 200);
+  const screenBody = { ...body, requestId: randomUUID(), source: "SCREEN" };
+  expect(await f.api(f.viewer, "POST", `${root}/join`, screenBody), 403);
+  expect(await f.api(f.owner, "POST", `${root}/join`, { ...body, source: "SCREEN" }), 409, "STALE_MEDIA_REQUEST");
+  const screen = expect(await f.api(f.owner, "POST", `${root}/join`, screenBody), 200);
+  const retry = expect(
+    await f.api(f.owner, "POST", `${root}/join`, screenBody, { target: f.otherBase }),
+    200,
+  );
+  assert.notEqual(screen.connectionId, camera.connectionId);
+  assert.equal(screen.participantId, retry.participantId);
+  assert.deepEqual(screen.capabilities, ["PUBLISH"]);
+  assert.deepEqual(camera.capabilities, ["PUBLISH", "SUBSCRIBE"]);
+  expect(
+    await f.api(f.owner, "POST", `${root}/media/${screen.connectionId}/leave`, {
+      requestId: screen.requestId,
+    }),
+    200,
+  );
+  assert.equal((await f.prisma.classMediaConnection.findUnique({ where: { id: screen.connectionId } })).state, "REVOKING");
+  const cameraRetry = expect(await f.api(f.owner, "POST", `${root}/join`, body), 200);
+  assert.equal(cameraRetry.participantId, camera.participantId);
+});
 test("T05 closing T04 participation denies renewal and revokes the media connection", async () => {
   const { session, visit, body } = await entered();
   const media = expect(
