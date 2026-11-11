@@ -22,6 +22,7 @@ export function WorkspaceMeetingRoom({
   onExit,
   onState,
   onOpenPeople,
+  onOpenChat,
 }: {
   sessionId: string;
   groupId: string;
@@ -30,6 +31,7 @@ export function WorkspaceMeetingRoom({
   onExit: () => void;
   onState: (state: MeetingRoomState) => void;
   onOpenPeople: () => void;
+  onOpenChat?: () => void;
 }) {
   const router = useRouter();
   const [meeting, setMeeting] = useState<MeetPreview | null>(null);
@@ -78,6 +80,7 @@ export function WorkspaceMeetingRoom({
       onExit={onExit}
       onState={onState}
       onOpenPeople={onOpenPeople}
+      onOpenChat={onOpenChat}
     />
   );
 }

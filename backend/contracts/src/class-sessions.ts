@@ -245,3 +245,30 @@ export interface ClassParticipationClosed {
 export type ClassRealtimeAck<T = Record<string, never>> =
   | { ok: true; data: T }
   | { ok: false; error: { code: string; message: string } };
+
+// ─── Meeting Chat ─────────────────────────────────────────────────────────────
+
+export interface MeetingChatMessage {
+  id: string;
+  clientId: string | null;
+  sessionId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: "HOST" | "VIEWER" | "ADMIN";
+  text: string;
+  replyToId: string | null;
+  createdAt: string;
+}
+
+export interface MeetingChatDeleted {
+  id: string;
+  sessionId: string;
+}
+
+export type MeetingChatJoinAck =
+  | { ok: true; sessionId: string; messages: MeetingChatMessage[] }
+  | { ok: false; error: { code: string; message: string } };
+
+export type MeetingChatSendAck =
+  | { ok: true; id: string }
+  | { ok: false; error: { code: string; message: string } };

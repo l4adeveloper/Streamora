@@ -13,6 +13,7 @@ import {
   Copy,
   LogIn,
   LogOut,
+  MessageSquare,
   Play,
   Square,
   Users,
@@ -36,15 +37,19 @@ import {
   RequestError,
 } from "@/components/common/feedback";
 import { useToast } from "@/components/common/toast-provider";
+import { useAuth } from "@/components/auth/auth-provider";
 import { ApiError, asApiError } from "@/lib/api";
 import * as api from "@/lib/class-sessions/api";
 import { displayTime } from "@/lib/class-sessions/display";
 import { useCursorList } from "@/lib/class-sessions/use-cursor-list";
 import { useClassRealtime } from "@/lib/class-sessions/use-class-realtime";
+import { useMeetingChat } from "@/lib/class-sessions/use-meeting-chat";
 import { SessionStatus } from "./session-card";
 import { SessionForm } from "./session-form";
 import { ClassMediaRoom, type ClassMediaHandle } from "./class-media-room";
+import { MeetingChatPanel } from "./meeting-chat-panel";
 import "./sessions.css";
+import "./meeting-chat.css";
 
 interface RoomData {
   id: string;
@@ -66,6 +71,10 @@ export interface MeetingRoomState {
   canManage: boolean;
   canViewParticipants: boolean;
   pending: boolean;
+  participationId?: string | null;
+  active?: boolean;
+  userId?: string;
+  status?: string;
 }
 export interface SessionRoomHandle {
   leave: () => Promise<void>;
@@ -80,6 +89,7 @@ export function SessionRoom({
   onExit,
   onState,
   onOpenPeople,
+  onOpenChat,
   ref,
 }: {
   sessionId?: string;
@@ -90,9 +100,11 @@ export function SessionRoom({
   onExit?: () => void;
   onState?: (state: MeetingRoomState) => void;
   onOpenPeople?: () => void;
+  onOpenChat?: () => void;
   ref?: Ref<SessionRoomHandle>;
 }) {
   const { notify } = useToast();
+  const { user } = useAuth();
   const [id, setId] = useState<string | null>(sessionId ?? null);
   const [data, setData] = useState<RoomData | null>(null);
   const dataRef = useRef(data);
@@ -110,6 +122,7 @@ export function SessionRoom({
     [notice, setNotice] = useState("");
   const [shareLink, setShareLink] = useState("");
   const [callPanel, setCallPanel] = useState<"info" | "manage" | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
   const sequence = useRef(0),
     busy = useRef(false),
     scheduledRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -217,8 +230,7 @@ export function SessionRoom({
     !!visit &&
     !visit.leftAt &&
     visit.id !== closedId &&
-    status === "LIVE" &&
-    !!admission?.permissions.canViewParticipants;
+    status === "LIVE";
   const connection = useClassRealtime(
     id,
     active ? visit.id : null,
@@ -226,6 +238,10 @@ export function SessionRoom({
     closed,
   );
   const manage = !!admission?.permissions.canManage;
+  const meetingChat = useMeetingChat(
+    !["ENDED", "CANCELLED"].includes(status ?? "") ? id : null,
+    visit?.id ?? null,
+  );
   useEffect(() => {
     setShareLink(
       window.location.origin +
@@ -284,8 +300,22 @@ export function SessionRoom({
         canManage: !!admission?.permissions.canManage,
         canViewParticipants: !!admission?.permissions.canViewParticipants,
         pending: !!pending,
+        participationId: active ? visit?.id ?? null : null,
+        active,
+        userId: visit?.userId,
+        status,
       });
-  }, [id, revision, admission, pending, onState]);
+  }, [
+    id,
+    revision,
+    admission,
+    pending,
+    active,
+    visit?.id,
+    visit?.userId,
+    status,
+    onState,
+  ]);
   const currentRequest = admission?.request;
   const autoEntered = useRef(false);
   useEffect(() => {
@@ -620,6 +650,24 @@ export function SessionRoom({
                       </span>
                     </button>
                   )}
+                  <button
+                    type="button"
+                    className="workspace-call-action"
+                    aria-label="Chat phòng họp"
+                    title="Chat phòng họp"
+                    onClick={() => {
+                      if (onOpenChat) {
+                        onOpenChat();
+                      } else {
+                        setChatOpen((v) => !v);
+                      }
+                    }}
+                  >
+                    <MessageSquare size={15} />
+                    <span className="workspace-call-action-label">
+                      Chat
+                    </span>
+                  </button>
                 </>
               }
               leaveAction={
@@ -707,6 +755,23 @@ export function SessionRoom({
                     )}
                   </div>
                 )}
+              </MeetingDialog>
+            )}
+            {chatOpen && (
+              <MeetingDialog
+                title="Chat phòng họp"
+                onClose={() => setChatOpen(false)}
+              >
+                <MeetingChatPanel
+                  messages={meetingChat.messages}
+                  status={meetingChat.status}
+                  error={meetingChat.error}
+                  currentUserId={user?.id ?? visit?.userId}
+                  canDelete={manage}
+                  onSend={meetingChat.send}
+                  onDelete={meetingChat.remove}
+                  onClose={() => setChatOpen(false)}
+                />
               </MeetingDialog>
             )}
           </>
@@ -1001,6 +1066,18 @@ export function SessionRoom({
               {admission?.permissions.canViewParticipants && (
                 <Participants sessionId={data.id} revision={revision} />
               )}
+              <section className="class-panel" aria-labelledby="standalone-chat-title">
+                <h2 id="standalone-chat-title">Chat phòng họp</h2>
+                <MeetingChatPanel
+                  messages={meetingChat.messages}
+                  status={meetingChat.status}
+                  error={meetingChat.error}
+                  currentUserId={user?.id ?? visit?.userId}
+                  canDelete={manage}
+                  onSend={meetingChat.send}
+                  onDelete={meetingChat.remove}
+                />
+              </section>
             </div>
           </>
         )}
@@ -1079,6 +1156,42 @@ export function MeetingPeoplePanel({
           description="Danh sách chỉ hiển thị sau khi bạn được vào cuộc họp."
         />
       )}
+    </div>
+  );
+}
+
+export function MeetingChatSidePanel({
+  sessionId,
+  participationId,
+  canManage,
+  userId,
+}: {
+  sessionId: string;
+  participationId: string | null;
+  canManage: boolean;
+  userId?: string;
+}) {
+  const { user } = useAuth();
+  const meetingChat = useMeetingChat(sessionId, participationId);
+  return (
+    <div
+      className="workspace-meeting-chat"
+      style={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+      }}
+    >
+      <MeetingChatPanel
+        messages={meetingChat.messages}
+        status={meetingChat.status}
+        error={meetingChat.error}
+        currentUserId={userId ?? user?.id}
+        canDelete={canManage}
+        onSend={meetingChat.send}
+        onDelete={meetingChat.remove}
+      />
     </div>
   );
 }

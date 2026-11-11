@@ -58,6 +58,7 @@ import { CreateGroupMeeting } from "./class-sessions/create-group-meeting";
 import { WorkspaceMeetingRoom } from "./class-sessions/workspace-meeting-room";
 import {
   MeetingPeoplePanel,
+  MeetingChatSidePanel,
   type SessionRoomHandle,
   type MeetingRoomState,
 } from "./class-sessions/session-room";
@@ -1199,6 +1200,10 @@ export function Workspace({
                         setPanel(true);
                         setPanelTab("members");
                       }}
+                      onOpenChat={() => {
+                        setPanel(true);
+                        setPanelTab("chat");
+                      }}
                     />
                   )}
                 {view === "live" && (
@@ -1661,7 +1666,8 @@ export function Workspace({
                     className={panelTab === "chat" ? "selected" : ""}
                     onClick={() => setPanelTab("chat")}
                   >
-                    Trò chuyện <span>{messages.length}</span>
+                    {view === "meetings" ? "Chat cuộc họp" : "Trò chuyện"}{" "}
+                    {view !== "meetings" && <span>{messages.length}</span>}
                   </button>
                   <button
                     className={panelTab === "members" ? "selected" : ""}
@@ -1677,7 +1683,14 @@ export function Workspace({
                   </IconButton>
                 </div>
               )}
-              {view !== "chat" && panelTab === "chat" ? (
+              {view === "meetings" && activeMeetingId && panelTab === "chat" ? (
+                <MeetingChatSidePanel
+                  sessionId={activeMeetingId}
+                  participationId={roomState?.participationId ?? null}
+                  canManage={!!roomState?.canManage}
+                  userId={roomState?.userId ?? user?.id}
+                />
+              ) : view !== "chat" && panelTab === "chat" ? (
                 <WorkspaceChat {...chatProps} />
               ) : view === "meetings" && activeMeetingId ? (
                 roomState?.sessionId === activeMeetingId ? (
