@@ -129,6 +129,14 @@ export function Workspace({
     roomInfo?.id === activeMeetingId
       ? roomInfo
       : rooms.items.find((room) => room.id === activeMeetingId);
+  useEffect(() => {
+    if (
+      selectedMeeting &&
+      ["ENDED", "CANCELLED"].includes(selectedMeeting.status)
+    ) {
+      returnToChat();
+    }
+  }, [selectedMeeting?.status]);
   const roomRef = useRef<SessionRoomHandle>(null);
   const [roomState, setRoomState] = useState<MeetingRoomState | null>(null);
   const reportRoomState = useCallback((state: MeetingRoomState) => {
@@ -164,9 +172,25 @@ export function Workspace({
     },
     [notify],
   );
+  function returnToChat() {
+    void changeWorkspace(() => {
+      setMeetingSelection(null);
+      setRoomInfo(null);
+      setChannel("trò-chuyện-chung");
+      setPanelTab("chat");
+      setMembersView(false);
+      const url = new URL(location.href);
+      url.searchParams.delete("meetingId");
+      history.pushState(null, "", url);
+    });
+  }
   const updateRoom = useCallback(
     (session: ClassSession) => {
       rooms.update(session);
+      if (session.status === "ENDED" || session.status === "CANCELLED") {
+        returnToChat();
+        return;
+      }
       if (selectionRef.current?.id === session.id)
         setRoomInfo((current) =>
           current?.id === session.id &&
@@ -212,15 +236,6 @@ export function Workspace({
         tone: "error",
       });
     }
-  }
-  function returnToChat() {
-    void changeWorkspace(() => {
-      setMeetingSelection(null);
-      setRoomInfo(null);
-      const url = new URL(location.href);
-      url.searchParams.delete("meetingId");
-      history.pushState(null, "", url);
-    });
   }
   function selectWorkspaceGroup(groupId: string) {
     if (groupId === workspaceGroup.groupId) return;
@@ -1706,6 +1721,7 @@ export function Workspace({
                   sessionId={activeMeetingId}
                   participationId={roomState?.participationId ?? null}
                   canManage={!!roomState?.canManage}
+                  canChat={roomState?.active || !!roomState?.canManage}
                   userId={roomState?.userId ?? user?.id}
                 />
               ) : view !== "chat" && panelTab === "chat" ? (

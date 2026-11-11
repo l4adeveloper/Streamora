@@ -437,11 +437,30 @@ export class ClassSessionsGateway
         state.watches.set(sessionId, {});
       }
 
-      // Any user with access to this meeting session can chat
-      const { user, senderRole } = await this.checkMeetingAccess(
+      // Check meeting access and manager rights
+      const { user, senderRole, canManage } = await this.checkMeetingAccess(
         state.connection.userId,
         sessionId,
       );
+
+      // Only users connected to the meeting room (active participants) or managers can chat
+      if (!canManage) {
+        const activeParticipation =
+          await this.prisma.classParticipation.findFirst({
+            where: {
+              sessionId,
+              userId: state.connection.userId,
+              leftAt: null,
+            },
+            select: { id: true },
+          });
+        if (!activeParticipation) {
+          return this.chatFailure(
+            "FORBIDDEN",
+            "Bạn cần kết nối vào phòng họp để tham gia chat.",
+          );
+        }
+      }
 
       let clientId: string | null = null;
       if (body.clientId !== undefined && body.clientId !== null) {

@@ -60,6 +60,7 @@ export function MeetingChatPanel({
   error,
   currentUserId,
   canDelete,
+  canChat = true,
   onSend,
   onDelete,
   onClose,
@@ -69,6 +70,7 @@ export function MeetingChatPanel({
   error: string | null;
   currentUserId?: string;
   canDelete?: boolean;
+  canChat?: boolean;
   onSend: (text: string, replyToId?: string, clientId?: string) => Promise<string>;
   onDelete?: (id: string) => Promise<void>;
   onClose?: () => void;
@@ -113,7 +115,7 @@ export function MeetingChatPanel({
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || status === "error") return;
+    if (!text || status === "error" || !canChat) return;
     const replyToId = replyingTo?.id;
     const clientId = crypto.randomUUID();
     const optimistic: MeetingChatMessage & {
@@ -349,26 +351,33 @@ export function MeetingChatPanel({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder={
-              status === "error"
-                ? (error || "Không thể kết nối chat")
-                : "Nhắn tin với mọi người trong phòng…"
+              !canChat
+                ? "Bạn cần kết nối vào phòng họp để tham gia chat"
+                : status === "error"
+                  ? (error || "Không thể kết nối chat")
+                  : "Nhắn tin với mọi người trong phòng…"
             }
             aria-label="Tin nhắn phòng họp"
-            disabled={status === "error"}
+            disabled={status === "error" || !canChat}
             maxLength={4000}
           />
           <button
             type="submit"
             aria-label="Gửi tin nhắn"
-            disabled={status === "error" || !draft.trim()}
+            disabled={status === "error" || !canChat || !draft.trim()}
           >
             <Send size={16} />
           </button>
         </div>
-        {status === "connecting" && (
+        {!canChat && (
+          <p className="meeting-chat-info">
+            Vui lòng kết nối vào phòng họp để tham gia trò chuyện.
+          </p>
+        )}
+        {canChat && status === "connecting" && (
           <p className="meeting-chat-info">Đang kết nối chat…</p>
         )}
-        {status === "error" && error && (
+        {canChat && status === "error" && error && (
           <p className="meeting-chat-info" style={{ color: "var(--danger, #ef4444)" }}>
             {error}
           </p>
