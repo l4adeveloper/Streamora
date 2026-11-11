@@ -873,7 +873,10 @@ export function SessionRoom({
                         onClick={() =>
                           void run(
                             "leave",
-                            () => api.leaveClass(data.id, visit.id),
+                            () => {
+                              mediaRef.current?.stop();
+                              return api.leaveClass(data.id, visit.id);
+                            },
                             "Đã rời phòng.",
                           )
                         }

@@ -91,6 +91,14 @@ có lease; trường hợp AWS trả kết quả không chắc chắn được p
 Stage tạo khi có lần join media được xác thực đầu tiên; không chặn start T04
 khi AWS chưa sẵn sàng. Mỗi class session ánh xạ một Stage trong DB.
 
+Khóa chuẩn bị Stage có hạn 120 giây. AWS từ chối rõ ràng (credentials, IAM,
+validation hoặc quota) thì nhả đúng khóa của lần gọi đó để có thể thử lại ngay;
+timeout/kết quả chưa chắc chắn giữ khóa để phục hồi Stage theo tag. Lỗi được
+log bằng mã và loại lỗi, không ghi credentials, token hoặc thông điệp SDK thô.
+Khi nhận `409 MEDIA_STARTING`/`MEDIA_REVOKING`, frontend tự chờ và thử lại với
+cùng `clientId`/`requestId`, giãn từ 0,5 đến 4 giây, tối đa 130 giây. Rời phòng
+hoặc đổi phòng hủy chờ ngay; các lỗi quyền truy cập không được tự retry.
+
 Danh sách IVS dùng `activeSessionId` của Stage, không dùng UUID buổi học làm
 IVS session ID. `connected` từ reconciliation AWS; mic/camera là trạng thái thiết
 bị do client báo để hiển thị, không phải bằng chứng cấp quyền. Sau 30s không
@@ -123,6 +131,7 @@ tự ngắt người đang kết nối.
 npm run test:t05
 npm run test:t05:integration
 npm run test:t05:frontend
+node --test backend/test/meeting-media-recovery.test.cjs
 npm run typecheck
 ```
 
@@ -155,7 +164,8 @@ npm run test:ivs:live
 Lệnh này kiểm tra quyền truy cập IVS/SQS, đọc thử PostgreSQL và các cột Meeting
 trong database được cấu hình; sau đó tạo một database tạm, một Stage AWS tạm và
 hai tài khoản kiểm thử. Hai trình duyệt dùng mic/camera giả lập nhưng kết nối
-AWS IVS thật. Kiểm thử xác nhận RTP audio/video hai chiều, duy trì qua heartbeat,
+AWS IVS thật. Hai người bấm kết nối đồng thời để kiểm tra tự phục hồi khi một
+yêu cầu đang chuẩn bị Stage. Kiểm thử xác nhận RTP audio/video hai chiều, duy trì qua heartbeat,
 AWS xác nhận presence, bật/tắt thiết bị, rời phòng, thu hồi media và đóng Stage.
 Không ghi vào database ứng dụng, không nhận/xóa thông báo từ SQS đang dùng.
 Stage của bài kiểm thử được dọn sau khi chạy; dữ liệu báo cáo không chứa

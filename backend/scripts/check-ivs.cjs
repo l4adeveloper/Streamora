@@ -279,20 +279,25 @@ async function liveCheck() {
             .querySelector(".class-media-room video")
             ?.srcObject?.getTracks().length === 2,
       );
-      await panel
-        .getByRole("button", { name: "Kết nối mic/camera", exact: true })
-        .click();
-      await panel
-        .locator(".workspace-video-presence")
-        .filter({ hasText: /đang kết nối video/ })
-        .waitFor();
-      stageArn = (
-        await f.prisma.classMediaRoom.findUnique({
-          where: { sessionId: room.id },
-        })
-      )?.stageArn;
-      assert.ok(stageArn, "AWS Stage must be persisted");
     }
+    await Promise.all(
+      [first, second].map(async (page) => {
+        const panel = mediaPanel(page);
+        await panel
+          .getByRole("button", { name: "Kết nối mic/camera", exact: true })
+          .click();
+        await panel
+          .locator(".workspace-video-presence")
+          .filter({ hasText: /đang kết nối video/ })
+          .waitFor();
+      }),
+    );
+    stageArn = (
+      await f.prisma.classMediaRoom.findUnique({
+        where: { sessionId: room.id },
+      })
+    )?.stageArn;
+    assert.ok(stageArn, "AWS Stage must be persisted");
     assert.equal(
       mediaResponses.filter((item) => item.status === 200).length,
       2,
@@ -319,6 +324,9 @@ async function liveCheck() {
       ok: true,
       stages: 1,
       connectedBrowsers: 2,
+      simultaneousJoins: true,
+      preparationRetries: mediaResponses.filter((item) => item.status === 409)
+        .length,
       realAws: true,
     });
     async function statistics(page) {

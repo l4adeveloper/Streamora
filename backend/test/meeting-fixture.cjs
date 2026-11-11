@@ -59,7 +59,12 @@ async function createMeetingFixture(
   const client = new PrismaClient({
     adapter: new PrismaPg({ connectionString: config.databaseUrl, max: 1 }),
   });
-  client.onModuleInit = () => client.$connect();
+  client.onModuleInit = async () => {
+    await client.$connect();
+    // The WASM wire adapter otherwise formats clock_timestamp in the machine's
+    // local timezone. Keep server time and auth/lease timestamps comparable.
+    await client.$executeRawUnsafe("SET TIME ZONE 'UTC'");
+  };
   client.onModuleDestroy = () => client.$disconnect();
   const root = AppModule.forRoot(config);
   const databaseModule = root.imports.find((module) =>
