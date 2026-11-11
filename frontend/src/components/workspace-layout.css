@@ -3,26 +3,80 @@
 .community-icon {
   position: relative;
 }
-.group-live-dot {
+.app-shell .workspace-groups .community-icon .group-live-dot,
+.community-icon > span.group-live-dot {
   position: absolute;
-  bottom: 2px;
-  right: 2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 2px solid var(--navigation, #1a1a2e);
+  bottom: -2px;
+  right: -2px;
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  border: 2px solid var(--navigation, #1a1a2e) !important;
   pointer-events: none;
+  z-index: 10;
+  display: block;
 }
-.group-live-dot.has-live {
-  background: var(--error, #e53e3e);
+.app-shell .workspace-groups .community-icon .group-live-dot.has-live,
+.community-icon > span.group-live-dot.has-live {
+  background-color: #ef4444 !important;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.9);
   animation: live-dot-pulse 1.8s ease-in-out infinite;
 }
-.group-live-dot.no-live {
-  background: var(--success, #38a169);
+.app-shell .workspace-groups .community-icon .group-live-dot.no-live,
+.community-icon > span.group-live-dot.no-live {
+  background-color: #22c55e !important;
+  box-shadow: none;
 }
 @keyframes live-dot-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.15); }
+}
+
+/* ── Active meeting banner when minimized to chat ─────────────────────────── */
+.active-meeting-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface-container));
+  border-bottom: 1px solid var(--border);
+  z-index: 20;
+}
+.active-meeting-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  min-width: 0;
+}
+.active-meeting-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-meeting-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+  flex-shrink: 0;
+  animation: live-dot-pulse 1.8s ease-in-out infinite;
+}
+.active-meeting-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.active-meeting-banner-actions .button.compact {
+  padding: 4px 10px;
+  font-size: 12px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* ── Room-switch confirm dialog ───────────────────────────────────────────── */
