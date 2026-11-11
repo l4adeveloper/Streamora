@@ -124,6 +124,8 @@ export function Workspace({
     meetingSelection?.groupId === workspaceGroup.groupId
       ? meetingSelection?.id
       : null;
+  // Track pending room switch to show confirm dialog
+  const [pendingRoomSwitch, setPendingRoomSwitch] = useState<ClassSession | null>(null);
   const [roomInfo, setRoomInfo] = useState<ClassSession | null>(null);
   const selectedMeeting =
     roomInfo?.id === activeMeetingId
@@ -137,6 +139,24 @@ export function Workspace({
       returnToChat();
     }
   }, [selectedMeeting?.status]);
+  // Track notified live meetings to avoid duplicate toast notifications
+  const notifiedLiveIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!workspaceGroup.groupId || !user) return;
+    const currentIds = new Set(rooms.items.map((r) => r.id));
+    rooms.items.forEach((room) => {
+      if (room.status === "LIVE" && !notifiedLiveIds.current.has(room.id)) {
+        notify(`📢 "${room.title}" đang diễn ra — bấm vào để tham gia!`, {
+          tone: "info",
+        });
+        notifiedLiveIds.current.add(room.id);
+      }
+    });
+    // Remove old ended rooms from notified set
+    notifiedLiveIds.current.forEach((id) => {
+      if (!currentIds.has(id)) notifiedLiveIds.current.delete(id);
+    });
+  }, [rooms.items, workspaceGroup.groupId, user?.id]);
   const roomRef = useRef<SessionRoomHandle>(null);
   const [roomState, setRoomState] = useState<MeetingRoomState | null>(null);
   const reportRoomState = useCallback((state: MeetingRoomState) => {
@@ -207,6 +227,31 @@ export function Workspace({
       session.groupId !== workspaceGroup.groupId
     )
       return;
+    // If already in another room, show confirm dialog first
+    if (activeMeetingId) {
+      setPendingRoomSwitch(session);
+      return;
+    }
+    void changeWorkspace(() => {
+      setMeetingSelection({ id: session.id, groupId: session.groupId! });
+      setRoomInfo(session);
+      setMembersView(false);
+      setMobileNav(false);
+      setModal(null);
+      setPanel(!matchMedia("(max-width: 900px)").matches);
+      setPanelTab("chat");
+      const url = new URL(location.href);
+      url.searchParams.set("meetingId", session.id);
+      url.searchParams.set("groupId", session.groupId!);
+      url.searchParams.delete("create");
+      url.searchParams.delete("tab");
+      history.pushState(null, "", url);
+    });
+  }
+  function confirmRoomSwitch() {
+    const session = pendingRoomSwitch;
+    setPendingRoomSwitch(null);
+    if (!session) return;
     void changeWorkspace(() => {
       setMeetingSelection({ id: session.id, groupId: session.groupId! });
       setRoomInfo(session);
@@ -841,26 +886,38 @@ export function Workspace({
               <span className="sr-only">Đang tải nhóm học tập…</span>
             </span>
           )}
-          {workspaceGroup.groups.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`community-icon ${item.id === workspaceGroup.groupId ? "selected" : ""}`}
-              title={item.name}
-              aria-label={`Mở nhóm ${item.name}`}
-              disabled={roomSwitching}
-              aria-current={
-                item.id === workspaceGroup.groupId ? "true" : undefined
-              }
-              onClick={() => {
-                selectWorkspaceGroup(item.id);
-                if (matchMedia("(max-width: 650px)").matches)
-                  setMobileNav(true);
-              }}
-            >
-              {groupInitials(item.name)}
-            </button>
-          ))}
+          {workspaceGroup.groups.map((item) => {
+            const isCurrentGroup = item.id === workspaceGroup.groupId;
+            const hasLive = isCurrentGroup
+              ? rooms.items.some((r) => r.status === "LIVE")
+              : false;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`community-icon ${item.id === workspaceGroup.groupId ? "selected" : ""}`}
+                title={item.name}
+                aria-label={`Mở nhóm ${item.name}`}
+                disabled={roomSwitching}
+                aria-current={
+                  item.id === workspaceGroup.groupId ? "true" : undefined
+                }
+                onClick={() => {
+                  selectWorkspaceGroup(item.id);
+                  if (matchMedia("(max-width: 650px)").matches)
+                    setMobileNav(true);
+                }}
+              >
+                {groupInitials(item.name)}
+                {isCurrentGroup && (
+                  <span
+                    className={`group-live-dot ${hasLive ? "has-live" : "no-live"}`}
+                    aria-label={hasLive ? "Có phòng họp đang diễn ra" : "Không có phòng họp đang diễn ra"}
+                  />
+                )}
+              </button>
+            );
+          })}
           {Boolean(workspaceGroup.error) && (
             <button
               type="button"
@@ -2242,6 +2299,42 @@ export function Workspace({
             </section>
           </div>
         )}
+      {/* Confirm room switch dialog */}
+      {pendingRoomSwitch && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setPendingRoomSwitch(null)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="room-switch-dialog-title"
+            className="modal room-switch-confirm-dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="room-switch-dialog-title">Rời phòng họp hiện tại?</h2>
+            <p>
+              Bạn đang trong phòng <strong>&ldquo;{selectedMeeting?.title ?? "phòng họp"}&rdquo;</strong>.
+              Chuyển sang <strong>&ldquo;{pendingRoomSwitch.title}&rdquo;</strong> sẽ tự động rời phòng hiện tại.
+            </p>
+            <div className="room-switch-actions">
+              <button
+                className="button secondary"
+                onClick={() => setPendingRoomSwitch(null)}
+              >
+                Ở lại
+              </button>
+              <button
+                className="button danger"
+                onClick={confirmRoomSwitch}
+                disabled={roomSwitching}
+              >
+                <PhoneOff size={15} /> Rời và tham gia
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
