@@ -19,6 +19,12 @@ import type {
 } from "@streamora/contracts";
 import { apiRequest, asApiError } from "@/lib/api";
 
+const IVS_VIDEO_CONSTRAINTS = {
+  width: { ideal: 1280, max: 1280 },
+  height: { ideal: 720, max: 720 },
+  frameRate: { ideal: 30, max: 30 },
+};
+
 export interface MediaPeer {
   id: string;
   userId: string;
@@ -126,6 +132,9 @@ export function useClassMedia(
   const stage = useRef<Stage | null>(null);
   const localStreams = useRef<LocalStageStream[]>([]);
   const remote = useRef(new Map<string, MediaPeer>());
+  const subscriptionRetry = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const clientId = useRef<string | null>(null),
     requestId = useRef<string | null>(null);
   const currentConnection = useRef<JoinClassMediaResponse | null>(null);
@@ -133,6 +142,8 @@ export function useClassMedia(
     locked = useRef(false);
   const joinRequest = useRef<AbortController | null>(null);
   const autoJoinedVisit = useRef<string | null>(null);
+  const optedOutVisit = useRef<string | null>(null);
+  const previousMicLock = useRef(micLocked);
   const settings = useRef({ micEnabled, cameraEnabled });
   settings.current = { micEnabled, cameraEnabled };
   const currentStatus = useRef(status);
@@ -140,16 +151,24 @@ export function useClassMedia(
   const root = `/sessions/${encodeURIComponent(sessionId)}`;
   const muteRevision = useRef(0);
   const publishLocked =
-    micLocked || (connection !== null && !connection.capabilities.includes("PUBLISH"));
+    micLocked ||
+    (connection !== null && !connection.capabilities.includes("PUBLISH"));
+  const setTrackMuted = useCallback((kind: "audio" | "video", muted: boolean) => {
+    for (const track of stream.current?.getTracks() ?? []) {
+      if (track.kind !== kind) continue;
+      const local = localStreams.current.find(
+        (item) => item.mediaStreamTrack === track,
+      );
+      if (local) local.setMuted(muted);
+      else track.enabled = !muted;
+    }
+  }, []);
   const applyMute = useCallback(() => {
     muteRevision.current++;
     settings.current.micEnabled = false;
     setMic(false);
-    for (const item of localStreams.current)
-      if (item.mediaStreamTrack.kind === "audio") item.setMuted(true);
-    for (const track of stream.current?.getAudioTracks() ?? [])
-      track.enabled = false;
-  }, []);
+    setTrackMuted("audio", true);
+  }, [setTrackMuted]);
 
   const stopScreenShare = useCallback(() => {
     const previous = screenShare.current;
@@ -169,6 +188,8 @@ export function useClassMedia(
     (notify = true) => {
       generation.current++;
       joinRequest.current?.abort();
+      clearTimeout(subscriptionRetry.current);
+      subscriptionRetry.current = undefined;
       stopScreenShare();
       const previous = currentConnection.current;
       currentConnection.current = null;
@@ -192,17 +213,16 @@ export function useClassMedia(
   );
   useEffect(() => () => stop(), [participationId, stop]);
   useEffect(() => {
-    if (!micLocked) return;
-    applyMute();
+    if (previousMicLock.current === micLocked) return;
+    previousMicLock.current = micLocked;
+    // A stage token cannot change capabilities in place. Rejoin without
+    // publishing so only an explicit device click can turn the mic back on.
+    if (optedOutVisit.current !== participationId) autoJoinedVisit.current = null;
+    stop();
+    setMic(false);
     setCamera(false);
-    settings.current.cameraEnabled = false;
-    if (
-      currentConnection.current?.capabilities.includes("PUBLISH") ||
-      !currentConnection.current
-    )
-      stop();
-    else stopScreenShare();
-  }, [micLocked, applyMute, stop, stopScreenShare]);
+    settings.current = { micEnabled: false, cameraEnabled: false };
+  }, [micLocked, participationId, stop]);
 
   const refreshDevices = useCallback(async () => {
     if (navigator.mediaDevices?.enumerateDevices)
@@ -250,9 +270,7 @@ export function useClassMedia(
           cameraEnabled || testBoth
             ? {
                 ...(videoId ? { deviceId: { exact: videoId } } : {}),
-                width: { ideal: 1920, min: 640 },
-                height: { ideal: 1080, min: 480 },
-                frameRate: { ideal: 30, max: 60 },
+                ...IVS_VIDEO_CONSTRAINTS,
                 facingMode: "user",
                 aspectRatio: { ideal: 1.7777777778 },
               }
@@ -289,6 +307,7 @@ export function useClassMedia(
 
   async function join(listenOnly = false) {
     if (!participationId || locked.current || stage.current) return;
+    optedOutVisit.current = null;
     locked.current = true;
     setBusy(true);
     setError("");
@@ -357,7 +376,10 @@ export function useClassMedia(
         shouldPublishParticipant: () =>
           canPublish && localStreams.current.length > 0,
         shouldSubscribeToParticipant: (person) => {
-          if (person.id === screenShare.current?.connection?.participantId)
+          if (
+            person.isLocal ||
+            person.id === screenShare.current?.connection?.participantId
+          )
             return sdk.SubscribeType.NONE;
           // IVS re-evaluates the subscription when the publisher changes its camera state.
           return person.videoStopped &&
@@ -367,6 +389,27 @@ export function useClassMedia(
         },
       });
       stage.current = next;
+      let stageConnected = false;
+      const failedSubscriptions = new Set<string>();
+      const retryAttempts = new Map<string, number>();
+      const scheduleSubscriptionRetry = () => {
+        if (!stageConnected || subscriptionRetry.current !== undefined) return;
+        subscriptionRetry.current = setTimeout(() => {
+          subscriptionRetry.current = undefined;
+          if (!stageConnected || stage.current !== next) return;
+          const retry = [...failedSubscriptions].filter(
+            (id) => (retryAttempts.get(id) ?? 0) < 2,
+          );
+          if (!retry.length) return;
+          for (const id of retry)
+            retryAttempts.set(id, (retryAttempts.get(id) ?? 0) + 1);
+          next.refreshStrategy();
+        }, 1200);
+      };
+      const isRemotePeer = (person: StageParticipantInfo) =>
+        ticket === generation.current &&
+        !person.isLocal &&
+        person.id !== screenShare.current?.connection?.participantId;
       const publishPeers = () => {
         if (ticket === generation.current)
           setPeers([...remote.current.values()]);
@@ -375,12 +418,7 @@ export function useClassMedia(
         person: StageParticipantInfo,
         failed: boolean,
       ) => {
-        if (
-          ticket !== generation.current ||
-          person.isLocal ||
-          person.id === screenShare.current?.connection?.participantId
-        )
-          return;
+        if (!isRemotePeer(person)) return;
         setUnavailablePeers((current) => {
           if (current.has(person.id) === failed) return current;
           const next = new Map(current);
@@ -395,30 +433,33 @@ export function useClassMedia(
       };
       const updatePeer = (
         person: StageParticipantInfo,
-        items: StageStream[],
+        items: StageStream[] = [],
         remove = false,
       ) => {
-        if (
-          person.isLocal ||
-          ticket !== generation.current ||
-          person.id === screenShare.current?.connection?.participantId
-        )
-          return;
+        if (!isRemotePeer(person)) return;
         const previous = remote.current.get(person.id);
+        const before = previous?.stream.getTracks() ?? [];
         const tracks = new Map(
-          previous?.stream.getTracks().map((t) => [t.id, t]) ?? [],
+          before
+            .filter((track) => track.readyState === "live")
+            .map((track) => [track.kind, track]),
         );
-        for (const item of items) {
-          if (remove) tracks.delete(item.mediaStreamTrack.id);
-          else tracks.set(item.mediaStreamTrack.id, item.mediaStreamTrack);
+        for (const { mediaStreamTrack: track } of items) {
+          if (remove) {
+            if (tracks.get(track.kind) === track) tracks.delete(track.kind);
+          } else if (track.readyState === "live") tracks.set(track.kind, track);
         }
-        const media = new MediaStream([...tracks.values()]);
         const isScreenShare = person.attributes["screen-share"] === "true";
-        if (isScreenShare && !media.getVideoTracks().length) {
-          remote.current.delete(person.id);
-          publishPeers();
+        if (!tracks.size || (isScreenShare && !tracks.has("video"))) {
+          if (remote.current.delete(person.id)) publishPeers();
           return;
         }
+        const media =
+          previous &&
+          before.length === tracks.size &&
+          before.every((track) => tracks.get(track.kind) === track)
+            ? previous.stream
+            : new MediaStream([...tracks.values()]);
         remote.current.set(person.id, {
           id: person.id,
           userId: person.userId,
@@ -436,27 +477,41 @@ export function useClassMedia(
       };
       next.on(sdk.StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
         if (ticket !== generation.current) return;
+        stageConnected = state === sdk.StageConnectionState.CONNECTED;
         setStatus(
-          state === sdk.StageConnectionState.CONNECTED
+          stageConnected
             ? "connected"
             : state === sdk.StageConnectionState.CONNECTING
               ? "connecting"
               : "reconnecting",
         );
-        if (state === sdk.StageConnectionState.CONNECTED)
+        if (stageConnected) {
+          if (failedSubscriptions.size) scheduleSubscriptionRetry();
           setStageError((current) =>
             current?.category === sdk.StageErrorCategory.JOIN_ERROR
               ? null
               : current,
           );
+        }
       });
       next.on(
         sdk.StageEvents.STAGE_PARTICIPANT_SUBSCRIBE_STATE_CHANGED,
-        (person, state) =>
-          updateSubscriptionNotice(
-            person,
-            state === sdk.StageParticipantSubscribeState.ERRORED,
-          ),
+        (person, state) => {
+          if (!isRemotePeer(person)) return;
+          if (state === sdk.StageParticipantSubscribeState.ERRORED) {
+            failedSubscriptions.add(person.id);
+            updateSubscriptionNotice(person, true);
+            scheduleSubscriptionRetry();
+            return;
+          }
+          failedSubscriptions.delete(person.id);
+          if (
+            state !== sdk.StageParticipantSubscribeState.ATTEMPTING_SUBSCRIBE
+          ) {
+            retryAttempts.delete(person.id);
+            updateSubscriptionNotice(person, false);
+          }
+        },
       );
       next.on(
         sdk.StageEvents.STAGE_PARTICIPANT_PUBLISH_STATE_CHANGED,
@@ -484,10 +539,13 @@ export function useClassMedia(
         sdk.StageEvents.STAGE_PARTICIPANT_STREAMS_REMOVED,
         (person, streams) => updatePeer(person, streams, true),
       );
-      next.on(sdk.StageEvents.STAGE_STREAM_MUTE_CHANGED, (person, item) =>
-        updatePeer(person, [item]),
+      // Only the stream lifecycle events can add or replace tracks.
+      next.on(sdk.StageEvents.STAGE_STREAM_MUTE_CHANGED, (person) =>
+        updatePeer(person),
       );
       next.on(sdk.StageEvents.STAGE_PARTICIPANT_LEFT, (person) => {
+        failedSubscriptions.delete(person.id);
+        retryAttempts.delete(person.id);
         remote.current.delete(person.id);
         updateSubscriptionNotice(person, false);
         publishPeers();
@@ -548,7 +606,12 @@ export function useClassMedia(
       autoJoinedVisit.current = null;
       return;
     }
-    if (busy || autoJoinedVisit.current === participationId) return;
+    if (
+      busy ||
+      autoJoinedVisit.current === participationId ||
+      optedOutVisit.current === participationId
+    )
+      return;
     const ticket = generation.current;
     const start = setTimeout(() => {
       if (ticket !== generation.current || locked.current) return;
@@ -556,7 +619,7 @@ export function useClassMedia(
       joinOnEntry();
     }, 0);
     return () => clearTimeout(start);
-  }, [busy, participationId, root]);
+  }, [busy, micLocked, participationId, root]);
   useEffect(() => {
     if (!connection || !participationId) return;
     let stopped = false,
@@ -618,8 +681,8 @@ export function useClassMedia(
     try {
       const capture = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          width: { ideal: 1920, max: 2560 },
-          height: { ideal: 1080, max: 1440 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           frameRate: { ideal: 30 },
         },
         audio: false,
@@ -639,13 +702,7 @@ export function useClassMedia(
             "detail";
         } catch {}
       }
-      await track
-        .applyConstraints({
-          width: { max: 1920 },
-          height: { max: 1080 },
-          frameRate: { max: 30 },
-        })
-        .catch(() => {});
+      await track.applyConstraints(IVS_VIDEO_CONSTRAINTS);
       if (signal.aborted) return;
       const sdk = await import("amazon-ivs-web-broadcast");
       const issued = await requestMediaConnection(
@@ -783,9 +840,7 @@ export function useClassMedia(
             kind === "video"
               ? {
                   ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-                  width: { ideal: 1920, min: 640 },
-                  height: { ideal: 1080, min: 480 },
-                  frameRate: { ideal: 30, max: 60 },
+                  ...IVS_VIDEO_CONSTRAINTS,
                   facingMode: "user",
                   aspectRatio: { ideal: 1.7777777778 },
                 }
@@ -849,10 +904,7 @@ export function useClassMedia(
     };
     if (kind === "audio") setMic(enabled);
     else setCamera(enabled);
-    for (const item of localStreams.current)
-      if (item.mediaStreamTrack.kind === kind) item.setMuted(!enabled);
-    for (const track of stream.current?.getTracks() ?? [])
-      if (track.kind === kind) track.enabled = enabled;
+    setTrackMuted(kind, !enabled);
     if (addedTracks) stage.current?.refreshStrategy();
     // An explicit device click should publish into an admitted room, including
     // when the participant initially joined only to listen.
@@ -862,6 +914,7 @@ export function useClassMedia(
     status,
     error: error || stageError?.message || "",
     unavailablePeers: [...new Set(unavailablePeers.values())],
+    retrySubscriptions: () => stage.current?.refreshStrategy(),
     devices,
     preview,
     peers,
@@ -871,6 +924,10 @@ export function useClassMedia(
     checkDevices,
     join,
     stop,
+    disconnect: () => {
+      optedOutVisit.current = participationId;
+      stop();
+    },
     toggle,
     screenPreview,
     screenPending,
