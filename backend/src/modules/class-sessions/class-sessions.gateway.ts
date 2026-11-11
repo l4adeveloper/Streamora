@@ -2,7 +2,6 @@ import {
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
-  Inject,
 } from "@nestjs/common";
 import {
   ConnectedSocket,
@@ -22,8 +21,6 @@ import type {
 } from "@streamora/contracts";
 import { ApiError } from "../../common/api-error";
 import { PrismaService } from "../../database/prisma.service";
-import { APP_CONFIG } from "../../config/configuration.module";
-import type { EnvironmentConfig } from "../../config/environment";
 import { AccessTokenService } from "../auth/access-token.service";
 import { SessionStore } from "../auth/session-store.service";
 import { ClassAdmissionsService } from "./class-admissions.service";
@@ -42,7 +39,7 @@ interface ClientState {
   closing: boolean;
 }
 
-@WebSocketGateway({ namespace: "/sessions", maxHttpBufferSize: 16384 })
+@WebSocketGateway({ namespace: "/classroom", maxHttpBufferSize: 16384 })
 export class ClassSessionsGateway
   implements OnApplicationBootstrap, OnModuleDestroy
 {
@@ -64,35 +61,20 @@ export class ClassSessionsGateway
     private readonly admissions: ClassAdmissionsService,
     private readonly presence: ClassPresenceService,
     private readonly prisma: PrismaService,
-    @Inject(APP_CONFIG) private readonly config: EnvironmentConfig,
   ) {}
 
-  afterInit(server: Namespace) {
-    server.use(async (socket, next) => {
-      try {
-        if (
-          this.stopping ||
-          (socket.handshake.headers.origin &&
-            socket.handshake.headers.origin !== this.config.webOrigin)
-        )
-          throw new ApiError(401, "UNAUTHENTICATED", "Kết nối không hợp lệ.");
-        const claims = this.claims(socket);
-        await this.sessions.authenticate(claims.userId, claims.sessionId);
-        this.clients.set(socket.id, {
-          connection: {
-            userId: claims.userId,
-            authSessionId: claims.sessionId,
-            instanceId: this.instanceId,
-            socketId: socket.id,
-          },
-          watches: new Map(),
-          tail: Promise.resolve(),
-          closing: false,
-        });
-        next();
-      } catch {
-        next(new Error("UNAUTHENTICATED"));
-      }
+  handleConnection(socket: Socket) {
+    // MembershipGateway authenticates the shared namespace before connection.
+    this.clients.set(socket.id, {
+      connection: {
+        userId: socket.data.userId,
+        authSessionId: socket.data.authSessionId,
+        instanceId: this.instanceId,
+        socketId: socket.id,
+      },
+      watches: new Map(),
+      tail: Promise.resolve(),
+      closing: false,
     });
   }
 
@@ -154,7 +136,7 @@ export class ClassSessionsGateway
     work: (state: ClientState) => Promise<T>,
   ): Promise<ClassRealtimeAck<T>> {
     const state = this.clients.get(socket.id);
-    if (!state || state.closing)
+    if (!state || state.closing || this.stopping)
       return Promise.resolve({
         ok: false,
         error: { code: "UNAUTHENTICATED", message: "Kết nối đã đóng." },
@@ -293,31 +275,6 @@ export class ClassSessionsGateway
       return receipt;
     });
   }
-  @SubscribeMessage("auth:refresh")
-  refresh(@ConnectedSocket() socket: Socket, @MessageBody() value: unknown) {
-    return this.action(socket, async (state) => {
-      const body = value as { accessToken?: unknown } | null;
-      if (
-        !body ||
-        typeof body.accessToken !== "string" ||
-        Object.keys(body).some((key) => key !== "accessToken")
-      )
-        throw new ApiError(400, "VALIDATION_ERROR", "Token không hợp lệ.");
-      const claims = this.tokens.verify(body.accessToken);
-      if (
-        claims.userId !== state.connection.userId ||
-        claims.sessionId !== state.connection.authSessionId
-      )
-        throw new ApiError(
-          401,
-          "UNAUTHENTICATED",
-          "Cần kết nối lại khi đổi phiên đăng nhập.",
-        );
-      await this.sessions.authenticate(claims.userId, claims.sessionId);
-      socket.handshake.auth.accessToken = body.accessToken;
-      return {};
-    });
-  }
   handleDisconnect(socket: Socket) {
     const state = this.clients.get(socket.id);
     if (!state) return;
@@ -383,6 +340,7 @@ export class ClassSessionsGateway
         throw error;
       socket.emit("session.access-revoked", { sessionId });
       await this.dropWatch(state, sessionId);
+      socket.disconnect(false);
       return null;
     }
   }
@@ -397,7 +355,7 @@ export class ClassSessionsGateway
       });
       for (const socket of this.server.sockets.values()) {
         const state = this.clients.get(socket.id);
-        if (!state || state.closing) continue;
+        if (!state || state.closing || !state.watches.size) continue;
         await this.enqueue(state, async () => {
           if (state.closing) return;
           try {

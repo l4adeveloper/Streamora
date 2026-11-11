@@ -393,7 +393,7 @@ test("T03-07 only notifies the affected user, evicts online sockets and rejects 
   await member(id, viewer);
   await member(id, host, "HOST");
   const learner = await connect(viewer),
-    teacher = await connect(host),
+    teacher = await connect(host, base),
     observer = await connect(owner),
     stranger = await connect(outsider);
   const events = [],
@@ -458,23 +458,29 @@ test("T03-07 only notifies the affected user, evicts online sockets and rejects 
     const change = events.find((event) => event.removed);
     assert.equal(change.role, null);
     assert.match(change.version, /^\d+$/);
-    assert.equal(
-      (await ack(learner, "channel:join", { groupId: id })).ok,
-      false,
-    );
-    assert.equal(
-      (
-        await ack(learner, "chat:send", {
-          groupId: id,
-          text: "Không còn quyền",
-        })
-      ).ok,
-      false,
-    );
-    const serverSocket = [
-      ...second.get(MembershipGateway).server.sockets.values(),
-    ].find((socket) => socket.id === learner.id);
-    assert.equal(serverSocket.rooms.has(`group:${id}`), false);
+    await waitUntil(() => !learner.connected);
+    const rejoined = await connect(viewer);
+    try {
+      assert.equal(
+        (await ack(rejoined, "channel:join", { groupId: id })).ok,
+        false,
+      );
+      assert.equal(
+        (
+          await ack(rejoined, "chat:send", {
+            groupId: id,
+            text: "Không còn quyền",
+          })
+        ).ok,
+        false,
+      );
+      const serverSocket = second
+        .get(MembershipGateway)
+        .server.sockets.get(rejoined.id);
+      assert.equal(serverSocket.rooms.has(`group:${id}`), false);
+    } finally {
+      rejoined.disconnect();
+    }
   } finally {
     for (const socket of [learner, teacher, observer, stranger])
       socket.disconnect();

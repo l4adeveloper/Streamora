@@ -9,6 +9,7 @@ export interface EnvironmentConfig {
   docsEnabled: boolean;
   webOrigin: string;
   databaseUrl: string;
+  azureRealtime?: { secretId: string; region: string };
   ivs?: {
     enabled: boolean;
     region: string;
@@ -212,6 +213,12 @@ export function readEnvironment(
   if (!["true", "false"].includes(ivsWorker)) invalid("IVS_WORKER_ENABLED");
   const ivsRegion = env.AWS_REGION ?? "ap-northeast-1";
   if (!/^[a-z]{2}(-[a-z]+)+-\d+$/.test(ivsRegion)) invalid("AWS_REGION");
+  const realtimeProvider = env.REALTIME_PROVIDER ?? "local";
+  if (!["local", "azure"].includes(realtimeProvider))
+    invalid("REALTIME_PROVIDER");
+  const realtimeSecretId = env.AZURE_WEB_PUBSUB_SECRET_ID?.trim();
+  if (realtimeProvider === "azure" && !realtimeSecretId)
+    invalid("AZURE_WEB_PUBSUB_SECRET_ID");
   const awsAccessKeyId = env.AWS_ACCESS_KEY_ID?.trim() || undefined;
   const awsSecretAccessKey = env.AWS_SECRET_ACCESS_KEY?.trim() || undefined;
   const awsSessionToken = env.AWS_SESSION_TOKEN?.trim() || undefined;
@@ -248,6 +255,9 @@ export function readEnvironment(
     docsEnabled: rawDocs === "true",
     webOrigin,
     databaseUrl: databaseUrl!,
+    ...(realtimeProvider === "azure" && realtimeSecretId
+      ? { azureRealtime: { secretId: realtimeSecretId, region: ivsRegion } }
+      : {}),
     ivs: {
       enabled: ivsEnabled === "true",
       region: ivsRegion,

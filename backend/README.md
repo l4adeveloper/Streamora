@@ -43,6 +43,7 @@ Frontend chạy ở terminal riêng bằng `npm run dev`.
 Realtime chạy bằng `npm run dev:realtime`; service trong `backend/realtime/` dùng lại
 gateway xác thực của API. Thành viên, guard, hook và outbox xem
 [hướng dẫn T03](docs/t03-handoff.md).
+Staging dùng [Azure Web PubSub for Socket.IO (T21)](docs/t21-realtime.md) ngay trong API.
 
 `setup:env` tạo `backend/.env` cho server và `frontend/.env.local` cho Next.js.
 Khóa ký được tạo ngẫu nhiên, không in ra terminal, không ghi đè file đã tồn tại.

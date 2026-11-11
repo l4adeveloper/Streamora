@@ -72,7 +72,7 @@ async function entered() {
       "POST",
       `/sessions/${session.id}/enter`,
       {},
-      randomUUID(),
+      { key: randomUUID() },
     ),
     200,
   );
@@ -111,8 +111,7 @@ test("T05 retries across instances return one participant and preserve encrypted
       "POST",
       `/sessions/${session.id}/join`,
       body,
-      undefined,
-      f.otherBase,
+      { target: f.otherBase },
     ),
     200,
   );

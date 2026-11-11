@@ -71,6 +71,13 @@ export class ClassSessionAccessService {
   /** Returns management rights; ordinary meet users are eligible to ask, not admitted. */
   async eligible(tx: Tx, userId: string, row: ClassSession): Promise<boolean> {
     const user = await this.requireUser(tx, userId);
+    if (
+      await tx.sessionBan.findFirst({
+        where: { sessionId: row.id, userId, revokedAt: null },
+        select: { userId: true },
+      })
+    )
+      throw new ApiError(403, "BANNED", "Bạn đã bị chặn khỏi buổi học này.");
     if (row.kind === "GROUP")
       return (await this.groups.require(userId, row.groupId!, undefined, tx))
         .canHost;
