@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type {
   ClassMediaHeartbeatRequest,
+  ClassMediaSource,
   JoinClassMediaRequest,
   JoinClassMediaResponse,
 } from "@streamora/contracts";
@@ -18,7 +19,7 @@ import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
 import { ApiError } from "../../common/api-error";
 import { safeErrorCode } from "../../common/safe-error-code";
-import { IvsService } from "./ivs.service";
+import { IvsService, mediaCapabilities } from "./ivs.service";
 import { openMediaToken, sealMediaToken } from "./media-token";
 
 const unavailable = () =>
@@ -161,7 +162,7 @@ export class ClassMediaService {
         0,
         Math.floor((row.expiresAt!.getTime() - Date.now()) / 1000),
       ),
-      capabilities: ["PUBLISH", "SUBSCRIBE"],
+      capabilities: mediaCapabilities(row.source),
     };
   }
   async join(
@@ -169,6 +170,12 @@ export class ClassMediaService {
     sessionId: string,
     dto: JoinClassMediaRequest,
   ): Promise<JoinClassMediaResponse> {
+    const source: ClassMediaSource = dto.source ?? "CAMERA";
+    const identity = {
+      participationId: dto.participationId,
+      clientId: dto.clientId,
+      source,
+    };
     this.ivs.available();
     await this.require(actor, sessionId, dto.participationId);
     const stageArn = await this.room(sessionId);
@@ -180,12 +187,7 @@ export class ClassMediaService {
         await this.requireNotBanned(tx, sessionId, actor.userId);
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${dto.participationId + dto.clientId}, 73005))::text`;
         const current = await tx.classMediaConnection.findUnique({
-          where: {
-            participationId_clientId: {
-              participationId: dto.participationId,
-              clientId: dto.clientId,
-            },
-          },
+          where: { participationId_clientId_source: identity },
         });
         const now = new Date();
         const seen = await tx.classMediaRequest.findUnique({
@@ -247,19 +249,13 @@ export class ClassMediaService {
             "Yêu cầu kết nối đang được xử lý. Vui lòng thử lại.",
           );
         const row = await tx.classMediaConnection.upsert({
-          where: {
-            participationId_clientId: {
-              participationId: dto.participationId,
-              clientId: dto.clientId,
-            },
-          },
+          where: { participationId_clientId_source: identity },
           create: {
             id: randomUUID(),
             sessionId,
-            participationId: dto.participationId,
+            ...identity,
             userId: actor.userId,
             authSessionId: actor.authSessionId,
-            clientId: dto.clientId,
             requestId: dto.requestId,
             leaseUntil: new Date(now.getTime() + 30000),
           },
@@ -302,7 +298,7 @@ export class ClassMediaService {
         where: { id: actor.userId },
         select: { fullName: true },
       });
-      issued = await this.ivs.token(stageArn, actor.userId, user.fullName);
+      issued = await this.ivs.token(stageArn, actor.userId, user.fullName, source);
       const value = issued;
       const row = await this.participants.withParticipant(
         actor,

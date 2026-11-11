@@ -645,7 +645,8 @@ export class ClassAdmissionsService {
             ],
             user: {
               disabledAt: null,
-              ...(group
+              mediaBans: { none: { sessionId, revokedAt: null } },
+              ...(group && !row.allowGuests
                 ? {
                     OR: [
                       { globalRole: "ADMIN" },
@@ -671,6 +672,7 @@ export class ClassAdmissionsService {
           ? await tx.classMediaConnection.findMany({
               where: {
                 participationId: { in: rows.map((row) => row.id) },
+                source: "CAMERA",
                 state: "ACTIVE",
                 lastSeenAt: { gt: new Date(now.getTime() - 30000) },
               },

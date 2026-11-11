@@ -77,6 +77,8 @@ test("T05 DTOs reject forged identities, role, stage ARN and malformed identifie
     { ...valid, stageArn },
     { ...valid, clientId: "device" },
     { ...valid, deviceLabel: 1 },
+    { ...valid, source: "other" },
+    { ...valid, source: null },
   ])
     await assert.rejects(
       pipe.transform(body, { type: "body", metatype: JoinClassMediaDto }),
@@ -444,6 +446,14 @@ test("IVS adapter reuses a tagged Stage, scopes tokens, and waits for compositio
   assert.equal(token.stageArn, stageArn);
   assert.equal(token.userId, "server-user");
   assert.equal(token.duration, 1);
+  assert.deepEqual(token.capabilities, ["PUBLISH", "SUBSCRIBE"]);
+  await adapter.token(stageArn, "server-user", "Server name", "SCREEN");
+  const screenToken = commands.at(-1).input;
+  assert.deepEqual(screenToken.capabilities, ["PUBLISH"]);
+  assert.deepEqual(screenToken.attributes, {
+    fullName: "Server name",
+    "screen-share": "true",
+  });
   assert.equal(await adapter.close(stageArn), false);
   assert.ok(!commands.some((c) => c.constructor.name === "DeleteStageCommand"));
   adapter.onModuleDestroy();

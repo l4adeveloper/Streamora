@@ -92,6 +92,8 @@ test(
         leftAt: null,
         leaveReason: null,
       };
+      const listener = { id: randomUUID(), fullName: "Người nghe" };
+      const listenerVisitId = randomUUID();
       const joins = [];
       let joinFailures = [];
       await context.route("https://fonts.googleapis.com/**", (route) =>
@@ -154,6 +156,12 @@ test(
                   checkedAt: null,
                 },
               },
+              {
+                ...participation,
+                id: listenerVisitId,
+                userId: listener.id,
+                user: listener,
+              },
             ],
             nextCursor: null,
           };
@@ -180,14 +188,24 @@ test(
       await page.goto(`${origin}/sessions/${sessionId}`);
       const panel = page.getByRole("region", { name: "Mic và camera" });
       await panel.waitFor();
-      assert.equal(
-        await panel
-          .getByRole("button", { name: "Bật mic", exact: true })
-          .getAttribute("aria-pressed"),
-        "false",
-        "A microphone that has not been captured must appear off",
+      const unavailable = panel.getByText(
+        "Phòng video chưa sẵn sàng. Vui lòng thử lại sau.",
+        { exact: true },
       );
+      await unavailable.waitFor();
+      assert.equal(joins.length, 1);
+      assert.equal(joins[0].participationId, participationId);
+      assert.match(joins[0].clientId, /^[\da-f-]{36}$/);
+      assert.equal(joins[0].userId, undefined);
       assert.equal(await panel.locator("video").count(), 0);
+      await panel.getByText(listener.fullName, { exact: true }).waitFor();
+      for (const name of ["Bật mic", "Bật camera"])
+        assert.equal(
+          await panel
+            .getByRole("button", { name, exact: true })
+            .getAttribute("aria-pressed"),
+          "false",
+        );
       await panel
         .getByRole("button", { name: "Kiểm tra thiết bị", exact: true })
         .click();
@@ -217,18 +235,6 @@ test(
         ),
         true,
       );
-      await panel
-        .getByRole("button", { name: "Kết nối để nghe", exact: true })
-        .click();
-      await panel
-        .getByText("Phòng video chưa sẵn sàng. Vui lòng thử lại sau.", {
-          exact: true,
-        })
-        .waitFor();
-      assert.equal(joins.length, 1);
-      assert.equal(joins[0].participationId, participationId);
-      assert.match(joins[0].clientId, /^[\da-f-]{36}$/);
-      assert.equal(joins[0].userId, undefined);
       // A temporary preparation/revocation response should keep one intent
       // alive and retry automatically, without another click or token identity.
       joinFailures = ["MEDIA_STARTING", "MEDIA_REVOKING"];
@@ -277,10 +283,11 @@ test(
           .count(),
         0,
       );
-      // Starting the microphone directly must capture audio and connect the
-      // admitted participant. Denying permission must never start a join.
+      // After an automatic connection fails, turning on the microphone can
+      // reconnect the participant. A denied capture must leave it off.
+      joinFailures = [];
       await page.reload();
-      await panel.waitFor();
+      await unavailable.waitFor();
       await page.evaluate(() => {
         window.__getUserMedia = navigator.mediaDevices.getUserMedia.bind(
           navigator.mediaDevices,
@@ -340,8 +347,6 @@ test(
       );
       // Persistent preparation has a bounded wait and gives the user control
       // again. Advance browser time instead of spending two real minutes.
-      await page.reload();
-      await panel.waitFor();
       await page.clock.install();
       joinFailures = Array(100).fill("MEDIA_STARTING");
       await Promise.all([
@@ -349,9 +354,7 @@ test(
           (response) =>
             response.url().endsWith("/join") && response.status() === 409,
         ),
-        panel
-          .getByRole("button", { name: "Kết nối để nghe", exact: true })
-          .click(),
+        page.reload(),
       ]);
       await page.clock.setSystemTime(
         new Date((await page.evaluate(() => Date.now())) + 131000),

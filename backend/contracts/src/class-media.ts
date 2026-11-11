@@ -1,9 +1,11 @@
 export type MediaCapability = "PUBLISH" | "SUBSCRIBE";
+export type ClassMediaSource = "CAMERA" | "SCREEN";
 export interface JoinClassMediaRequest {
   participationId: string;
   clientId: string;
   requestId: string;
   deviceLabel?: string;
+  source?: ClassMediaSource;
 }
 export interface JoinClassMediaResponse {
   requestId: string;
