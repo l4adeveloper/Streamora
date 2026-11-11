@@ -26,6 +26,7 @@
     "test:meetings": "npm run build --workspace=@streamora/api && node --test backend/test/meeting-access.test.cjs",
     "test:meetings:frontend": "npm run build --workspace=@streamora/api && node --test backend/test/frontend/meeting-ui.test.cjs",
     "test:ivs:live": "npm run build --workspace=@streamora/api && node backend/scripts/check-ivs.cjs --live",
+    "test:ivs:workspace-audio": "npm run build --workspace=@streamora/api && node backend/scripts/check-ivs.cjs --live --workspace-audio",
     "test:t04:api": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/class-sessions.test.cjs backend/test/integration/class-sessions-api.test.cjs",
     "test:t04:admission": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/class-admissions.test.cjs backend/test/integration/class-admissions-api.test.cjs",
     "test:t04:realtime": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/integration/class-sessions-realtime.test.cjs",

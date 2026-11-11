@@ -173,6 +173,24 @@ credentials/token nằm tại `.preview/ivs-live-review/report.json`, kèm ảnh
 Lệnh cần Edge trên Windows (hoặc Chromium của Playwright trên hệ điều hành khác)
 và sử dụng AWS trong thời gian ngắn; không chạy trong bộ test mặc định.
 
+Kiểm tra riêng lỗi micro nhiều người trong Workspace:
+
+```sh
+npm run test:ivs:workspace-audio
+```
+
+Bài này dùng ba tài khoản trong ba browser context riêng. Hai học viên vào chỉ
+để nghe, sau đó bật micro bằng nút cạnh tài khoản Workspace; một người bật camera
+trước micro. Kiểm tra hai nút micro của Workspace và cuộc họp cùng trạng thái,
+mỗi người nhận hai nguồn RTP audio có tín hiệu và hai phần tử media thực sự phát.
+Không tắt chính sách autoplay của trình duyệt. Các bước heartbeat, rời phòng,
+thu hồi kết nối và dọn Stage dùng chung với bài kiểm tra hai người.
+
+Nút micro cạnh tài khoản Workspace điều khiển cùng `useClassMedia` với thanh
+thiết bị trong phòng. Bật thiết bị khi đã có lượt tham gia sẽ kết nối IVS nếu
+chưa kết nối; chưa được duyệt thì chỉ xem trước thiết bị. Biểu tượng micro/camera
+phản ánh track thật, không hiển thị bật khi chưa mở thiết bị.
+
 Migration T05 là `20261108000400_class_media`. Trước khi deploy lên DB dùng chung, đối chiếu `npm run db:status`: checkout và DB cần có cùng lịch sử migration. Không reset DB để xử lý nhánh có lịch sử khác.
 
 ## Trạng thái kiểm chứng tại workspace
@@ -190,3 +208,6 @@ Migration T05 là `20261108000400_class_media`. Trước khi deploy lên DB dùn
   thay đổi migration; database kiểm thử chạy toàn bộ migration trên PGlite.
 - SQS đã trả HTTP 200 cho truy vấn thuộc tính queue. Chưa nghiệm thu toàn bộ
   đường EventBridge → SQS → consumer hoặc thiết bị vật lý/mạng của từng người.
+- Ngày 11/11/2026, bài kiểm tra ba người trong Workspace đã đạt với IVS thật:
+  bật micro sau khi vào chỉ nghe, cả ba cùng gửi/nhận audio, playback bình thường,
+  duy trì heartbeat và thu hồi khi rời phòng. Nguồn mic/camera vẫn là giả lập.
