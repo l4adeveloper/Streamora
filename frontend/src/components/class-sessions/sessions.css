@@ -392,6 +392,73 @@
 .class-people .class-actions {
   flex-shrink: 0;
 }
+.class-participant-controls {
+  flex-basis: 100%;
+  min-width: 0;
+}
+.class-participant-controls .class-confirm label {
+  display: grid;
+  gap: 6px;
+}
+.class-participant-controls .class-confirm .class-actions {
+  margin-top: 12px;
+}
+.class-ban-list {
+  margin-top: 16px;
+}
+.class-ban-list summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.class-polls h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.class-poll-form {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.class-poll-form label {
+  display: grid;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+}
+.class-poll-input {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.class-poll {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.class-poll h3 {
+  overflow-wrap: anywhere;
+}
+.class-poll ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.class-poll li .button {
+  width: 100%;
+  justify-content: space-between;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.class-poll li .button strong {
+  flex-shrink: 0;
+}
+.class-poll li .button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--on-accent-soft);
+}
 .class-person-avatar {
   width: 40px;
   height: 40px;

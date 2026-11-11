@@ -46,6 +46,9 @@ model User {
   libraryFiles         LibraryFile[]
   mediaConnections     ClassMediaConnection[]
   mediaBans            SessionBan[]
+  micLocks             SessionMicLock[]
+  createdPolls         ClassPoll[]
+  pollVotes            ClassPollVote[]
 
   uploads UploadSession[]
   @@map("users")
@@ -310,6 +313,8 @@ model ClassSession {
   recordingAssets RecordingAsset[]
   mediaRoom      ClassMediaRoom?
   mediaBans      SessionBan[]
+  micLocks       SessionMicLock[]
+  polls          ClassPoll[]
   announcement  GroupChatMessage?
 
   @@index([groupId, scheduledAt, id], map: "class_sessions_group_schedule_idx")
@@ -428,11 +433,61 @@ model ClassSessionChange {
   sessionId     String       @map("session_id") @db.Uuid
   kind          String       @db.VarChar(32)
   subjectUserId String?      @map("subject_user_id") @db.Uuid
+  payload       Json?        @db.JsonB
   createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   session       ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
 
   @@index([sessionId, version])
   @@map("class_session_changes")
+}
+
+enum ClassPollStatus {
+  OPEN
+  CLOSED
+
+  @@map("class_poll_status")
+}
+
+model ClassPoll {
+  id          String          @id @default(uuid()) @db.Uuid
+  sessionId   String          @map("session_id") @db.Uuid
+  createdById String          @map("created_by_id") @db.Uuid
+  question    String          @db.VarChar(300)
+  status      ClassPollStatus @default(OPEN)
+  version     BigInt          @default(1)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  closedAt    DateTime?       @map("closed_at") @db.Timestamptz(3)
+  session     ClassSession    @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  createdBy   User            @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  options     ClassPollOption[]
+
+  @@index([sessionId, createdAt, id])
+  @@map("class_polls")
+}
+
+model ClassPollOption {
+  pollId   String          @map("poll_id") @db.Uuid
+  id       String          @default(uuid()) @db.Uuid
+  position Int
+  text     String          @db.VarChar(150)
+  poll     ClassPoll       @relation(fields: [pollId], references: [id], onDelete: Restrict)
+  votes    ClassPollVote[]
+
+  @@id([pollId, id])
+  @@unique([pollId, position])
+  @@map("class_poll_options")
+}
+
+model ClassPollVote {
+  pollId   String          @map("poll_id") @db.Uuid
+  userId   String          @map("user_id") @db.Uuid
+  optionId String          @map("option_id") @db.Uuid
+  option   ClassPollOption @relation(fields: [pollId, optionId], references: [pollId, id], onDelete: Restrict)
+  user     User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([pollId, userId])
+  @@index([pollId, optionId])
+  @@map("class_poll_votes")
 }
 
 enum FileStatus {
@@ -578,6 +633,7 @@ model ClassMediaConnection {
   leaseUntil DateTime? @map("lease_until") @db.Timestamptz(3)
   state String @default("ISSUING") @db.VarChar(20)
   connected Boolean @default(false)
+  canPublish Boolean @default(true) @map("can_publish")
   micEnabled Boolean? @map("mic_enabled")
   cameraEnabled Boolean? @map("camera_enabled")
   lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
@@ -600,16 +656,26 @@ model ClassMediaRequest {
   @@map("class_media_requests")
 }
 
-// T07 can write bans through its own authorized moderation APIs.
 model SessionBan {
   sessionId String @map("session_id") @db.Uuid
   userId String @map("user_id") @db.Uuid
   bannedAt DateTime @default(now()) @map("banned_at") @db.Timestamptz(3)
+  reason String? @db.VarChar(500)
   revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
   session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
   @@id([sessionId, userId])
+  @@index([sessionId, revokedAt, bannedAt, userId])
   @@map("session_bans")
+}
+
+model SessionMicLock {
+  sessionId String @map("session_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  @@id([sessionId, userId])
+  @@map("session_mic_locks")
 }
 
 // Durable inbox: unhandled composition/recording events wait for a T11 handler.

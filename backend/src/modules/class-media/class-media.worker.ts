@@ -44,7 +44,8 @@ export class ClassMediaWorker
         include: { room: true },
       });
       for (const row of rows) {
-        if (this.stopping || !row.room.stageArn) break;
+        if (this.stopping) break;
+        if (!row.room.stageArn) continue;
         const claimed = await this.db.classMediaConnection.updateMany({
           where: { id: row.id, checkedAt: row.checkedAt },
           data: { checkedAt: new Date(Date.now() + 20000) },

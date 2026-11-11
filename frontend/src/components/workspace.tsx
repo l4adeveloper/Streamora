@@ -1179,6 +1179,7 @@ export function Workspace({
             (!meetingState?.active ||
               meetingState.pending ||
               meetingState.media?.busy ||
+              meetingState.media?.publishLocked ||
               roomSwitching)
           }
           onClick={() => toggleMedia("mic")}

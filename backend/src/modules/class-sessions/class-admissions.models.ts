@@ -55,6 +55,8 @@ export class ClassMediaStateDto {
 export class ClassParticipationWithUserDto extends ClassParticipationDto {
   @ApiProperty({ type: ClassSessionUserDto }) user!: ClassSessionUserDto;
   @ApiPropertyOptional({ type: ClassMediaStateDto }) media?: ClassMediaStateDto;
+  @ApiPropertyOptional() micLocked?: boolean;
+  @ApiPropertyOptional() canModerate?: boolean;
 }
 export class ClassJoinRequestResponseDto {
   @ApiProperty({ type: ClassJoinRequestDto }) request!: ClassJoinRequest;
@@ -78,12 +80,14 @@ export class ClassSessionPermissionsDto implements ClassSessionPermissions {
   @ApiProperty() canRequestJoin!: boolean;
   @ApiProperty() canEnter!: boolean;
   @ApiProperty() canViewParticipants!: boolean;
+  @ApiPropertyOptional() canViewPolls?: boolean;
 }
 export class ClassAdmissionResponseDto implements ClassAdmissionResponse {
   @ApiProperty({ type: ClassJoinRequestDto, nullable: true })
   request!: ClassJoinRequest | null;
   @ApiProperty({ type: ClassParticipationDto, nullable: true })
   participation!: ClassParticipation | null;
+  @ApiPropertyOptional() micLocked?: boolean;
   @ApiProperty({ type: ClassSessionPermissionsDto })
   permissions!: ClassSessionPermissions;
 }

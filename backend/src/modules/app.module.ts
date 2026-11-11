@@ -9,6 +9,8 @@ import { GroupsModule } from "./groups/groups.module";
 import { MembershipsModule } from "./memberships/memberships.module";
 import { ClassSessionsModule } from "./class-sessions/class-sessions.module";
 import { ClassMediaModule } from "./class-media/class-media.module";
+import { ClassModerationModule } from "./class-moderation/class-moderation.module";
+import { PollsModule } from "./polls/polls.module";
 import { DatabaseModule } from "../database/database.module";
 import { ConfigurationModule } from "../config/configuration.module";
 import type { EnvironmentConfig } from "../config/environment";
@@ -31,6 +33,8 @@ class HealthController {
     MembershipsModule,
     ClassSessionsModule,
     ClassMediaModule,
+    ClassModerationModule,
+    PollsModule,
     CommunitiesModule,
     RoomsModule,
     FilesModule,

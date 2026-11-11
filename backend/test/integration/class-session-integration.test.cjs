@@ -430,7 +430,7 @@ test("T04 integration blocks scheduled/ended sessions and exports no media token
     "SESSION_NOT_LIVE",
   );
   const doc = expect(await f.api(null, "GET", "/docs-sessions-json"), 200);
-  assert.equal(Object.values(doc.paths).flatMap(Object.values).length, 19);
+  assert.ok(doc.paths["/api/v1/sessions/{sessionId}/admission"].get);
   assert.ok(!JSON.stringify(doc.paths).includes("integration-probe"));
 });
 

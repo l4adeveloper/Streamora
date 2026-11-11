@@ -64,7 +64,7 @@ test("T04 admission DTOs reject forged decisions, identities, roles and unsuppor
 test("T04 admission OpenAPI requires replay keys and exposes only safe admission contracts", async () => {
   const doc = await exportClassSessionsOpenApi({ check: true });
   const root = "/api/v1/sessions/{sessionId}";
-  assert.equal(Object.values(doc.paths).flatMap(Object.values).length, 20);
+  assert.equal(Object.values(doc.paths).flatMap(Object.values).length, 28);
   for (const path of ["join-requests", "enter"]) {
     const operation = doc.paths[`${root}/${path}`].post;
     assert.ok(

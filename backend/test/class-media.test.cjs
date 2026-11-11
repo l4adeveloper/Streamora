@@ -221,6 +221,7 @@ function fixture() {
     },
     $queryRaw: async () => [],
     sessionBan: { findFirst: async () => (banned ? { sessionId } : null) },
+    sessionMicLock: { findUnique: async () => null },
     user: { findUniqueOrThrow: async () => ({ fullName: "Tên từ server" }) },
     classMediaConnection: {
       findUnique: async () => row,
@@ -454,6 +455,8 @@ test("IVS adapter reuses a tagged Stage, scopes tokens, and waits for compositio
     fullName: "Server name",
     "screen-share": "true",
   });
+  await adapter.token(stageArn, "server-user", "Server name", "CAMERA", false);
+  assert.deepEqual(commands.at(-1).input.capabilities, ["SUBSCRIBE"]);
   assert.equal(await adapter.close(stageArn), false);
   assert.ok(!commands.some((c) => c.constructor.name === "DeleteStageCommand"));
   adapter.onModuleDestroy();
