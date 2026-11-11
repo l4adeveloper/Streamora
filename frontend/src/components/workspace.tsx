@@ -176,7 +176,6 @@ export function Workspace({
     void changeWorkspace(() => {
       setMeetingSelection(null);
       setRoomInfo(null);
-      setChannel("trò-chuyện-chung");
       setPanelTab("chat");
       setMembersView(false);
       const url = new URL(location.href);
