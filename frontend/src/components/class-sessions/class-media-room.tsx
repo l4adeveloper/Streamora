@@ -33,11 +33,15 @@ function MediaTile({
   name,
   camera = true,
   screen = false,
+  isLocal = false,
+  enhanced = true,
 }: {
   stream?: MediaStream;
   name: string;
   camera?: boolean;
   screen?: boolean;
+  isLocal?: boolean;
+  enhanced?: boolean;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   useEffect(() => {
@@ -49,6 +53,17 @@ function MediaTile({
       element.srcObject = null;
     };
   }, [stream]);
+
+  const isVideoMirrored = isLocal && !screen;
+  const isVideoEnhanced = !screen && enhanced;
+  const videoClasses = [
+    screen ? "class-media-screen-video" : camera ? "" : "camera-off",
+    isVideoMirrored ? "class-media-mirrored" : "",
+    isVideoEnhanced ? "class-media-enhanced" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div className="class-media-tile">
       {stream && (
@@ -58,9 +73,7 @@ function MediaTile({
           playsInline
           muted
           aria-label={name}
-          className={
-            screen ? "class-media-screen-video" : camera ? "" : "camera-off"
-          }
+          className={videoClasses}
         />
       )}
       {!camera && !screen && (
@@ -365,6 +378,7 @@ export function ClassMediaRoom({
                   media.cameraEnabled &&
                   !!media.preview?.getVideoTracks().length
                 }
+                isLocal
               />
             </div>
           ) : (
@@ -387,6 +401,7 @@ export function ClassMediaRoom({
                   media.cameraEnabled &&
                   media.preview.getVideoTracks().length > 0
                 }
+                isLocal
               />
             </div>
           )}
@@ -638,6 +653,7 @@ export function ClassMediaRoom({
             camera={
               media.cameraEnabled && !!media.preview?.getVideoTracks().length
             }
+            isLocal
           />
         ) : (
           <div className="class-media-placeholder">

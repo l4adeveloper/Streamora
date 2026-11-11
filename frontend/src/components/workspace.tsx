@@ -714,7 +714,23 @@ export function Workspace({
               audio: true,
             })
           : await navigator.mediaDevices.getUserMedia(
-              kind === "camera" ? { video: true } : { audio: true },
+              kind === "camera"
+                ? {
+                    video: {
+                      width: { ideal: 1920, min: 640 },
+                      height: { ideal: 1080, min: 480 },
+                      frameRate: { ideal: 30, max: 60 },
+                      facingMode: "user",
+                      aspectRatio: { ideal: 1.7777777778 },
+                    },
+                  }
+                : {
+                    audio: {
+                      echoCancellation: true,
+                      noiseSuppression: true,
+                      autoGainControl: true,
+                    },
+                  },
             );
       ref.current = stream;
       setter(true);

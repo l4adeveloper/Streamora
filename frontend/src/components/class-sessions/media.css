@@ -513,6 +513,20 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: high-quality;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+.class-media-tile video.class-media-mirrored {
+  transform: scaleX(-1) translateZ(0);
+}
+.class-media-tile video.class-media-enhanced {
+  filter: contrast(1.05) saturate(1.08) brightness(1.02);
+}
+.class-media-tile video.class-media-mirrored.class-media-enhanced {
+  transform: scaleX(-1) translateZ(0);
+  filter: contrast(1.05) saturate(1.08) brightness(1.02);
 }
 .class-media-tile video.camera-off {
   opacity: 0;
