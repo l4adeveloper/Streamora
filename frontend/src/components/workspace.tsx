@@ -1782,7 +1782,23 @@ export function Workspace({
                         {camera ? (
                           <video ref={localVideo} autoPlay playsInline muted />
                         ) : (
-                          <Avatar initials="BA" />
+                          <div
+                            className={`avatar-speaking-wrapper ${
+                              mic ? "speaking" : ""
+                            }`}
+                          >
+                            {mic && (
+                              <div
+                                className="audio-sound-waves"
+                                aria-hidden="true"
+                              >
+                                <span className="sound-wave wave-1" />
+                                <span className="sound-wave wave-2" />
+                                <span className="sound-wave wave-3" />
+                              </div>
+                            )}
+                            <Avatar initials="BA" />
+                          </div>
                         )}
                         <div className="participant-label">
                           Bạn <small>Người tổ chức</small>

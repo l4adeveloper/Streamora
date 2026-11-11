@@ -28,6 +28,115 @@ import { InlineNotice } from "@/components/common/feedback";
 import { useAuth } from "@/components/auth/auth-provider";
 import "./media.css";
 
+function useAudioSpeaking(
+  stream?: MediaStream,
+  active = true,
+  fallbackSpeaking?: boolean,
+) {
+  const [speaking, setSpeaking] = useState(false);
+  const speakingRef = useRef(false);
+
+  useEffect(() => {
+    if (!active || !stream) {
+      setSpeaking(false);
+      speakingRef.current = false;
+      return;
+    }
+
+    const audioTracks = stream.getAudioTracks();
+    const liveTrack = audioTracks.find(
+      (t) => t.readyState === "live" && t.enabled,
+    );
+    if (!liveTrack) {
+      setSpeaking(false);
+      speakingRef.current = false;
+      return;
+    }
+
+    const AudioContextClass =
+      typeof window !== "undefined"
+        ? window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext
+        : null;
+
+    if (!AudioContextClass) {
+      return;
+    }
+
+    let ctx: AudioContext | null = null;
+    let sourceNode: MediaStreamAudioSourceNode | null = null;
+    let analyserNode: AnalyserNode | null = null;
+    let animFrame: number | null = null;
+    let clearTimer: ReturnType<typeof setTimeout> | null = null;
+    let isDisposed = false;
+
+    try {
+      ctx = new AudioContextClass();
+      if (ctx.state === "suspended") {
+        void ctx.resume().catch(() => {});
+      }
+      const mediaStream = new MediaStream([liveTrack]);
+      sourceNode = ctx.createMediaStreamSource(mediaStream);
+      analyserNode = ctx.createAnalyser();
+      analyserNode.fftSize = 256;
+      analyserNode.smoothingTimeConstant = 0.4;
+      sourceNode.connect(analyserNode);
+
+      const buffer = new Uint8Array(analyserNode.frequencyBinCount);
+
+      const checkVolume = () => {
+        if (isDisposed || !analyserNode) return;
+        analyserNode.getByteFrequencyData(buffer);
+        let sum = 0;
+        for (let i = 0; i < buffer.length; i++) {
+          sum += buffer[i];
+        }
+        const avg = sum / buffer.length;
+        const isSpeakingNow = avg > 12;
+
+        if (isSpeakingNow) {
+          if (clearTimer) {
+            clearTimeout(clearTimer);
+            clearTimer = null;
+          }
+          if (!speakingRef.current) {
+            speakingRef.current = true;
+            setSpeaking(true);
+          }
+        } else if (speakingRef.current && !clearTimer) {
+          clearTimer = setTimeout(() => {
+            speakingRef.current = false;
+            setSpeaking(false);
+            clearTimer = null;
+          }, 400);
+        }
+
+        animFrame = requestAnimationFrame(checkVolume);
+      };
+
+      animFrame = requestAnimationFrame(checkVolume);
+    } catch {
+      // AudioContext fallback
+    }
+
+    return () => {
+      isDisposed = true;
+      if (animFrame) cancelAnimationFrame(animFrame);
+      if (clearTimer) clearTimeout(clearTimer);
+      try {
+        sourceNode?.disconnect();
+        analyserNode?.disconnect();
+        void ctx?.close();
+      } catch {}
+    };
+  }, [stream, active]);
+
+  return fallbackSpeaking !== undefined
+    ? fallbackSpeaking || speaking
+    : speaking;
+}
+
 function MediaTile({
   stream,
   name,
@@ -35,6 +144,7 @@ function MediaTile({
   screen = false,
   isLocal = false,
   enhanced = true,
+  speaking,
 }: {
   stream?: MediaStream;
   name: string;
@@ -42,6 +152,7 @@ function MediaTile({
   screen?: boolean;
   isLocal?: boolean;
   enhanced?: boolean;
+  speaking?: boolean;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   useEffect(() => {
@@ -54,6 +165,9 @@ function MediaTile({
     };
   }, [stream]);
 
+  const isAudioSpeaking = useAudioSpeaking(stream, !screen, speaking);
+  const isSpeaking = speaking !== undefined ? speaking || isAudioSpeaking : isAudioSpeaking;
+
   const isVideoMirrored = isLocal && !screen;
   const isVideoEnhanced = !screen && enhanced;
   const videoClasses = [
@@ -65,7 +179,7 @@ function MediaTile({
     .join(" ");
 
   return (
-    <div className="class-media-tile">
+    <div className={`class-media-tile ${isSpeaking ? "speaking" : ""}`}>
       {stream && (
         <video
           ref={video}
@@ -77,9 +191,22 @@ function MediaTile({
         />
       )}
       {!camera && !screen && (
-        <span className="class-media-avatar" aria-hidden="true">
-          {name.slice(0, 1).toUpperCase()}
-        </span>
+        <div
+          className={`class-media-avatar-container ${
+            isSpeaking ? "speaking" : ""
+          }`}
+        >
+          {isSpeaking && (
+            <div className="audio-sound-waves" aria-hidden="true">
+              <span className="sound-wave wave-1" />
+              <span className="sound-wave wave-2" />
+              <span className="sound-wave wave-3" />
+            </div>
+          )}
+          <span className="class-media-avatar" aria-hidden="true">
+            {name.slice(0, 1).toUpperCase()}
+          </span>
+        </div>
       )}
       <span className="class-media-name">{name}</span>
     </div>

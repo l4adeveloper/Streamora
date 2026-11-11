@@ -554,7 +554,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.class-media-avatar {
+/* Trạng thái người đang nói: Khung viền xanh bên ngoài khi bật cam */
+.class-media-tile.speaking {
+  border-color: #22c55e !important;
+  box-shadow: 0 0 0 2.5px #22c55e, 0 0 16px rgba(34, 197, 94, 0.5) !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.workspace-media-feature .class-media-tile.speaking {
+  box-shadow: inset 0 0 0 3px #22c55e, inset 0 0 22px rgba(34, 197, 94, 0.45) !important;
+}
+
+/* Khung bọc ảnh đại diện */
+.class-media-avatar-container {
   position: absolute;
   left: 50%;
   top: 45%;
@@ -562,11 +573,92 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.workspace-media-feature .class-media-avatar-container {
+  width: 96px;
+  height: 96px;
+}
+
+.class-media-avatar {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   background: #6d4bc3;
   color: #fff;
   font-size: 28px;
+  transition: all 0.2s ease;
+  z-index: 2;
+}
+.workspace-media-feature .class-media-avatar {
+  background: #28476c;
+  font-size: 38px;
+}
+
+/* Khung viền xanh quanh ảnh đại diện khi người đó đang nói (khi tắt cam) */
+.class-media-avatar-container.speaking .class-media-avatar {
+  border: 3.5px solid #22c55e !important;
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.8), inset 0 0 8px rgba(34, 197, 94, 0.35) !important;
+}
+
+/* Sóng âm thanh tỏa từ giữa ảnh đại diện ra ngoài (chỉ khi tắt cam) */
+.audio-sound-waves {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.audio-sound-waves .sound-wave {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(34, 197, 94, 0.85);
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.22) 0%, rgba(34, 197, 94, 0.05) 60%, transparent 100%);
+  transform-origin: center center;
+  animation: audio-wave-radiate 1.8s cubic-bezier(0.15, 0.6, 0.25, 1) infinite;
+}
+
+.audio-sound-waves .wave-1 {
+  animation-delay: 0s;
+}
+.audio-sound-waves .wave-2 {
+  animation-delay: 0.6s;
+}
+.audio-sound-waves .wave-3 {
+  animation-delay: 1.2s;
+}
+
+@keyframes audio-wave-radiate {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.95;
+    border-width: 3px;
+  }
+  50% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(2.3);
+    opacity: 0;
+    border-width: 1px;
+  }
 }
 .class-media-placeholder {
   display: grid;
