@@ -289,7 +289,7 @@ export function Workspace({
   }, [user?.id]);
   const [membersView, setMembersView] = useState(false);
   const [panel, setPanel] = useState(view !== "files" && view !== "meetings");
-  const [panelTab, setPanelTab] = useState<"chat" | "members">(
+  const [panelTab, setPanelTab] = useState<"chat" | "group-chat" | "members">(
     view === "chat" ? "members" : "chat",
   );
   const [modal, setModal] = useState<string | null>(null);
@@ -783,6 +783,13 @@ export function Workspace({
     setMembersView(false);
     setMobileNav(false);
     if (activeMeetingId) {
+      const targetHref = event.currentTarget.getAttribute("href") ?? "";
+      if (targetHref.startsWith("/community")) {
+        event.preventDefault();
+        setPanel(true);
+        setPanelTab("group-chat");
+        return;
+      }
       event.preventDefault();
       const href = event.currentTarget.href;
       void changeWorkspace(() => {
@@ -1723,6 +1730,15 @@ export function Workspace({
                     {view === "meetings" ? "Chat cuộc họp" : "Trò chuyện"}{" "}
                     {view !== "meetings" && <span>{messages.length}</span>}
                   </button>
+                  {view === "meetings" && (
+                    <button
+                      className={panelTab === "group-chat" ? "selected" : ""}
+                      onClick={() => setPanelTab("group-chat")}
+                    >
+                      Trò chuyện chung{" "}
+                      {messages.length > 0 && <span>{messages.length}</span>}
+                    </button>
+                  )}
                   <button
                     className={panelTab === "members" ? "selected" : ""}
                     onClick={() => setPanelTab("members")}
@@ -1746,7 +1762,8 @@ export function Workspace({
                   canChat={roomState?.active || !!roomState?.canManage}
                   userId={roomState?.userId ?? user?.id}
                 />
-              ) : view !== "chat" && panelTab === "chat" ? (
+              ) : (view === "meetings" && panelTab === "group-chat") ||
+                (view !== "chat" && panelTab === "chat") ? (
                 <WorkspaceChat {...chatProps} />
               ) : view === "meetings" && activeMeetingId ? (
                 roomState?.sessionId === activeMeetingId ? (
