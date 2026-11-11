@@ -199,6 +199,7 @@ export class ClassAdmissionsService {
       sessionId,
       false,
       async (tx, row, manage) => {
+        const direct = await this.access.directEntry(tx, userId, row, manage);
         const request =
           (await this.request(tx, sessionId, userId)) ??
           (await tx.classJoinRequest.findFirst({
@@ -225,14 +226,14 @@ export class ClassAdmissionsService {
             canManage: manage,
             canRequestJoin:
               row.status === "LIVE" &&
-              !manage &&
+              !direct &&
               !active &&
               (!request ||
                 !["PENDING", "ACCEPTED"].includes(request.status) ||
                 (consumed && !active)),
             canEnter:
               row.status === "LIVE" &&
-              (manage ||
+              (direct ||
                 !!active ||
                 (request?.status === "ACCEPTED" && !consumed)),
             canViewParticipants: manage || !!active,
@@ -265,7 +266,10 @@ export class ClassAdmissionsService {
             throw new ApiError(403, "FORBIDDEN", "Không có quyền đọc yêu cầu.");
           return { request: toClassJoinRequest(request) };
         }
-        if (manage || (await this.access.activeVisit(tx, userId, row)))
+        if (
+          (await this.access.directEntry(tx, userId, row, manage)) ||
+          (await this.access.activeVisit(tx, userId, row))
+        )
           throw new ApiError(
             409,
             "JOIN_REQUEST_NOT_REQUIRED",
@@ -430,15 +434,16 @@ export class ClassAdmissionsService {
         }
         let visit = active;
         if (!visit) {
+          const direct = await this.access.directEntry(tx, userId, row, manage);
           const request = await this.request(tx, sessionId, userId);
-          if (!manage && request?.status !== "ACCEPTED")
+          if (!direct && request?.status !== "ACCEPTED")
             throw new ApiError(
               403,
               "ADMISSION_REQUIRED",
               "Bạn cần được chấp nhận trước khi vào phòng.",
             );
           const now = await this.now(tx);
-          if (manage && request)
+          if (direct && request)
             await tx.classJoinRequest.update({
               where: { id: request.id },
               data: { status: "EXPIRED", closedAt: now },
@@ -447,7 +452,7 @@ export class ClassAdmissionsService {
             data: {
               sessionId,
               userId,
-              joinRequestId: manage ? null : request!.id,
+              joinRequestId: direct ? null : request!.id,
               joinedAt: now,
               lastSeenAt: now,
             },

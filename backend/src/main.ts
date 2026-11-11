@@ -14,6 +14,7 @@ async function bootstrap() {
 }
 void bootstrap().catch((error: unknown) => {
   // Never print configuration values, connection strings or signing keys.
+  console.error("DEBUG ERROR:", error);
   console.error(
     error instanceof ConfigurationError
       ? error.message

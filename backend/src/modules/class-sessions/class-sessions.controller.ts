@@ -131,6 +131,16 @@ export class GroupClassSessionsController {
 export class ClassSessionsController {
   constructor(private readonly sessions: ClassSessionsService) {}
 
+  @Get("access")
+  @ApiOperation({ summary: "Xác thực quyền và xác định giao diện Meeting" })
+  @ApiSuccess(200, MeetPreviewResponseDto)
+  resolve(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("sessionId", UUIDParamPipe) id: string,
+  ) {
+    return this.sessions.resolve(auth.user.id, id);
+  }
+
   @Get()
   @ApiOperation({
     summary: "T04-03 — Chi tiết buổi học",

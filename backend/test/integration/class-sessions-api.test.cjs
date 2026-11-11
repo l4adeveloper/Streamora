@@ -87,7 +87,7 @@ async function lesson(groupId, actor = owner, body = {}, options = {}) {
       actor,
       "POST",
       `/groups/${groupId}/sessions`,
-      { title: "Lớp T04", scheduledAt, ...body },
+      { title: "Lớp T04", scheduledAt, memberAdmission: "APPROVAL", ...body },
       options,
     ),
     201,
@@ -322,7 +322,10 @@ test("T04 details resolve group access from the stored session and use no-store 
     404,
     "SESSION_NOT_FOUND",
   );
-  expect(await api(viewer, "GET", `/meets/${s.joinCode}`), 404);
+  assert.equal(
+    expect(await api(viewer, "GET", `/meets/${s.joinCode}`), 200).meet.mode,
+    "WORKSPACE",
+  );
 });
 
 test("T04 only managers edit SCHEDULED sessions; group schedules cannot be cleared", async () => {
@@ -360,7 +363,7 @@ test("T04 only managers edit SCHEDULED sessions; group schedules cannot be clear
   );
   expect(await api(owner, "POST", `/sessions/${s.id}/start`, {}), 200);
   expect(
-    await api(owner, "PATCH", `/sessions/${s.id}`, { title: "late" }),
+    await api(owner, "PATCH", `/sessions/${s.id}`, { scheduledAt }),
     409,
     "SESSION_NOT_EDITABLE",
   );
@@ -629,8 +632,12 @@ test("T04 independent meet discovery is minimal and management belongs to creato
   const preview = await api(outsider, "GET", `/meets/${s.joinCode}`);
   const minimal = expect(preview, 200).meet;
   assert.deepEqual(Object.keys(minimal).sort(), [
+    "allowGuests",
+    "groupId",
     "host",
     "id",
+    "joinCode",
+    "mode",
     "status",
     "title",
   ]);
@@ -696,7 +703,7 @@ test("T04 Swagger is available independently and never exposes credentials or me
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   const document = await response.json();
-  assert.equal(Object.values(document.paths).flatMap(Object.values).length, 19);
+  assert.equal(Object.values(document.paths).flatMap(Object.values).length, 20);
   assert.ok(document.paths["/api/v1/groups/{groupId}/sessions"]);
   assert.doesNotMatch(
     JSON.stringify(document.components.schemas.ClassSessionDto),

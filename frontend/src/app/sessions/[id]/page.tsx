@@ -1,5 +1,5 @@
 import { RequireSession } from "@/components/auth/require-session";
-import { SessionRoom } from "@/components/class-sessions/session-room";
+import { MeetingEntry } from "@/components/class-sessions/meeting-entry";
 export const metadata = { title: "Buổi học — Streamora" };
 export default async function Page({
   params,
@@ -9,7 +9,7 @@ export default async function Page({
   const { id } = await params;
   return (
     <RequireSession preserveDestination>
-      <SessionRoom key={id} sessionId={id} />
+      <MeetingEntry key={id} sessionId={id} />
     </RequireSession>
   );
 }

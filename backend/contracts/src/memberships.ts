@@ -43,6 +43,7 @@ export interface GroupChatMessage {
   channel: string;
   text: string;
   replyToId: string | null;
+  meetingId?: string | null;
   createdAt: string;
   editedAt: string | null;
 }

@@ -11,6 +11,8 @@ interface ClassSessionBase {
   id: string;
   createdById: string;
   title: string;
+  allowGuests: boolean;
+  memberAdmission: "DIRECT" | "APPROVAL";
   description: string | null;
   /** Discovery only; knowing the code never grants admission. */
   joinCode: string;
@@ -49,6 +51,11 @@ export interface MeetPreview {
   title: string;
   host: ClassSessionUser;
   status: ClassSessionStatus;
+  groupId: string | null;
+  allowGuests: boolean;
+  /** Resolved by the server from current membership, never from URL parameters. */
+  mode: "WORKSPACE" | "STANDALONE";
+  joinCode: string;
 }
 
 export interface ClassJoinRequest {
@@ -84,9 +91,12 @@ export interface ClassParticipationWithUser extends ClassParticipation {
 }
 
 export interface CreateGroupClassSessionRequest {
-  title: string;
+  title?: string;
+  allowGuests?: boolean;
+  /** Compatibility for scheduled classes using the existing approval workflow. */
+  memberAdmission?: "DIRECT" | "APPROVAL";
   description?: string;
-  scheduledAt: string;
+  scheduledAt?: string;
 }
 
 export interface CreateMeetRequest {
@@ -234,4 +244,31 @@ export interface ClassParticipationClosed {
 }
 export type ClassRealtimeAck<T = Record<string, never>> =
   | { ok: true; data: T }
+  | { ok: false; error: { code: string; message: string } };
+
+// ─── Meeting Chat ─────────────────────────────────────────────────────────────
+
+export interface MeetingChatMessage {
+  id: string;
+  clientId: string | null;
+  sessionId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: "HOST" | "VIEWER" | "ADMIN";
+  text: string;
+  replyToId: string | null;
+  createdAt: string;
+}
+
+export interface MeetingChatDeleted {
+  id: string;
+  sessionId: string;
+}
+
+export type MeetingChatJoinAck =
+  | { ok: true; sessionId: string; messages: MeetingChatMessage[] }
+  | { ok: false; error: { code: string; message: string } };
+
+export type MeetingChatSendAck =
+  | { ok: true; id: string }
   | { ok: false; error: { code: string; message: string } };

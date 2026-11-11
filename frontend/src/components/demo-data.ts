@@ -1,4 +1,4 @@
-export type View = "live" | "meet" | "files" | "chat" | "room";
+export type View = "live" | "meet" | "meetings" | "files" | "chat" | "room";
 export type ChatMessage = {
   id?: string;
   clientId?: string | null;
@@ -10,6 +10,7 @@ export type ChatMessage = {
   time: string;
   createdAt?: string;
   replyToId?: string | null;
+  meetingId?: string | null;
   editedAt?: string | null;
   host?: boolean;
   pending?: boolean;

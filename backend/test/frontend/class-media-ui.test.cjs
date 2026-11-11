@@ -8,7 +8,7 @@ const { randomUUID } = require("node:crypto");
 const { chromium } = require("playwright");
 
 test(
-  "T05 browser previews devices, releases tracks, handles missing IVS and fits mobile",
+  "T05 browser previews devices, retries room preparation, cancels retries on stop and fits mobile",
   { timeout: 120000 },
   async () => {
     const root = resolve(__dirname, "../../..");
@@ -27,7 +27,7 @@ test(
         String(port),
       ],
       {
-        cwd: resolve(root, "frontend"),
+        cwd: process.env.STREAMORA_TEST_WEB_ROOT ?? resolve(root, "frontend"),
         env: { ...process.env, NODE_ENV: "production" },
         stdio: "ignore",
         windowsHide: true,
@@ -93,6 +93,7 @@ test(
         leaveReason: null,
       };
       const joins = [];
+      let joinFailures = [];
       await context.route("https://fonts.googleapis.com/**", (route) =>
         route.abort(),
       );
@@ -113,6 +114,22 @@ test(
         if (path.endsWith("/auth/refresh"))
           body = { accessToken: "test-bearer", expiresIn: 900, user };
         else if (path.endsWith("/users/me")) body = { user };
+        else if (
+          path.endsWith("/access") ||
+          path === `/api/v1/meets/${session.joinCode}`
+        )
+          body = {
+            meet: {
+              id: sessionId,
+              title: session.title,
+              host: user,
+              status: "LIVE",
+              groupId: null,
+              allowGuests: false,
+              mode: "STANDALONE",
+              joinCode: session.joinCode,
+            },
+          };
         else if (path.endsWith("/admission"))
           body = {
             request: null,
@@ -143,11 +160,12 @@ test(
         else if (path === `/api/v1/sessions/${sessionId}`) body = { session };
         else if (path.endsWith("/join")) {
           joins.push(request.postDataJSON());
+          const code = joinFailures.shift() ?? "MEDIA_UNAVAILABLE";
           return route.fulfill({
-            status: 503,
+            status: code === "MEDIA_UNAVAILABLE" ? 503 : 409,
             headers,
             body: JSON.stringify({
-              error: { code: "MEDIA_UNAVAILABLE", message: "Unavailable" },
+              error: { code, message: "Test response" },
               requestId: randomUUID(),
             }),
           });
@@ -203,6 +221,84 @@ test(
       assert.equal(joins[0].participationId, participationId);
       assert.match(joins[0].clientId, /^[\da-f-]{36}$/);
       assert.equal(joins[0].userId, undefined);
+      // A temporary preparation/revocation response should keep one intent
+      // alive and retry automatically, without another click or token identity.
+      joinFailures = ["MEDIA_STARTING", "MEDIA_REVOKING"];
+      await panel
+        .getByRole("button", { name: "Kết nối để nghe", exact: true })
+        .click();
+      await page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/join") && response.status() === 503,
+      );
+      await panel
+        .getByText("Phòng video chưa sẵn sàng. Vui lòng thử lại sau.", {
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(joins.length, 4);
+      assert.deepEqual(joins[1], joins[2]);
+      assert.deepEqual(joins[2], joins[3]);
+      // Stop while waiting must cancel the retry timer and stop all tracks.
+      await panel
+        .getByRole("button", { name: "Kiểm tra thiết bị", exact: true })
+        .click();
+      await panel.locator("video").waitFor();
+      joinFailures = Array(20).fill("MEDIA_STARTING");
+      await panel
+        .getByRole("button", { name: "Kết nối mic/camera", exact: true })
+        .click();
+      await page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/join") && response.status() === 409,
+      );
+      // Leaving the participation stops media even while device controls are busy.
+      await page
+        .getByRole("button", { name: "Rời phòng", exact: true })
+        .click();
+      const stoppedCount = joins.length;
+      await page.waitForTimeout(1600);
+      assert.equal(joins.length, stoppedCount);
+      assert.equal(await panel.locator("video").count(), 0);
+      assert.equal(
+        await panel
+          .getByText(
+            "Phòng video đang được chuẩn bị. Vui lòng thử lại sau vài giây.",
+            { exact: true },
+          )
+          .count(),
+        0,
+      );
+      // Persistent preparation has a bounded wait and gives the user control
+      // again. Advance browser time instead of spending two real minutes.
+      await page.reload();
+      await panel.waitFor();
+      await page.clock.install();
+      joinFailures = Array(100).fill("MEDIA_STARTING");
+      await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/join") && response.status() === 409,
+        ),
+        panel
+          .getByRole("button", { name: "Kết nối để nghe", exact: true })
+          .click(),
+      ]);
+      await page.clock.setSystemTime(
+        new Date((await page.evaluate(() => Date.now())) + 131000),
+      );
+      await page.clock.runFor(1000);
+      await panel
+        .getByText(
+          "Phòng video đang được chuẩn bị. Vui lòng thử lại sau vài giây.",
+          { exact: true },
+        )
+        .waitFor();
+      assert.ok(
+        await panel
+          .getByRole("button", { name: "Kết nối để nghe", exact: true })
+          .isEnabled(),
+      );
       mkdirSync(resolve(root, ".preview"), { recursive: true });
       await page.screenshot({
         path: resolve(root, ".preview/t05-room-desktop.png"),

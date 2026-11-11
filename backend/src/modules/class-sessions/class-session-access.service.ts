@@ -77,10 +77,31 @@ export class ClassSessionAccessService {
         select: { userId: true },
       })
     )
-      throw new ApiError(403, "BANNED", "Bạn đã bị chặn khỏi buổi học này.");
-    if (row.kind === "GROUP")
-      return (await this.groups.require(userId, row.groupId!, undefined, tx))
-        .canHost;
+      throw new ApiError(403, "BANNED", "Bạn đã bị chặn khỏi cuộc họp này.");
+    if (row.kind === "GROUP") {
+      const group = await tx.group.findFirst({
+        where: { id: row.groupId!, deletedAt: null },
+        select: { ownerId: true },
+      });
+      if (!group)
+        throw new ApiError(
+          404,
+          "GROUP_NOT_FOUND",
+          "Nhóm không tồn tại hoặc đã bị xóa.",
+        );
+      const member = await tx.groupMember.findUnique({
+        where: { userId_groupId: { userId, groupId: row.groupId! } },
+      });
+      if (user.globalRole === "ADMIN" || group.ownerId === userId || member)
+        return (await this.groups.require(userId, row.groupId!, undefined, tx))
+          .canHost;
+      if (row.allowGuests) return false;
+      throw new ApiError(
+        403,
+        "FORBIDDEN",
+        "Cuộc họp này chỉ dành cho thành viên trong nhóm.",
+      );
+    }
     return row.createdById === userId || user.globalRole === "ADMIN";
   }
 
@@ -110,13 +131,43 @@ export class ClassSessionAccessService {
     if (
       canManage ||
       (!manage &&
-        (row.kind === "GROUP" || (await this.activeVisit(tx, userId, row))))
+        ((row.kind === "GROUP" &&
+          (await this.isMember(tx, userId, row.groupId!))) ||
+          (await this.activeVisit(tx, userId, row))))
     )
       return;
     throw new ApiError(
       403,
       "FORBIDDEN",
       "Bạn không có quyền truy cập buổi học này.",
+    );
+  }
+
+  async isMember(tx: Tx, userId: string, groupId: string) {
+    const group = await tx.group.findFirst({
+      where: { id: groupId, deletedAt: null },
+      select: { ownerId: true },
+    });
+    return (
+      !!group &&
+      (group.ownerId === userId ||
+        !!(await tx.groupMember.findUnique({
+          where: { userId_groupId: { userId, groupId } },
+        })))
+    );
+  }
+
+  async directEntry(
+    tx: Tx,
+    userId: string,
+    row: ClassSession,
+    manage: boolean,
+  ) {
+    return (
+      manage ||
+      (row.kind === "GROUP" &&
+        row.memberAdmission === "DIRECT" &&
+        (await this.isMember(tx, userId, row.groupId!)))
     );
   }
 }
