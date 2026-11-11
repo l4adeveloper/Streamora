@@ -1,6 +1,6 @@
 /* ============================================================
    Meeting Chat Panel — scoped to .meeting-chat-*
-   Lives inside a <dialog class="workspace-call-dialog">
+   Lives inside side panel or <dialog class="workspace-call-dialog">
    ============================================================ */
 
 .meeting-chat-panel {
@@ -8,6 +8,8 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  color: var(--text, #1f1f1f);
+  background: var(--panel, transparent);
 }
 
 /* ── Header ─────────────────────────────────────────────────── */
@@ -16,9 +18,10 @@
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border, #e5e7eb);
+  border-bottom: 1px solid var(--border, #e1e5ea);
   font-size: 14px;
   font-weight: 600;
+  color: var(--text, #1f1f1f);
   flex-shrink: 0;
 }
 
@@ -55,20 +58,20 @@
   justify-content: center;
   padding: 4px;
   border-radius: 4px;
-  color: var(--muted, #6b7280);
+  color: var(--muted, #5f6368);
   background: none;
   border: none;
   cursor: pointer;
 }
 .meeting-chat-close:hover {
-  background: var(--hover-bg, rgba(0,0,0,.06));
-  color: var(--foreground, #111);
+  background: var(--hover, rgba(0,0,0,.06));
+  color: var(--text, #1f1f1f);
 }
 
 /* ── Error banner ────────────────────────────────────────────── */
 .meeting-chat-error {
-  background: var(--error-bg, #fef2f2);
-  color: var(--error, #dc2626);
+  background: var(--danger-soft, #fce8e6);
+  color: var(--danger, #ba1a1a);
   padding: 8px 12px;
   font-size: 13px;
   flex-shrink: 0;
@@ -87,7 +90,7 @@
 }
 
 .meeting-chat-empty {
-  color: var(--muted, #6b7280);
+  color: var(--muted, #5f6368);
   text-align: center;
   font-size: 13px;
   margin: auto;
@@ -98,13 +101,14 @@
 .meeting-chat-message {
   display: flex;
   gap: 8px;
-  padding: 2px 4px;
+  padding: 4px 6px;
   border-radius: 6px;
   position: relative;
+  color: var(--text, #1f1f1f);
 }
 
 .meeting-chat-message:hover {
-  background: var(--hover-bg, rgba(0,0,0,.04));
+  background: var(--hover, rgba(0,0,0,.04));
 }
 
 .meeting-chat-message:hover .meeting-chat-actions {
@@ -138,7 +142,7 @@
 .meeting-chat-meta b {
   font-size: 14px;
   font-weight: 600;
-  color: var(--foreground, #111);
+  color: var(--text, #1f1f1f);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -147,14 +151,14 @@
 
 .meeting-chat-meta time {
   font-size: 11px;
-  color: var(--muted, #6b7280);
+  color: var(--muted, #5f6368);
   flex-shrink: 0;
 }
 
 .meeting-chat-role {
   font-size: 11px;
-  background: var(--accent-muted, #ede9fe);
-  color: var(--accent, #7c3aed);
+  background: var(--accent-soft, #e8f0fe);
+  color: var(--on-accent-soft, #174ea6);
   padding: 1px 5px;
   border-radius: 4px;
   flex-shrink: 0;
@@ -166,6 +170,7 @@
   word-break: break-word;
   white-space: pre-wrap;
   margin: 0;
+  color: var(--text, #1f1f1f);
 }
 
 /* ── Reply preview (inside a message) ───────────────────────── */
@@ -174,10 +179,10 @@
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--muted, #6b7280);
+  color: var(--muted, #5f6368);
   background: none;
   border: none;
-  border-left: 2px solid var(--border, #e5e7eb);
+  border-left: 2px solid var(--border, #e1e5ea);
   padding: 2px 6px;
   margin-bottom: 3px;
   cursor: pointer;
@@ -188,13 +193,14 @@
 }
 
 .meeting-chat-reply-preview:hover:not([disabled]) {
-  background: var(--hover-bg, rgba(0,0,0,.04));
+  background: var(--hover, rgba(0,0,0,.04));
 }
 
 .meeting-chat-reply-preview b {
   font-weight: 600;
   margin-right: 4px;
   flex-shrink: 0;
+  color: var(--text, #1f1f1f);
 }
 
 .meeting-chat-reply-preview span {
@@ -212,11 +218,11 @@
   gap: 2px;
   opacity: 0;
   pointer-events: none;
-  background: var(--surface, #fff);
-  border: 1px solid var(--border, #e5e7eb);
+  background: var(--elevated, var(--panel, #fff));
+  border: 1px solid var(--border, #e1e5ea);
   border-radius: 6px;
   padding: 2px;
-  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  box-shadow: 0 1px 4px rgba(0,0,0,.15);
   z-index: 1;
 }
 
@@ -225,14 +231,14 @@
   display: flex;
   align-items: center;
   border-radius: 4px;
-  color: var(--muted, #6b7280);
+  color: var(--muted, #5f6368);
   background: none;
   border: none;
   cursor: pointer;
 }
 .meeting-chat-actions button:hover {
-  background: var(--hover-bg, rgba(0,0,0,.06));
-  color: var(--foreground, #111);
+  background: var(--hover, rgba(0,0,0,.06));
+  color: var(--text, #1f1f1f);
 }
 .meeting-chat-actions button:disabled {
   opacity: 0.4;
@@ -241,12 +247,13 @@
 
 /* ── Compose form ────────────────────────────────────────────── */
 .meeting-chat-form {
-  border-top: 1px solid var(--border, #e5e7eb);
+  border-top: 1px solid var(--border, #e1e5ea);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
+  background: var(--panel, transparent);
 }
 
 /* Reply indicator inside form */
@@ -255,11 +262,12 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--muted, #6b7280);
+  color: var(--muted, #5f6368);
   padding: 4px 0;
 }
 .meeting-chat-replying b {
   font-weight: 600;
+  color: var(--text, #1f1f1f);
 }
 .meeting-chat-replying button {
   margin-left: auto;
@@ -270,11 +278,11 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--muted, #6b7280);
+  color: var(--muted, #5f6368);
 }
 .meeting-chat-replying button:hover {
-  background: var(--hover-bg, rgba(0,0,0,.06));
-  color: var(--foreground, #111);
+  background: var(--hover, rgba(0,0,0,.06));
+  color: var(--text, #1f1f1f);
 }
 
 /* Input row */
@@ -287,23 +295,25 @@
 .meeting-chat-composer input {
   flex: 1;
   padding: 7px 10px;
-  border: 1px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, #e1e5ea);
   border-radius: 6px;
   font-size: 14px;
-  background: var(--input-bg, #fff);
-  color: var(--foreground, #111);
+  background: var(--surface-container, var(--bg, #fff));
+  color: var(--text, #1f1f1f);
   outline: none;
+  transition: border-color 0.15s ease;
 }
 .meeting-chat-composer input:focus {
-  border-color: var(--accent, #7c3aed);
-  box-shadow: 0 0 0 2px var(--accent-muted, #ede9fe);
+  border-color: var(--accent, #0b57d0);
+  box-shadow: 0 0 0 2px var(--accent-soft, #e8f0fe);
 }
 .meeting-chat-composer input::placeholder {
-  color: var(--placeholder, #9ca3af);
+  color: var(--muted, #80868b);
 }
 .meeting-chat-composer input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  background: var(--hover, rgba(0,0,0,.04));
 }
 
 .meeting-chat-composer button[type="submit"] {
@@ -312,14 +322,15 @@
   justify-content: center;
   padding: 7px 10px;
   border-radius: 6px;
-  background: var(--accent, #7c3aed);
+  background: var(--accent, #0b57d0);
   color: #fff;
   border: none;
   cursor: pointer;
   flex-shrink: 0;
+  transition: opacity 0.15s ease;
 }
 .meeting-chat-composer button[type="submit"]:hover:not(:disabled) {
-  background: var(--accent-hover, #6d28d9);
+  background: var(--accent-hover, #0849b4);
 }
 .meeting-chat-composer button[type="submit"]:disabled {
   opacity: 0.45;
@@ -329,7 +340,79 @@
 /* Status hint below the input */
 .meeting-chat-info {
   font-size: 12px;
-  color: var(--muted, #6b7280);
+  color: var(--muted, #5f6368);
   text-align: center;
+  margin: 0;
 }
 
+/* ============================================================
+   Dark Mode Overrides — Explicit guarantee for [data-theme="dark"]
+   ============================================================ */
+:root[data-theme="dark"] .meeting-chat-panel,
+[data-theme="dark"] .meeting-chat-panel {
+  color: var(--text, #e8eaed);
+}
+
+:root[data-theme="dark"] .meeting-chat-header,
+[data-theme="dark"] .meeting-chat-header {
+  color: var(--text, #e8eaed);
+  border-bottom-color: var(--border, #3c4043);
+}
+
+:root[data-theme="dark"] .meeting-chat-meta b,
+[data-theme="dark"] .meeting-chat-meta b {
+  color: var(--text, #e8eaed);
+}
+
+:root[data-theme="dark"] .meeting-chat-text,
+[data-theme="dark"] .meeting-chat-text {
+  color: var(--text, #e8eaed);
+}
+
+:root[data-theme="dark"] .meeting-chat-meta time,
+[data-theme="dark"] .meeting-chat-meta time,
+:root[data-theme="dark"] .meeting-chat-empty,
+[data-theme="dark"] .meeting-chat-empty,
+:root[data-theme="dark"] .meeting-chat-info,
+[data-theme="dark"] .meeting-chat-info,
+:root[data-theme="dark"] .meeting-chat-close,
+[data-theme="dark"] .meeting-chat-close,
+:root[data-theme="dark"] .meeting-chat-replying,
+[data-theme="dark"] .meeting-chat-replying {
+  color: var(--muted, #b1b5bd);
+}
+
+:root[data-theme="dark"] .meeting-chat-message:hover,
+[data-theme="dark"] .meeting-chat-message:hover {
+  background: var(--hover, #333438);
+}
+
+:root[data-theme="dark"] .meeting-chat-composer input,
+[data-theme="dark"] .meeting-chat-composer input {
+  background: var(--surface-container, #2b2c30);
+  color: var(--text, #e8eaed);
+  border-color: var(--border, #3c4043);
+}
+
+:root[data-theme="dark"] .meeting-chat-composer input::placeholder,
+[data-theme="dark"] .meeting-chat-composer input::placeholder {
+  color: var(--muted, #80868b);
+}
+
+:root[data-theme="dark"] .meeting-chat-actions,
+[data-theme="dark"] .meeting-chat-actions {
+  background: var(--elevated, #27282b);
+  border-color: var(--border, #3c4043);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="dark"] .meeting-chat-form,
+[data-theme="dark"] .meeting-chat-form {
+  border-top-color: var(--border, #3c4043);
+}
+
+:root[data-theme="dark"] .meeting-chat-role,
+[data-theme="dark"] .meeting-chat-role {
+  background: var(--accent-soft, #26374f);
+  color: var(--on-accent-soft, #d3e3fd);
+}

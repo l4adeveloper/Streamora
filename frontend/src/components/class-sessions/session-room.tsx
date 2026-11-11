@@ -197,6 +197,12 @@ export function SessionRoom({
   }, [refresh]);
   const changed = useCallback(
     (kind: string) => {
+      if (["session.ended", "session.cancelled"].includes(kind)) {
+        if (onExit) {
+          onExit();
+          return;
+        }
+      }
       if (["access.changed", "access-revoked"].includes(kind)) {
         sequence.current++;
         setConfirmation(null);
@@ -213,7 +219,7 @@ export function SessionRoom({
       clearTimeout(scheduledRefresh.current);
       scheduledRefresh.current = setTimeout(() => void refresh(), 100);
     },
-    [refresh],
+    [refresh, onExit],
   );
   const closed = useCallback((event: ClassParticipationClosed) => {
     if (dataRef.current?.admission.participation?.id !== event.participationId)
@@ -238,6 +244,13 @@ export function SessionRoom({
     closed,
   );
   const manage = !!admission?.permissions.canManage;
+  useEffect(() => {
+    if (status && ["ENDED", "CANCELLED"].includes(status)) {
+      if (onExit) {
+        onExit();
+      }
+    }
+  }, [status, onExit]);
   const meetingChat = useMeetingChat(
     !["ENDED", "CANCELLED"].includes(status ?? "") ? id : null,
     visit?.id ?? null,
@@ -434,7 +447,11 @@ export function SessionRoom({
                   confirmation === "end"
                     ? "Đã kết thúc buổi học."
                     : "Đã hủy lịch học.",
-                )
+                ).then(() => {
+                  if (confirmation === "end" || confirmation === "cancel") {
+                    if (onExit) onExit();
+                  }
+                })
               }
             >
               {pending
@@ -769,6 +786,7 @@ export function SessionRoom({
                   error={meetingChat.error}
                   currentUserId={user?.id ?? visit?.userId}
                   canDelete={manage}
+                  canChat={active || manage}
                   onSend={meetingChat.send}
                   onDelete={meetingChat.remove}
                   onClose={() => setChatOpen(false)}
@@ -1076,6 +1094,7 @@ export function SessionRoom({
                   error={meetingChat.error}
                   currentUserId={user?.id ?? visit?.userId}
                   canDelete={manage}
+                  canChat={active || manage}
                   onSend={meetingChat.send}
                   onDelete={meetingChat.remove}
                 />
@@ -1166,11 +1185,13 @@ export function MeetingChatSidePanel({
   sessionId,
   participationId,
   canManage,
+  canChat = true,
   userId,
 }: {
   sessionId: string;
   participationId: string | null;
   canManage: boolean;
+  canChat?: boolean;
   userId?: string;
 }) {
   const { user } = useAuth();
@@ -1192,6 +1213,7 @@ export function MeetingChatSidePanel({
         error={meetingChat.error}
         currentUserId={userId ?? user?.id}
         canDelete={canManage}
+        canChat={canChat}
         onSend={meetingChat.send}
         onDelete={meetingChat.remove}
       />
