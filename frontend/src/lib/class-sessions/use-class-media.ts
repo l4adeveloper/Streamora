@@ -124,6 +124,7 @@ export function useClassMedia(
   const [connection, setConnection] = useState<JoinClassMediaResponse | null>(
     null,
   );
+  const [renewal, setRenewal] = useState<JoinClassMediaResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [screenPreview, setScreenPreview] = useState<MediaStream | null>(null);
   const [screenPending, setScreenPending] = useState(false);
@@ -143,6 +144,7 @@ export function useClassMedia(
   const joinRequest = useRef<AbortController | null>(null);
   const autoJoinedVisit = useRef<string | null>(null);
   const optedOutVisit = useRef<string | null>(null);
+  const lastRenewal = useRef<{ visit: string; time: number } | null>(null);
   const previousMicLock = useRef(micLocked);
   const settings = useRef({ micEnabled, cameraEnabled });
   settings.current = { micEnabled, cameraEnabled };
@@ -185,28 +187,30 @@ export function useClassMedia(
   }, [root]);
 
   const stop = useCallback(
-    (notify = true) => {
+    ({ renewToken = false } = {}) => {
       generation.current++;
       joinRequest.current?.abort();
       clearTimeout(subscriptionRetry.current);
       subscriptionRetry.current = undefined;
-      stopScreenShare();
+      if (!renewToken) stopScreenShare();
       const previous = currentConnection.current;
       currentConnection.current = null;
       stage.current?.removeAllListeners();
       stage.current?.leave();
       stage.current = null;
-      stream.current?.getTracks().forEach((track) => track.stop());
-      stream.current = null;
+      if (!renewToken) {
+        stream.current?.getTracks().forEach((track) => track.stop());
+        stream.current = null;
+        setPreview(null);
+      }
       localStreams.current = [];
       remote.current.clear();
-      setPreview(null);
       setPeers([]);
       setStageError(null);
       setUnavailablePeers(new Map());
       setConnection(null);
       setStatus("idle");
-      if (notify && previous) releaseMediaConnection(root, previous);
+      if (!renewToken && previous) releaseMediaConnection(root, previous);
       requestId.current = null;
     },
     [root, stopScreenShare],
@@ -324,6 +328,7 @@ export function useClassMedia(
       settings.current = { micEnabled: false, cameraEnabled: false };
     }
     let issued: JoinClassMediaResponse | null = null;
+    let renewing = false;
     try {
       const sdk = await import("amazon-ivs-web-broadcast");
       if (request.signal.aborted) return;
@@ -389,6 +394,22 @@ export function useClassMedia(
         },
       });
       stage.current = next;
+      const issuedConnection = issued;
+      const tokenDeadline = performance.now() + issued.expiresIn * 1000;
+      const renew = () => {
+        if (renewing) return true;
+        if (ticket !== generation.current) return false;
+        const previous = lastRenewal.current;
+        if (
+          previous?.visit === participationId &&
+          performance.now() - previous.time < 5000
+        )
+          return false;
+        lastRenewal.current = { visit: participationId, time: performance.now() };
+        renewing = true;
+        setRenewal(issuedConnection);
+        return true;
+      };
       let stageConnected = false;
       const failedSubscriptions = new Set<string>();
       const retryAttempts = new Map<string, number>();
@@ -499,6 +520,7 @@ export function useClassMedia(
         (person, state) => {
           if (!isRemotePeer(person)) return;
           if (state === sdk.StageParticipantSubscribeState.ERRORED) {
+            if (performance.now() >= tokenDeadline && renew()) return;
             failedSubscriptions.add(person.id);
             updateSubscriptionNotice(person, true);
             scheduleSubscriptionRetry();
@@ -551,6 +573,12 @@ export function useClassMedia(
         publishPeers();
       });
       next.on(sdk.StageEvents.ERROR, ({ code, category }) => {
+        // 1001 is the underlying StageClientError code for an expired token.
+        if (
+          (code === sdk.StageErrorCode.TOKEN_EXPIRED || Number(code) === 1001) &&
+          renew()
+        )
+          return;
         if (
           ticket !== generation.current ||
           code === sdk.StageErrorCode.CANCELED ||
@@ -568,7 +596,7 @@ export function useClassMedia(
         });
       });
       next.on(sdk.StageEvents.STAGE_LEFT, (reason) => {
-        if (ticket !== generation.current) return;
+        if (renewing || ticket !== generation.current) return;
         stop();
         setStatus("closed");
         setError(
@@ -580,6 +608,8 @@ export function useClassMedia(
       await next.join();
     } catch (error) {
       if (ticket !== generation.current) return;
+      // The SDK can emit TOKEN_EXPIRED and reject join in the same turn.
+      if (renewing) return;
       const apiError = asApiError(error);
       if (
         ["MEDIA_REQUEST_EXPIRED", "STALE_MEDIA_REQUEST"].includes(apiError.code)
@@ -600,6 +630,19 @@ export function useClassMedia(
   }
 
   const joinOnEntry = useEffectEvent(() => void join(true));
+  const rejoinWithFreshToken = useEffectEvent(() => {
+    // The new join supersedes the old connection on the server. Preserve the
+    // selected devices and mute state, but never reuse the old request key.
+    stop({ renewToken: true });
+    void join();
+  });
+
+  useEffect(() => {
+    if (!renewal || busy) return;
+    setRenewal(null);
+    if (participationId && currentConnection.current === renewal)
+      rejoinWithFreshToken();
+  }, [busy, participationId, renewal]);
 
   useEffect(() => {
     if (!participationId) {
