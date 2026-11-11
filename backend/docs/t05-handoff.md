@@ -164,8 +164,8 @@ npm run test:ivs:live
 Lệnh này kiểm tra quyền truy cập IVS/SQS, đọc thử PostgreSQL và các cột Meeting
 trong database được cấu hình; sau đó tạo một database tạm, một Stage AWS tạm và
 hai tài khoản kiểm thử. Hai trình duyệt dùng mic/camera giả lập nhưng kết nối
-AWS IVS thật. Hai người bấm kết nối đồng thời để kiểm tra tự phục hồi khi một
-yêu cầu đang chuẩn bị Stage. Kiểm thử xác nhận RTP audio/video hai chiều, duy trì qua heartbeat,
+AWS IVS thật. Hai người tự kết nối sau khi vào phòng. Kiểm thử xác nhận RTP
+audio/video hai chiều, duy trì qua heartbeat,
 AWS xác nhận presence, bật/tắt thiết bị, rời phòng, thu hồi media và đóng Stage.
 Không ghi vào database ứng dụng, không nhận/xóa thông báo từ SQS đang dùng.
 Stage của bài kiểm thử được dọn sau khi chạy; dữ liệu báo cáo không chứa
@@ -179,10 +179,11 @@ Kiểm tra riêng lỗi micro nhiều người trong Workspace:
 npm run test:ivs:workspace-audio
 ```
 
-Bài này dùng ba tài khoản trong ba browser context riêng. Hai học viên vào chỉ
-để nghe, sau đó bật micro bằng nút cạnh tài khoản Workspace; một người bật camera
-trước micro. Kiểm tra hai nút micro của Workspace và cuộc họp cùng trạng thái,
-mỗi người nhận hai nguồn RTP audio có tín hiệu và hai phần tử media thực sự phát.
+Bài này dùng ba tài khoản trong ba browser context riêng. Hai học viên bật
+micro bằng nút cạnh tài khoản Workspace. Kiểm tra hai nút micro của Workspace
+và cuộc họp cùng trạng thái, mỗi người nhận hai nguồn RTP audio có tín hiệu và
+hai phần tử audio thực sự phát khi cả ba camera đều tắt. Sau đó kiểm tra video
+và xác nhận âm thanh tiếp tục phát khi tắt camera.
 Không tắt chính sách autoplay của trình duyệt. Các bước heartbeat, rời phòng,
 thu hồi kết nối và dọn Stage dùng chung với bài kiểm tra hai người.
 
