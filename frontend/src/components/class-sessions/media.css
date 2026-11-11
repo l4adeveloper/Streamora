@@ -561,11 +561,6 @@
   justify-items: center;
   color: #b8c1d8;
 }
-.class-media-play {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-}
 @media (max-width: 600px) {
   .class-media-devices {
     grid-template-columns: 1fr;

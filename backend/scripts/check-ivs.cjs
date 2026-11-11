@@ -281,43 +281,23 @@ async function liveCheck() {
     const participantCount = participants.length;
     const mediaPanel = (page) =>
       page.getByRole("region", { name: "Mic và camera", exact: true });
-    for (const page of participants) {
-      if (workspaceAudio && page !== first) continue;
-      const panel = mediaPanel(page);
-      await panel
-        .getByRole("button", { name: "Kiểm tra thiết bị", exact: true })
-        .click();
-      await page.waitForFunction(
-        () =>
-          document
-            .querySelector(".class-media-room video")
-            ?.srcObject?.getTracks().length === 2,
-      );
-    }
     await Promise.all(
       participants.map(async (page) => {
         const panel = mediaPanel(page);
         await panel
-          .getByRole("button", {
-            name:
-              workspaceAudio && page !== first
-                ? "Kết nối để nghe"
-                : "Kết nối mic/camera",
-            exact: true,
-          })
-          .click();
-        await panel
-          .locator(".workspace-video-presence")
-          .filter({ hasText: /đang kết nối video/ })
+          .getByText(`${participantCount} người trong phòng`, { exact: true })
           .waitFor();
+        await until("automatic media connection", () =>
+          panel
+            .getByRole("button", { name: "Chia sẻ màn hình", exact: true })
+            .isEnabled(),
+        );
       }),
     );
+    await mediaPanel(first)
+      .getByRole("button", { name: "Bật mic", exact: true })
+      .click();
     if (third) {
-      // Viewers join without devices; one starts video first, then both use
-      // the microphone control next to their Workspace account.
-      await mediaPanel(third)
-        .getByRole("button", { name: "Bật camera", exact: true })
-        .click();
       for (const page of [second, third]) {
         await page
           .locator(".workspace-identity")
@@ -352,8 +332,9 @@ async function liveCheck() {
         controls.every((item) => item.accountMicOn && item.meetingMicOn),
         "Workspace account mic and meeting mic must operate the same IVS microphone",
       );
+    } else {
       await mediaPanel(second)
-        .getByRole("button", { name: "Bật camera", exact: true })
+        .getByRole("button", { name: "Bật mic", exact: true })
         .click();
     }
     stageArn = (
@@ -368,27 +349,11 @@ async function liveCheck() {
       "All participants must receive real IVS credentials",
     );
     assert.equal(await f.prisma.classMediaRoom.count(), 1, "One shared Stage");
-    for (const page of participants) {
-      await mediaPanel(page)
-        .getByText(`${participantCount} đang kết nối video`, { exact: true })
-        .waitFor();
-      await page.waitForFunction(() => {
-        const remote = document.querySelector(".workspace-media-feature video");
-        return (
-          remote &&
-          !remote.muted &&
-          remote.readyState >= 2 &&
-          remote.videoWidth > 0 &&
-          remote.srcObject?.getAudioTracks().length > 0 &&
-          remote.srcObject?.getVideoTracks().length > 0
-        );
-      });
-    }
     result("real-ivs-stage-and-tokens", {
       ok: true,
       stages: 1,
       connectedBrowsers: participantCount,
-      simultaneousJoins: true,
+      automaticJoins: true,
       preparationRetries: mediaResponses.filter((item) => item.status === 409)
         .length,
       realAws: true,
@@ -445,35 +410,59 @@ async function liveCheck() {
           audioFromEveryone,
         ),
       );
-      const playback = await Promise.all(
-        participants.map((page) =>
-          page.locator(".class-media-room video").evaluateAll((videos) =>
-            videos
-              .filter(
-                (video) =>
-                  !video.muted && video.srcObject?.getAudioTracks().length,
-              )
-              .map((video) => ({
-                playing: !video.paused && video.currentTime > 0,
-                tracks: video.srcObject.getAudioTracks().length,
-              })),
-          ),
+      const inspectPlayback = (page) =>
+        mediaPanel(page)
+          .locator("audio")
+          .evaluateAll((elements) =>
+            elements.map((audio) => ({
+              playing: !audio.paused && audio.currentTime > 0,
+              tracks: audio.srcObject?.getAudioTracks().length ?? 0,
+            })),
+          );
+      for (const page of participants) {
+        assert.equal(
+          await mediaPanel(page)
+            .getByRole("button", { name: "Bật camera", exact: true })
+            .getAttribute("aria-pressed"),
+          "false",
+          "The camera must stay off during microphone-only playback",
+        );
+        const blocked = mediaPanel(page).getByRole("button", {
+          name: /^Bật âm thanh của /,
+        });
+        for (
+          let i = 0;
+          i < participantCount - 1 && (await blocked.count());
+          i++
+        )
+          await blocked.first().click();
+      }
+      await until("microphones play through the audio elements", async () =>
+        (await Promise.all(participants.map(inspectPlayback))).every(
+          (elements) =>
+            elements.length === participantCount - 1 &&
+            elements.every((audio) => audio.playing && audio.tracks === 1),
         ),
       );
-      assert.ok(
-        playback.every(
-          (videos) =>
-            videos.length >= participantCount - 1 &&
-            videos.every((video) => video.playing),
-        ),
-        "All remote microphones must also play in rendered media elements",
-      );
+      for (const page of participants)
+        assert.equal(await mediaPanel(page).getByRole("alert").count(), 0);
+      const playback = await Promise.all(participants.map(inspectPlayback));
       result("three-way-workspace-audio", {
         ok: true,
         participants: participantCount,
         lateMicrophones: true,
         playback,
         statistics: await Promise.all(participants.map(statistics)),
+      });
+    }
+    for (const page of participants)
+      await mediaPanel(page)
+        .getByRole("button", { name: "Bật camera", exact: true })
+        .click();
+    for (const page of participants) {
+      await page.waitForFunction(() => {
+        const remote = document.querySelector(".workspace-media-feature video");
+        return remote?.muted && remote.readyState >= 2 && remote.videoWidth > 0;
       });
     }
     await until(
@@ -545,13 +534,22 @@ async function liveCheck() {
     await mediaPanel(first)
       .getByRole("button", { name: "Tắt camera", exact: true })
       .click();
-    await second.locator(".workspace-media-feature video.camera-off").waitFor();
+    const ownerVideo = second
+      .locator("video")
+      .and(second.getByLabel(owner.fullName, { exact: true }));
+    const ownerAudio = second
+      .locator("audio")
+      .and(second.getByLabel(owner.fullName, { exact: true }));
+    await ownerVideo
+      .and(second.locator(".camera-off"))
+      .waitFor({ state: "attached" });
+    await until("owner audio continues with camera off", () =>
+      ownerAudio.evaluate((audio) => !audio.paused && audio.currentTime > 0),
+    );
     await mediaPanel(first)
       .getByRole("button", { name: "Bật camera", exact: true })
       .click();
-    await second
-      .locator(".workspace-media-feature video:not(.camera-off)")
-      .waitFor();
+    await ownerVideo.and(second.locator(":not(.camera-off)")).waitFor();
     await mediaPanel(first)
       .getByRole("button", { name: "Tắt mic", exact: true })
       .click();

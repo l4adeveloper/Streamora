@@ -11,6 +11,7 @@ import type {
   StageStream,
   LocalStageStream,
   StageParticipantInfo,
+  StageErrorCategory,
 } from "amazon-ivs-web-broadcast";
 import type {
   JoinClassMediaRequest,
@@ -101,6 +102,13 @@ export function useClassMedia(
 ) {
   const [status, setStatus] = useState<MediaStatus>("idle");
   const [error, setError] = useState("");
+  const [stageError, setStageError] = useState<{
+    category: StageErrorCategory;
+    message: string;
+  } | null>(null);
+  const [unavailablePeers, setUnavailablePeers] = useState<Map<string, string>>(
+    () => new Map(),
+  );
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [preview, setPreview] = useState<MediaStream | null>(null);
   const [peers, setPeers] = useState<MediaPeer[]>([]);
@@ -160,6 +168,8 @@ export function useClassMedia(
       remote.current.clear();
       setPreview(null);
       setPeers([]);
+      setStageError(null);
+      setUnavailablePeers(new Map());
       setConnection(null);
       setStatus("idle");
       if (notify && previous) releaseMediaConnection(root, previous);
@@ -290,15 +300,42 @@ export function useClassMedia(
       const next = new sdk.Stage(issued.participantToken, {
         stageStreamsToPublish: () => localStreams.current,
         shouldPublishParticipant: () => localStreams.current.length > 0,
-        shouldSubscribeToParticipant: (person) =>
-          person.id === screenShare.current?.connection?.participantId
-            ? sdk.SubscribeType.NONE
-            : sdk.SubscribeType.AUDIO_VIDEO,
+        shouldSubscribeToParticipant: (person) => {
+          if (person.id === screenShare.current?.connection?.participantId)
+            return sdk.SubscribeType.NONE;
+          // IVS re-evaluates the subscription when the publisher changes its camera state.
+          return person.videoStopped &&
+            person.attributes["screen-share"] !== "true"
+            ? sdk.SubscribeType.AUDIO_ONLY
+            : sdk.SubscribeType.AUDIO_VIDEO;
+        },
       });
       stage.current = next;
       const publishPeers = () => {
         if (ticket === generation.current)
           setPeers([...remote.current.values()]);
+      };
+      const updateSubscriptionNotice = (
+        person: StageParticipantInfo,
+        failed: boolean,
+      ) => {
+        if (
+          ticket !== generation.current ||
+          person.isLocal ||
+          person.id === screenShare.current?.connection?.participantId
+        )
+          return;
+        setUnavailablePeers((current) => {
+          if (current.has(person.id) === failed) return current;
+          const next = new Map(current);
+          if (failed) {
+            const name = person.attributes.fullName;
+            next.set(person.id, typeof name === "string" ? name : "Thành viên");
+          } else {
+            next.delete(person.id);
+          }
+          return next;
+        });
       };
       const updatePeer = (
         person: StageParticipantInfo,
@@ -342,18 +379,50 @@ export function useClassMedia(
         publishPeers();
       };
       next.on(sdk.StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
-        if (ticket === generation.current)
-          setStatus(
-            state === sdk.StageConnectionState.CONNECTED
-              ? "connected"
-              : state === sdk.StageConnectionState.CONNECTING
-                ? "connecting"
-                : "reconnecting",
+        if (ticket !== generation.current) return;
+        setStatus(
+          state === sdk.StageConnectionState.CONNECTED
+            ? "connected"
+            : state === sdk.StageConnectionState.CONNECTING
+              ? "connecting"
+              : "reconnecting",
+        );
+        if (state === sdk.StageConnectionState.CONNECTED)
+          setStageError((current) =>
+            current?.category === sdk.StageErrorCategory.JOIN_ERROR
+              ? null
+              : current,
           );
       });
       next.on(
+        sdk.StageEvents.STAGE_PARTICIPANT_SUBSCRIBE_STATE_CHANGED,
+        (person, state) =>
+          updateSubscriptionNotice(
+            person,
+            state === sdk.StageParticipantSubscribeState.ERRORED,
+          ),
+      );
+      next.on(
+        sdk.StageEvents.STAGE_PARTICIPANT_PUBLISH_STATE_CHANGED,
+        (person, state) => {
+          if (
+            ticket === generation.current &&
+            person.isLocal &&
+            state === sdk.StageParticipantPublishState.PUBLISHED
+          )
+            setStageError((current) =>
+              current?.category === sdk.StageErrorCategory.PUBLISH_ERROR
+                ? null
+                : current,
+            );
+        },
+      );
+      next.on(
         sdk.StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
-        (person, streams) => updatePeer(person, streams),
+        (person, streams) => {
+          updatePeer(person, streams);
+          if (streams.length) updateSubscriptionNotice(person, false);
+        },
       );
       next.on(
         sdk.StageEvents.STAGE_PARTICIPANT_STREAMS_REMOVED,
@@ -364,13 +433,25 @@ export function useClassMedia(
       );
       next.on(sdk.StageEvents.STAGE_PARTICIPANT_LEFT, (person) => {
         remote.current.delete(person.id);
+        updateSubscriptionNotice(person, false);
         publishPeers();
       });
-      next.on(sdk.StageEvents.ERROR, () => {
-        if (ticket !== generation.current) return;
-        setError(
-          "Kết nối media gặp sự cố. Kiểm tra mạng hoặc thử kết nối lại; phòng có thể đã đạt giới hạn người phát.",
-        );
+      next.on(sdk.StageEvents.ERROR, ({ code, category }) => {
+        if (
+          ticket !== generation.current ||
+          code === sdk.StageErrorCode.CANCELED ||
+          category === sdk.StageErrorCategory.SUBSCRIBE_ERROR
+        )
+          return;
+        setStageError({
+          category,
+          message:
+            code === sdk.StageErrorCode.STAGE_AT_CAPACITY
+              ? "Phòng đã đạt giới hạn kết nối hoặc người phát. Hãy thử lại sau."
+              : category === sdk.StageErrorCategory.PUBLISH_ERROR
+                ? "Không thể phát mic hoặc camera của bạn. Hãy thử bật lại thiết bị."
+                : "Kết nối media gặp sự cố. Hãy kiểm tra mạng hoặc kết nối lại.",
+        });
       });
       next.on(sdk.StageEvents.STAGE_LEFT, (reason) => {
         if (ticket !== generation.current) return;
@@ -531,7 +612,9 @@ export function useClassMedia(
         stopScreenShare();
         setError("Không thể tiếp tục chia sẻ màn hình. Hãy thử chia sẻ lại.");
       };
-      publisher.on(sdk.StageEvents.ERROR, onShareError);
+      publisher.on(sdk.StageEvents.ERROR, ({ code }) => {
+        if (code !== sdk.StageErrorCode.CANCELED) onShareError();
+      });
       publisher.on(sdk.StageEvents.STAGE_LEFT, onShareError);
       publisher.on(
         sdk.StageEvents.STAGE_PARTICIPANT_PUBLISH_STATE_CHANGED,
@@ -687,7 +770,8 @@ export function useClassMedia(
   }
   return {
     status,
-    error,
+    error: error || stageError?.message || "",
+    unavailablePeers: [...new Set(unavailablePeers.values())],
     devices,
     preview,
     peers,
