@@ -127,10 +127,12 @@ function ParticipantAudio({
 export interface ClassMediaHandle {
   stop: () => void;
   toggleMicrophone: () => Promise<void>;
+  mute: () => void;
 }
 export interface ClassMediaState {
   micEnabled: boolean;
   busy: boolean;
+  publishLocked: boolean;
 }
 export function ClassMediaRoom({
   sessionId,
@@ -145,6 +147,7 @@ export function ClassMediaRoom({
   disabled = false,
   canManage = false,
   onState,
+  micLocked = false,
 }: {
   sessionId: string;
   participationId: string | null;
@@ -158,8 +161,9 @@ export function ClassMediaRoom({
   disabled?: boolean;
   canManage?: boolean;
   onState?: (state: ClassMediaState) => void;
+  micLocked?: boolean;
 }) {
-  const media = useClassMedia(sessionId, disabled ? null : participationId);
+  const media = useClassMedia(sessionId, disabled ? null : participationId, micLocked);
   const { user } = useAuth();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [featuredId, setFeaturedId] = useState<string | null>(null);
@@ -205,13 +209,15 @@ export function ClassMediaRoom({
       .some((track) => track.readyState === "live" && track.enabled);
   useImperativeHandle(ref, () => ({
     stop: () => media.stop(),
+    mute: media.applyMute,
     toggleMicrophone: async () => {
-      if (!disabled && !media.busy) await media.toggle("audio", audioId);
+      if (!disabled && !media.busy && !media.publishLocked)
+        await media.toggle("audio", audioId);
     },
   }));
   useEffect(() => {
-    onState?.({ micEnabled: micOn, busy: media.busy });
-  }, [onState, micOn, media.busy]);
+    onState?.({ micEnabled: micOn, busy: media.busy, publishLocked: media.publishLocked });
+  }, [onState, micOn, media.busy, media.publishLocked]);
   const labels = {
     idle: "Chưa kết nối video",
     connecting: "Đang kết nối video…",
@@ -239,7 +245,8 @@ export function ClassMediaRoom({
       aria-pressed={sharing}
       disabled={
         disabled ||
-        (!sharing && !media.screenPending && media.status !== "connected")
+        (!sharing && !media.screenPending &&
+          (media.publishLocked || media.status !== "connected"))
       }
     >
       {sharing || media.screenPending ? (
@@ -257,6 +264,11 @@ export function ClassMediaRoom({
   const mediaFeedback = (
     <>
       {media.error && <InlineNotice tone="error">{media.error}</InlineNotice>}
+      {media.publishLocked && (
+        <InlineNotice>
+          Mic, camera và chia sẻ màn hình đang bị khóa. Bạn vẫn có thể nghe và xem.
+        </InlineNotice>
+      )}
       {media.unavailablePeers.length > 0 && (
         <InlineNotice>
           Không nhận được âm thanh hoặc video từ{" "}
@@ -414,7 +426,7 @@ export function ClassMediaRoom({
               title={micOn ? "Tắt mic" : "Bật mic"}
               aria-label={micOn ? "Tắt mic" : "Bật mic"}
               aria-pressed={micOn}
-              disabled={disabled || media.busy}
+              disabled={disabled || media.busy || media.publishLocked}
             >
               {micOn ? <Mic size={18} /> : <MicOff size={18} />}
             </button>
@@ -425,7 +437,7 @@ export function ClassMediaRoom({
               title={cameraOn ? "Tắt camera" : "Bật camera"}
               aria-label={cameraOn ? "Tắt camera" : "Bật camera"}
               aria-pressed={cameraOn}
-              disabled={disabled || media.busy}
+              disabled={disabled || media.busy || media.publishLocked}
             >
               {cameraOn ? <Video size={18} /> : <VideoOff size={18} />}
             </button>
@@ -437,7 +449,7 @@ export function ClassMediaRoom({
               title="Chọn thiết bị"
               aria-expanded={settingsOpen}
               onClick={() => setSettingsOpen((value) => !value)}
-              disabled={disabled}
+              disabled={disabled || media.publishLocked}
             >
               <ChevronDown size={17} />
             </button>
@@ -448,7 +460,7 @@ export function ClassMediaRoom({
                 aria-label="Kiểm tra thiết bị"
                 title="Kiểm tra thiết bị"
                 onClick={() => void media.checkDevices(audioId, videoId)}
-                disabled={disabled || media.busy}
+                disabled={disabled || media.busy || media.publishLocked}
               >
                 <Settings2 size={17} />
               </button>
@@ -509,7 +521,7 @@ export function ClassMediaRoom({
                   <select
                     value={audioId}
                     onChange={(event) => setAudioId(event.target.value)}
-                    disabled={media.busy}
+                    disabled={media.busy || media.publishLocked}
                   >
                     <option value="">Thiết bị mặc định</option>
                     {media.devices
@@ -529,7 +541,7 @@ export function ClassMediaRoom({
                   <select
                     value={videoId}
                     onChange={(event) => setVideoId(event.target.value)}
-                    disabled={media.busy}
+                    disabled={media.busy || media.publishLocked}
                   >
                     <option value="">Thiết bị mặc định</option>
                     {media.devices
@@ -576,7 +588,7 @@ export function ClassMediaRoom({
           <select
             value={audioId}
             onChange={(e) => setAudioId(e.target.value)}
-            disabled={media.busy}
+            disabled={media.busy || media.publishLocked}
           >
             <option value="">Thiết bị mặc định</option>
             {media.devices
@@ -593,7 +605,7 @@ export function ClassMediaRoom({
           <select
             value={videoId}
             onChange={(e) => setVideoId(e.target.value)}
-            disabled={media.busy}
+            disabled={media.busy || media.publishLocked}
           >
             <option value="">Thiết bị mặc định</option>
             {media.devices
@@ -647,7 +659,7 @@ export function ClassMediaRoom({
           className="button secondary compact"
           onClick={() => void media.toggle("audio", audioId)}
           aria-pressed={micOn}
-          disabled={media.busy}
+          disabled={media.busy || media.publishLocked}
         >
           {micOn ? <Mic size={16} /> : <MicOff size={16} />}
           {micOn ? "Tắt mic" : "Bật mic"}
@@ -656,7 +668,7 @@ export function ClassMediaRoom({
           className="button secondary compact"
           onClick={() => void media.toggle("video", videoId)}
           aria-pressed={cameraOn}
-          disabled={media.busy}
+          disabled={media.busy || media.publishLocked}
         >
           {cameraOn ? <Video size={16} /> : <VideoOff size={16} />}
           {cameraOn ? "Tắt camera" : "Bật camera"}
@@ -666,7 +678,7 @@ export function ClassMediaRoom({
           <button
             className="button secondary"
             onClick={() => void media.checkDevices(audioId, videoId)}
-            disabled={media.busy}
+            disabled={media.busy || media.publishLocked}
           >
             Kiểm tra thiết bị
           </button>

@@ -1,7 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
-import { isUUID } from "class-validator";
 import type {
   Prisma,
   ClassSession,
@@ -27,6 +26,7 @@ import {
   validClassLease,
 } from "../../database/class-presence";
 import { ClassSessionAccessService } from "./class-session-access.service";
+import { classSessionCursor, readClassSessionCursor } from "./class-session-cursor";
 import {
   ClassSessionCommandsService,
   type ClassSessionOperation,
@@ -222,6 +222,10 @@ export class ClassAdmissionsService {
         return {
           request: request ? toClassJoinRequest(request) : null,
           participation: visit ? toClassParticipation(visit) : null,
+          micLocked: !!(await tx.sessionMicLock.findUnique({
+            where: { sessionId_userId: { sessionId, userId } },
+            select: { userId: true },
+          })),
           permissions: {
             canManage: manage,
             canRequestJoin:
@@ -237,6 +241,7 @@ export class ClassAdmissionsService {
                 !!active ||
                 (request?.status === "ACCEPTED" && !consumed)),
             canViewParticipants: manage || !!active,
+            canViewPolls: await this.access.canViewPolls(tx, userId, row, manage, !!active),
           },
         };
       },
@@ -510,43 +515,13 @@ export class ClassAdmissionsService {
     });
   }
 
-  private cursor(query: PaginationQueryDto, scope: string) {
-    if (!query.cursor) return null;
-    try {
-      if (!/^[\w-]+$/.test(query.cursor)) throw new Error();
-      const value = JSON.parse(
-        Buffer.from(query.cursor, "base64url").toString(),
-      ) as { scope: string; at: string; id: string };
-      if (
-        !value ||
-        value.scope !== scope ||
-        !isUUID(value.id) ||
-        typeof value.at !== "string" ||
-        new Date(value.at).toISOString() !== value.at
-      )
-        throw new Error();
-      return { at: new Date(value.at), id: value.id };
-    } catch {
-      throw new ApiError(
-        400,
-        "INVALID_CURSOR",
-        "Con trỏ phân trang không hợp lệ.",
-      );
-    }
-  }
-  private next(scope: string, at: Date, id: string) {
-    return Buffer.from(
-      JSON.stringify({ scope, at: at.toISOString(), id }),
-    ).toString("base64url");
-  }
-
   listRequests(
     userId: string,
     sessionId: string,
     query: ClassJoinRequestListQueryDto,
   ): Promise<ClassJoinRequestListResponse> {
     const scope = `requests:${sessionId}:${userId}:${query.status}`;
-    const after = this.cursor(query, scope);
+    const after = readClassSessionCursor(query.cursor, scope);
     return this.withSession(
       userId,
       sessionId,
@@ -579,7 +554,7 @@ export class ClassAdmissionsService {
           })),
           nextCursor:
             rows.length > query.limit && last
-              ? this.next(scope, last.requestedAt, last.id)
+              ? classSessionCursor(scope, last.requestedAt, last.id)
               : null,
         };
       },
@@ -592,7 +567,7 @@ export class ClassAdmissionsService {
     query: PaginationQueryDto,
   ): Promise<ClassParticipationListResponse> {
     const scope = `participants:${sessionId}:${userId}`;
-    const after = this.cursor(query, scope);
+    const after = readClassSessionCursor(query.cursor, scope);
     return this.withSession(
       userId,
       sessionId,
@@ -664,7 +639,20 @@ export class ClassAdmissionsService {
                 : {}),
             },
           },
-          include: { user: { select: { id: true, fullName: true } } },
+          include: {
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                globalRole: true,
+                memberships: {
+                  where: row.groupId ? { groupId: row.groupId } : { groupId: { in: [] } },
+                  select: { role: true },
+                },
+                micLocks: { where: { sessionId }, select: { sessionId: true } },
+              },
+            },
+          },
           orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
           take: query.limit + 1,
         });
@@ -688,14 +676,23 @@ export class ClassAdmissionsService {
             );
             return {
               ...toClassParticipation(visit),
-              user: visit.user,
+              user: { id: visit.user.id, fullName: visit.user.fullName },
+              micLocked: !!visit.user.micLocks.length,
+              canModerate:
+                manage &&
+                visit.userId !== userId &&
+                visit.user.globalRole !== "ADMIN" &&
+                (row.kind === "GROUP"
+                  ? visit.userId !== group?.ownerId &&
+                    !visit.user.memberships.some(({ role }) => role !== "VIEWER")
+                  : visit.userId !== row.createdById),
               media: {
                 connected: connections.some((c) => c.connected),
                 micEnabled: connections.length
-                  ? connections.some((c) => c.micEnabled === true)
+                  ? connections.some((c) => c.canPublish && c.micEnabled === true)
                   : null,
                 cameraEnabled: connections.length
-                  ? connections.some((c) => c.cameraEnabled === true)
+                  ? connections.some((c) => c.canPublish && c.cameraEnabled === true)
                   : null,
                 checkedAt: connections[0]?.lastSeenAt.toISOString() ?? null,
               },
@@ -703,7 +700,7 @@ export class ClassAdmissionsService {
           }),
           nextCursor:
             rows.length > query.limit && last
-              ? this.next(scope, last.joinedAt, last.id)
+              ? classSessionCursor(scope, last.joinedAt, last.id)
               : null,
         };
       },

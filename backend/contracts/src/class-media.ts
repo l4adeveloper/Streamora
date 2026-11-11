@@ -22,6 +22,28 @@ export interface ClassMediaState {
   cameraEnabled: boolean | null;
   checkedAt: string | null;
 }
+export interface ClassMuteRequest {
+  /** Omit for an advisory mute, true to lock publishing, false to unlock it. */
+  lock?: boolean;
+}
+export interface ClassMuteResponse {
+  userId: string;
+  muted: true;
+  locked: boolean;
+}
+export interface ClassBanRequest {
+  reason?: string;
+}
+export interface ClassBanResponse {
+  userId: string;
+  banned: true;
+}
+export interface ClassBanEntry {
+  userId: string;
+  fullName?: string;
+  reason: string | null;
+  bannedAt: string;
+}
 export interface ClassMediaHeartbeatRequest {
   requestId: string;
   participationId: string;

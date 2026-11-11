@@ -2,6 +2,13 @@ import "client-only";
 import { apiRequest } from "@/lib/api";
 import type {
   ClassAdmissionResponse,
+  ClassBanEntry,
+  ClassBanResponse,
+  ClassMuteResponse,
+  ClassPoll,
+  ClassPollResponse,
+  CreateClassPollRequest,
+  CursorPage,
   ClassJoinRequestListResponse,
   ClassJoinRequestResponse,
   ClassParticipationListResponse,
@@ -16,6 +23,30 @@ import type {
 } from "@streamora/contracts";
 
 const root = (id: string) => `/sessions/${encodeURIComponent(id)}`;
+export const listClassPolls = (id: string, cursor?: string) =>
+  apiRequest<CursorPage<ClassPoll>>(
+    `${root(id)}/polls?${new URLSearchParams({ limit: "20", ...(cursor ? { cursor } : {}) })}`,
+  );
+export const createClassPoll = (id: string, body: CreateClassPollRequest) =>
+  apiRequest<ClassPollResponse>(`${root(id)}/polls`, { method: "POST", body });
+export const voteClassPoll = (id: string, optionId: string) =>
+  apiRequest<ClassPollResponse>(`/polls/${encodeURIComponent(id)}/vote`, { method: "PUT", body: { optionId } });
+export const closeClassPoll = (id: string) =>
+  apiRequest<ClassPollResponse>(`/polls/${encodeURIComponent(id)}/close`, { method: "POST", body: {} });
+const banPath = (id: string, userId: string) => `${root(id)}/bans/${encodeURIComponent(userId)}`;
+export const muteClassParticipant = (id: string, userId: string, lock?: boolean) =>
+  apiRequest<ClassMuteResponse>(`${root(id)}/participants/${encodeURIComponent(userId)}/mute`, {
+    method: "POST",
+    body: lock === undefined ? {} : { lock },
+  });
+export const banClassParticipant = (id: string, userId: string, reason?: string) =>
+  apiRequest<ClassBanResponse>(banPath(id, userId), { method: "PUT", body: reason ? { reason } : {} });
+export const unbanClassParticipant = (id: string, userId: string) =>
+  apiRequest<void>(banPath(id, userId), { method: "DELETE" });
+export const listClassBans = (id: string, cursor?: string) =>
+  apiRequest<CursorPage<ClassBanEntry>>(
+    `${root(id)}/bans?${new URLSearchParams({ limit: "20", ...(cursor ? { cursor } : {}) })}`,
+  );
 export function listClassSessions(
   groupId: string | null,
   cursor?: string,

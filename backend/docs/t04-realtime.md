@@ -83,6 +83,15 @@ Các invalidation từ journal có cùng dạng:
 - `participants.changed`: chỉ người quản lý hoặc người đang được phép tham gia.
 - `access.changed`: thay đổi membership/nhóm; chủ thể nhận thông báo về quyền
   của mình. Thay đổi toàn nhóm gửi các watcher vẫn còn quyền.
+- `moderation.mute`: yêu cầu tắt mic, chỉ gửi tới socket đang theo dõi buổi học
+  của người bị yêu cầu. Client tắt mic hiện tại. Người dùng vẫn có thể tự bật lại
+  nếu quyền phát chưa bị khóa.
+- `moderation.changed`: quyền phát thay đổi. Người dùng đọc lại `micLocked` từ
+  API admission. Người quản lý đọc lại danh sách người tham gia.
+- `poll.updated`: gửi ảnh chụp kết quả tổng hợp tới watcher có quyền đọc poll.
+  Payload gồm `sessionId,pollId,question,options,status,totalVotes,version`.
+  `version` tăng theo từng poll. Client đọc lại `GET /sessions/:sessionId/polls`
+  khi reconnect để lấy các cập nhật bị lỡ và lựa chọn riêng `myOptionId`.
 
 Payload không có tên, email, nội dung hàng chờ hoặc quyết định của người khác.
 Quyền được đọc lại ngay trước mỗi đợt gửi; hạ HOST thu hồi thông báo hàng chờ nhưng
@@ -91,10 +100,42 @@ phòng. API cũng kiểm tra quyền độc lập với socket.
 
 Hai thông báo điều khiển riêng:
 
-- `session.access-revoked {sessionId}`: không còn quyền theo dõi, server tự bỏ watch.
+- `session.access-revoked {sessionId,reason?}`: không còn quyền theo dõi.
+  Khi bị chặn theo buổi, `reason` là `BANNED` và server ngắt socket của buổi học.
 - `participation.closed {sessionId,participationId,reason}`: lượt đã attach bị đóng
   do LEFT, DISCONNECTED, SESSION_ENDED hoặc ACCESS_REVOKED. Có thể chỉ ra lượt cũ
   dù một tab khác đã tạo lượt mới; UI phải đối chiếu participationId.
+
+## Quản lý người tham gia T07
+
+Swagger của buổi học mô tả bốn thao tác trong `/api/v1/sessions/:sessionId`.
+
+- `POST /participants/:userId/mute` với `{}` gửi yêu cầu tắt mic.
+  `{"lock":true}` khóa quyền phát, thu hồi các kết nối IVS cũ và chỉ cấp token
+  `SUBSCRIBE`. IVS áp dụng quyền này cho cả mic, camera và chia sẻ màn hình.
+  `{"lock":false}` mở khóa quyền phát cho lần kết nối sau. Người dùng tự bật thiết bị.
+- `PUT /bans/:userId` lưu chặn theo buổi và đóng lượt tham gia trước khi gọi IVS.
+  Nếu IVS chưa xác nhận ngắt, API trả `503 MEDIA_REVOCATION_PENDING` và worker
+  thử lại. Gửi lại PUT giữ nguyên thời điểm và lý do chặn ban đầu.
+- `DELETE /bans/:userId` gỡ chặn. Người dùng cần tự vào lại và vẫn phải đáp ứng
+  quy tắc tham gia hiện hành.
+- `GET /bans?cursor=&limit=` trả danh sách phân trang cho người quản lý. Lý do chặn
+  chỉ xuất hiện ở API này.
+
+## Bình chọn T09
+
+- `POST /sessions/:sessionId/polls` tạo và mở poll với 2–6 lựa chọn trong buổi LIVE.
+- `GET /sessions/:sessionId/polls` trả danh sách phân trang cùng phiếu của chính
+  người gọi. Phòng group giới hạn cho thành viên và admin. Phòng độc lập cấp quyền
+  cho người quản lý và người đang được phép tham gia. Ban theo buổi thu hồi quyền.
+- `PUT /polls/:pollId/vote` ghi hoặc đổi một phiếu theo user. Poll đóng trả
+  `409 POLL_CLOSED`.
+- `POST /polls/:pollId/close` đóng poll. Gọi lại trả trạng thái đã đóng. Kết thúc
+  buổi học tự đóng các poll còn mở.
+
+Chỉ host, owner hoặc admin được mở và đóng poll. Các thay đổi được ghi vào
+journal trong cùng transaction, rồi gateway `/classroom` gửi qua Azure Web PubSub
+for Socket.IO khi môi trường dùng cấu hình T21.
 
 Các invalidation là tín hiệu tải lại, có thể nhận lặp khi retry. Dedupe bằng eventId;
 version là chuỗi bigint, dùng BigInt khi cần so sánh. Không lấy số lượng event làm

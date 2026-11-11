@@ -157,6 +157,18 @@ export class ClassSessionAccessService {
     );
   }
 
+  async canViewPolls(
+    tx: Tx,
+    userId: string,
+    row: ClassSession,
+    manage: boolean,
+    active?: boolean,
+  ) {
+    if (manage) return true;
+    if (row.groupId) return this.isMember(tx, userId, row.groupId);
+    return active ?? !!(await this.activeVisit(tx, userId, row));
+  }
+
   async directEntry(
     tx: Tx,
     userId: string,
