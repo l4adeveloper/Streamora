@@ -5246,11 +5246,511 @@
           "T04 Admission"
         ]
       }
+    },
+    "/api/v1/sessions/{sessionId}/participants/{userId}/mute": {
+      "post": {
+        "operationId": "classmoderation_mute",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassMuteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassMuteResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dữ liệu hoặc con trỏ không hợp lệ"
+          },
+          "401": {
+            "description": "Chưa đăng nhập"
+          },
+          "403": {
+            "description": "Yêu cầu quyền host, owner hoặc admin"
+          },
+          "404": {
+            "description": "Không tìm thấy buổi học hoặc người tham gia"
+          },
+          "409": {
+            "description": "SESSION_NOT_LIVE hoặc TARGET_PROTECTED"
+          },
+          "503": {
+            "description": "MEDIA_REVOCATION_PENDING"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "Gửi yêu cầu tắt mic hoặc đổi quyền phát IVS",
+        "tags": [
+          "Class moderation T07"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/bans/{userId}": {
+      "put": {
+        "operationId": "classmoderation_ban",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassBanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassBanResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dữ liệu hoặc con trỏ không hợp lệ"
+          },
+          "401": {
+            "description": "Chưa đăng nhập"
+          },
+          "403": {
+            "description": "Yêu cầu quyền host, owner hoặc admin"
+          },
+          "404": {
+            "description": "Không tìm thấy buổi học hoặc người tham gia"
+          },
+          "409": {
+            "description": "TARGET_PROTECTED"
+          },
+          "503": {
+            "description": "MEDIA_REVOCATION_PENDING"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "Chặn người tham gia khỏi buổi học",
+        "tags": [
+          "Class moderation T07"
+        ]
+      },
+      "delete": {
+        "operationId": "classmoderation_unban",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Dữ liệu hoặc con trỏ không hợp lệ"
+          },
+          "401": {
+            "description": "Chưa đăng nhập"
+          },
+          "403": {
+            "description": "Yêu cầu quyền host, owner hoặc admin"
+          },
+          "404": {
+            "description": "SESSION_NOT_FOUND"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "Gỡ chặn để người dùng có thể xin vào lại",
+        "tags": [
+          "Class moderation T07"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/bans": {
+      "get": {
+        "operationId": "classmoderation_list",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassBanListDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dữ liệu hoặc con trỏ không hợp lệ"
+          },
+          "401": {
+            "description": "Chưa đăng nhập"
+          },
+          "403": {
+            "description": "Yêu cầu quyền host, owner hoặc admin"
+          },
+          "404": {
+            "description": "SESSION_NOT_FOUND"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "Xem danh sách chặn của buổi học",
+        "tags": [
+          "Class moderation T07"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/polls": {
+      "post": {
+        "operationId": "polls_create",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePollDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PollResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dữ liệu không hợp lệ"
+          },
+          "401": {
+            "description": "Chưa đăng nhập"
+          },
+          "403": {
+            "description": "Không có quyền truy cập hoặc đã bị chặn"
+          },
+          "404": {
+            "description": "Không tìm thấy buổi học hoặc bình chọn"
+          },
+          "409": {
+            "description": "SESSION_NOT_LIVE"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "Host, owner hoặc admin tạo và mở bình chọn",
+        "tags": [
+          "Polls T09"
+        ]
+      },
+      "get": {
+        "operationId": "polls_list",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PollListDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dữ liệu không hợp lệ"
+          },
+          "401": {
+            "description": "Chưa đăng nhập"
+          },
+          "403": {
+            "description": "Không có quyền truy cập hoặc đã bị chặn"
+          },
+          "404": {
+            "description": "Không tìm thấy buổi học hoặc bình chọn"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "Khôi phục bình chọn, kết quả và lựa chọn của chính mình",
+        "tags": [
+          "Polls T09"
+        ]
+      }
+    },
+    "/api/v1/polls/{pollId}/vote": {
+      "put": {
+        "operationId": "polls_vote",
+        "parameters": [
+          {
+            "name": "pollId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VotePollDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PollResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dữ liệu không hợp lệ hoặc OPTION_NOT_IN_POLL"
+          },
+          "401": {
+            "description": "Chưa đăng nhập"
+          },
+          "403": {
+            "description": "Không có quyền truy cập hoặc đã bị chặn"
+          },
+          "404": {
+            "description": "Không tìm thấy buổi học hoặc bình chọn"
+          },
+          "409": {
+            "description": "POLL_CLOSED"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "Bỏ hoặc đổi phiếu trong bình chọn đang mở",
+        "tags": [
+          "Polls T09"
+        ]
+      }
+    },
+    "/api/v1/polls/{pollId}/close": {
+      "post": {
+        "operationId": "polls_close",
+        "parameters": [
+          {
+            "name": "pollId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClosePollDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PollResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dữ liệu không hợp lệ"
+          },
+          "401": {
+            "description": "Chưa đăng nhập"
+          },
+          "403": {
+            "description": "Không có quyền truy cập hoặc đã bị chặn"
+          },
+          "404": {
+            "description": "Không tìm thấy buổi học hoặc bình chọn"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "Host, owner hoặc admin đóng bình chọn",
+        "tags": [
+          "Polls T09"
+        ]
+      }
     }
   },
   "info": {
-    "title": "Streamora T04 — lịch học và vòng đời buổi học",
-    "description": "Lịch học/meet và vòng đời; hàng chờ, accept/reject, vào/ra. Bearer và quyền hiện tại do server kiểm tra. Xin/vào yêu cầu Idempotency-Key. Sau enter cần attach Socket.IO /sessions và heartbeat mỗi 10 giây; hết kết nối 30 giây sẽ đóng lượt. Hợp đồng socket xem backend/docs/t04-realtime.md. Media thuộc T05.",
+    "title": "Streamora — buổi học và quản lý phòng",
+    "description": "Lịch học, vòng đời, xét duyệt vào phòng và quản lý người tham gia. Bearer và quyền hiện tại do server kiểm tra. Xin/vào yêu cầu Idempotency-Key. Sau enter cần attach Socket.IO /classroom và heartbeat mỗi 10 giây. Hợp đồng socket xem backend/docs/t04-realtime.md. Media thuộc T05.",
     "version": "1.1.0",
     "contact": {}
   },
@@ -5744,6 +6244,9 @@
           },
           "canViewParticipants": {
             "type": "boolean"
+          },
+          "canViewPolls": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -5773,6 +6276,9 @@
                 "$ref": "#/components/schemas/ClassParticipationDto"
               }
             ]
+          },
+          "micLocked": {
+            "type": "boolean"
           },
           "permissions": {
             "$ref": "#/components/schemas/ClassSessionPermissionsDto"
@@ -5973,6 +6479,12 @@
           },
           "media": {
             "$ref": "#/components/schemas/ClassMediaStateDto"
+          },
+          "micLocked": {
+            "type": "boolean"
+          },
+          "canModerate": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -6004,6 +6516,268 @@
           "items",
           "nextCursor"
         ]
+      },
+      "ClassMuteDto": {
+        "type": "object",
+        "properties": {
+          "lock": {
+            "type": "boolean",
+            "description": "Omit for advisory mute, true to lock, false to unlock without unmuting."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClassMuteResultDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "muted": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "locked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "userId",
+          "muted",
+          "locked"
+        ]
+      },
+      "ClassBanDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClassBanResultDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "banned": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "userId",
+          "banned"
+        ]
+      },
+      "ClassBanEntryDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "bannedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "userId",
+          "reason",
+          "bannedAt"
+        ]
+      },
+      "ClassBanListDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClassBanEntryDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "PollOptionInput": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "CreatePollDto": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "options": {
+            "minItems": 2,
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PollOptionInput"
+            }
+          }
+        },
+        "required": [
+          "question",
+          "options"
+        ],
+        "additionalProperties": false
+      },
+      "PollOptionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "text": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "count"
+        ]
+      },
+      "PollDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "question": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PollOptionDto"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "CLOSED"
+            ]
+          },
+          "totalVotes": {
+            "type": "integer"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+$"
+          },
+          "myOptionId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "sessionId",
+          "question",
+          "options",
+          "status",
+          "totalVotes",
+          "version",
+          "myOptionId"
+        ]
+      },
+      "PollResponseDto": {
+        "type": "object",
+        "properties": {
+          "poll": {
+            "$ref": "#/components/schemas/PollDto"
+          }
+        },
+        "required": [
+          "poll"
+        ]
+      },
+      "PollListDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PollDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "VotePollDto": {
+        "type": "object",
+        "properties": {
+          "optionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "optionId"
+        ],
+        "additionalProperties": false
+      },
+      "ClosePollDto": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
       }
     }
   }

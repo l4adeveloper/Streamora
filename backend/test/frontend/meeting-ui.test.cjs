@@ -241,12 +241,12 @@ test(
       const rightPanel = page.locator(".right-panel");
       await rightPanel.getByRole("log", { name: "Lịch sử tin nhắn" }).waitFor();
       await rightPanel
-        .getByLabel("Tin nhắn", { exact: true })
+        .getByLabel("Tin nhắn phòng họp", { exact: true })
         .fill("Cả lớp cùng thảo luận trong cuộc họp.");
       await rightPanel
         .getByRole("button", { name: "Gửi tin nhắn", exact: true })
         .click();
-      await viewer
+      await rightPanel
         .getByText("Cả lớp cùng thảo luận trong cuộc họp.", { exact: true })
         .waitFor({ timeout: 8000 });
       await page
@@ -256,7 +256,9 @@ test(
         .getByRole("region", { name: "Người trong phòng", exact: true })
         .getByText(owner.fullName, { exact: true })
         .waitFor();
-      await rightPanel.getByRole("button", { name: /^Trò chuyện/ }).click();
+      await rightPanel
+        .getByRole("button", { name: /^(Trò chuyện|Chat cuộc họp)/ })
+        .click();
       await page.getByRole("button", { name: "Liên kết", exact: true }).click();
       const info = page.getByRole("dialog", {
         name: "Thông tin cuộc họp",
@@ -563,7 +565,7 @@ test(
           windowsHide: true,
         },
       );
-      assert.match(mediaCheck.stdout, /pass 1/);
+      assert.match(mediaCheck.stdout, /pass 2/);
       console.log(mediaCheck.stdout);
       console.log(
         "Meeting routing, creation, membership, guest admission, desktop/mobile and browser errors passed",

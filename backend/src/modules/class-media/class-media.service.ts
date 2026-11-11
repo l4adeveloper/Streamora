@@ -162,7 +162,7 @@ export class ClassMediaService {
         0,
         Math.floor((row.expiresAt!.getTime() - Date.now()) / 1000),
       ),
-      capabilities: mediaCapabilities(row.source),
+      capabilities: mediaCapabilities(row.source, row.canPublish),
     };
   }
   async join(
@@ -185,6 +185,16 @@ export class ClassMediaService {
       dto.participationId,
       async (_context, tx) => {
         await this.requireNotBanned(tx, sessionId, actor.userId);
+        const canPublish = !(await tx.sessionMicLock.findUnique({
+          where: { sessionId_userId: { sessionId, userId: actor.userId } },
+          select: { userId: true },
+        }));
+        if (!canPublish && source === "SCREEN")
+          throw new ApiError(
+            403,
+            "MEDIA_PUBLISH_LOCKED",
+            "Bạn đang bị khóa quyền chia sẻ màn hình.",
+          );
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${dto.participationId + dto.clientId}, 73005))::text`;
         const current = await tx.classMediaConnection.findUnique({
           where: { participationId_clientId_source: identity },
@@ -257,6 +267,7 @@ export class ClassMediaService {
             userId: actor.userId,
             authSessionId: actor.authSessionId,
             requestId: dto.requestId,
+            canPublish,
             leaseUntil: new Date(now.getTime() + 30000),
           },
           update: {
@@ -264,6 +275,7 @@ export class ClassMediaService {
               ? { participantId: null, expiresAt: null, tokenCiphertext: null }
               : {}),
             requestId: dto.requestId,
+            canPublish,
             state: "ISSUING",
             leaseUntil: new Date(now.getTime() + 30000),
             lastSeenAt: now,
@@ -298,7 +310,13 @@ export class ClassMediaService {
         where: { id: actor.userId },
         select: { fullName: true },
       });
-      issued = await this.ivs.token(stageArn, actor.userId, user.fullName, source);
+      issued = await this.ivs.token(
+        stageArn,
+        actor.userId,
+        user.fullName,
+        source,
+        claim.row.canPublish,
+      );
       const value = issued;
       const row = await this.participants.withParticipant(
         actor,
@@ -419,6 +437,7 @@ export class ClassMediaService {
       where: {
         id: connection.id,
         requestId: connection.requestId,
+        participantId: connection.participantId,
         state: { not: "REVOKED" },
       },
       data: { state: "REVOKING", tokenCiphertext: null, connected: false },

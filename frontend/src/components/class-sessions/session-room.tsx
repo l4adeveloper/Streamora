@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   CalendarDays,
+  BarChart3,
   Copy,
   LogIn,
   LogOut,
@@ -27,6 +28,7 @@ import {
 import type {
   ClassAdmissionResponse,
   ClassParticipationClosed,
+  ClassPollUpdated,
   ClassSession,
   MeetPreview,
 } from "@streamora/contracts";
@@ -52,6 +54,8 @@ import {
   type ClassMediaState,
 } from "./class-media-room";
 import { MeetingChatPanel } from "./meeting-chat-panel";
+import { ClassBanList, ParticipantControls } from "./participant-controls";
+import { ClassPolls } from "./class-polls";
 import "./sessions.css";
 import "./meeting-chat.css";
 
@@ -127,7 +131,10 @@ export function SessionRoom({
   const [closedId, setClosedId] = useState<string | null>(null),
     [notice, setNotice] = useState("");
   const [shareLink, setShareLink] = useState("");
-  const [callPanel, setCallPanel] = useState<"info" | "manage" | null>(null);
+  const [callPanel, setCallPanel] = useState<"info" | "manage" | "polls" | null>(null);
+  const [pollRevision, setPollRevision] = useState(0);
+  const [newPoll, setNewPoll] = useState(false);
+  const pollListener = useRef<((event: ClassPollUpdated) => void) | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const sequence = useRef(0),
     busy = useRef(false),
@@ -140,6 +147,7 @@ export function SessionRoom({
   const [mediaState, setMediaState] = useState<ClassMediaState>({
     micEnabled: false,
     busy: false,
+    publishLocked: false,
   });
   const actionFlight = useRef<Promise<unknown> | null>(null);
   useImperativeHandle(
@@ -215,11 +223,24 @@ export function SessionRoom({
           return;
         }
       }
-      if (["access.changed", "access-revoked"].includes(kind)) {
+      if (["snapshot", "focus", "session.ended"].includes(kind))
+        setPollRevision((value) => value + 1);
+      if (kind === "moderation.mute") {
+        mediaRef.current?.mute();
+        setNotice("Người quản lý đã yêu cầu tắt mic của bạn.");
+        return;
+      }
+      if (["access.changed", "access-revoked", "banned"].includes(kind)) {
+        mediaRef.current?.stop();
         sequence.current++;
         setConfirmation(null);
         setData(null);
-        if (kind === "access-revoked")
+        if (kind === "banned") {
+          const visitId = dataRef.current?.admission.participation?.id;
+          if (visitId) setClosedId(visitId);
+          setNotice("");
+          setError(new ApiError(403, "BANNED", "Bạn đã bị chặn khỏi buổi học này."));
+        } else if (kind === "access-revoked")
           setError(
             new ApiError(
               403,
@@ -250,10 +271,14 @@ export function SessionRoom({
     visit.id !== closedId &&
     status === "LIVE";
   const connection = useClassRealtime(
-    id,
+    error && asApiError(error).code === "BANNED" ? null : id,
     active ? visit.id : null,
     changed,
     closed,
+    (event) => {
+      if (pollListener.current) pollListener.current(event);
+      else if (embedded && event.version === "1") setNewPoll(true);
+    },
   );
   const manage = !!admission?.permissions.canManage;
   useEffect(() => {
@@ -263,8 +288,13 @@ export function SessionRoom({
       }
     }
   }, [status, onExit]);
+  const canViewPolls = !!admission?.permissions.canViewPolls;
+  const polls = canViewPolls && data && (
+    <ClassPolls key={data.id} sessionId={data.id} canManage={manage}
+      live={status === "LIVE"} revision={pollRevision} listener={pollListener} />
+  );
   const meetingChat = useMeetingChat(
-    !["ENDED", "CANCELLED"].includes(status ?? "") ? id : null,
+    !error && !["ENDED", "CANCELLED"].includes(status ?? "") ? id : null,
     visit?.id ?? null,
   );
   useEffect(() => {
@@ -540,6 +570,7 @@ export function SessionRoom({
               layout="workspace"
               disabled={["ENDED", "CANCELLED"].includes(status)}
               canManage={manage}
+              micLocked={admission?.micLocked}
               headerDetail={
                 <span>
                   {active
@@ -681,6 +712,20 @@ export function SessionRoom({
                       </span>
                     </button>
                   )}
+                  {canViewPolls && (
+                    <button type="button" className="workspace-call-action"
+                      aria-label={newPoll ? "Bình chọn mới" : "Bình chọn"}
+                      title={newPoll ? "Bình chọn mới" : "Bình chọn"}
+                      onClick={() => {
+                        setNewPoll(false);
+                        setCallPanel("polls");
+                      }}>
+                      <BarChart3 size={15} />
+                      <span className="workspace-call-action-label">
+                        {newPoll ? "Bình chọn mới" : "Bình chọn"}
+                      </span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="workspace-call-action"
@@ -726,17 +771,21 @@ export function SessionRoom({
                 Thông tin cuộc họp
               </button>
             </div>
-            {callPanel && (
+            {callPanel && (callPanel !== "polls" || canViewPolls) && (
               <MeetingDialog
                 title={
                   callPanel === "manage"
                     ? "Quản lý cuộc họp"
-                    : "Thông tin cuộc họp"
+                    : callPanel === "polls"
+                      ? "Bình chọn trong buổi học"
+                      : "Thông tin cuộc họp"
                 }
                 onClose={() => setCallPanel(null)}
               >
                 {callPanel === "manage" ? (
                   managementPanel
+                ) : callPanel === "polls" ? (
+                  polls
                 ) : (
                   <div className="class-page">
                     <p>{session?.description || title}</p>
@@ -1083,8 +1132,10 @@ export function SessionRoom({
                 sessionId={data.id}
                 participationId={active ? visit.id : null}
                 revision={revision}
+                micLocked={admission?.micLocked}
               />
             )}
+            {polls}
             <div className="class-grid">
               {manage && (
                 <JoinQueue
@@ -1099,7 +1150,7 @@ export function SessionRoom({
                 />
               )}
               {admission?.permissions.canViewParticipants && (
-                <Participants sessionId={data.id} revision={revision} />
+                <Participants sessionId={data.id} revision={revision} canManage={manage} live={status === "LIVE"} />
               )}
               <section className="class-panel" aria-labelledby="standalone-chat-title">
                 <h2 id="standalone-chat-title">Chat phòng họp</h2>
@@ -1186,7 +1237,7 @@ export function MeetingPeoplePanel({
         />
       )}
       {state.canViewParticipants ? (
-        <Participants sessionId={state.sessionId} revision={state.revision} />
+        <Participants sessionId={state.sessionId} revision={state.revision} canManage={state.canManage} live={state.status === "LIVE"} />
       ) : (
         <EmptyState
           title="Tham gia phòng để xem thành viên"
@@ -1338,15 +1389,20 @@ function JoinQueue({
 function Participants({
   sessionId,
   revision,
+  canManage,
+  live,
 }: {
   sessionId: string;
   revision: number;
+  canManage: boolean;
+  live: boolean;
 }) {
   const loader = useCallback(
     (cursor?: string) => api.listClassParticipants(sessionId, cursor),
     [sessionId],
   );
   const list = useCursorList(loader, revision);
+  const [banRevision, setBanRevision] = useState(0);
   return (
     <section className="class-panel" aria-labelledby="class-participants-title">
       <h2 id="class-participants-title">Người trong phòng</h2>
@@ -1365,7 +1421,18 @@ function Participants({
             <div>
               <strong>{visit.user.fullName}</strong>
               <span>Vào lúc {displayTime(visit.joinedAt)}</span>
+              {visit.micLocked && <span>Mic và camera bị khóa</span>}
             </div>
+            {live && canManage && visit.canModerate && (
+              <ParticipantControls
+                sessionId={sessionId}
+                participant={visit}
+                onChange={() => {
+                  void list.refresh();
+                  setBanRevision((value) => value + 1);
+                }}
+              />
+            )}
           </li>
         ))}
       </ul>
@@ -1385,6 +1452,7 @@ function Participants({
           Xem thêm người tham gia
         </button>
       )}
+      {canManage && <ClassBanList sessionId={sessionId} revision={revision + banRevision} />}
     </section>
   );
 }
