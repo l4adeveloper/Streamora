@@ -3,7 +3,7 @@ const { randomBytes, randomUUID } = require("node:crypto");
 const { NestFactory } = require("@nestjs/core");
 const { Module } = require("@nestjs/common");
 const { AppModule } = require("../../dist/modules/app.module");
-const { configureApplication } = require("../../dist/app");
+const { configureApplication, createApplication } = require("../../dist/app");
 const { PrismaService } = require("../../dist/database/prisma.service");
 const {
   AccessTokenService,
@@ -38,6 +38,7 @@ async function createClassSessionApiFixture(options = {}) {
       docsEnabled: true,
       webOrigin: origin,
       ...(options.ivs ? { ivs: options.ivs } : {}),
+      ...(options.azureRealtime ? { azureRealtime: options.azureRealtime } : {}),
       ...(options.sessionRealtime
         ? { sessionRealtime: options.sessionRealtime }
         : {}),
@@ -47,6 +48,11 @@ async function createClassSessionApiFixture(options = {}) {
       },
     };
     const boot = async () => {
+      if (options.azureRealtime) {
+        const server = await createApplication(config, { requestLog: () => {} });
+        await server.listen(0, "127.0.0.1");
+        return server;
+      }
       let root = AppModule.forRoot(config);
       if (options.imports?.length) {
         class TestRoot {}

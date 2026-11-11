@@ -54,7 +54,7 @@ async function socket(
   target = f.otherBase,
   origin = "http://127.0.0.1:3000",
 ) {
-  const client = io(`${target}/sessions`, {
+  const client = io(`${target}/classroom`, {
     transports: ["websocket"],
     forceNew: true,
     reconnection: false,
@@ -502,10 +502,27 @@ test("T04 current membership gates delivery after role downgrade and removal", a
     204,
   );
   await until(() => changed(host, "session.access-revoked", session.id));
+  await until(() => !host.connected);
+  const rejoined = await socket(f.host);
   assert.equal(
-    (await ack(host, "session:watch", { sessionId: session.id })).ok,
+    (await ack(rejoined, "session:watch", { sessionId: session.id })).ok,
     false,
   );
+});
+
+test("T21 an active session ban stops delivery and rejects a new watch", async () => {
+  const session = await f.lesson();
+  const client = await socket(f.viewer);
+  await watch(client, session);
+  await f.prisma.sessionBan.create({
+    data: { sessionId: session.id, userId: f.viewer.id },
+  });
+  await until(() => changed(client, "session.access-revoked", session.id));
+  await until(() => !client.connected);
+  const rejoined = await socket(f.viewer);
+  const result = await ack(rejoined, "session:watch", { sessionId: session.id });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "BANNED");
 });
 
 test("T04 logout only revokes its own connection leases; another login can keep the same visit alive", async () => {

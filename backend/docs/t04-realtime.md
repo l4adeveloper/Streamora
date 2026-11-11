@@ -3,7 +3,7 @@
 Mục 5 bổ sung Socket.IO cho [lịch/vòng đời](t04-api.md) và
 [xin vào, duyệt, vào/ra](t04-admission.md). Các thao tác nghiệp vụ vẫn qua HTTP;
 socket thông báo thay đổi và duy trì lượt tham gia đã được server cho phép.
-Không cần thêm dependency, Redis hoặc LiveKit để chạy phần này.
+Staging dùng Azure Web PubSub for Socket.IO theo [T21](t21-realtime.md).
 
 ## Chạy local
 
@@ -20,10 +20,10 @@ Terminal khác, nếu muốn dùng service realtime riêng:
 npm run dev:realtime
 ```
 
-Namespace mới là `/sessions`: `http://127.0.0.1:4001/sessions` khi dùng realtime
-riêng, hoặc `http://127.0.0.1:4000/sessions` trên API. Cả hai sử dụng cùng database
-và khóa ký access token. Đây là namespace Socket.IO, không phải đường dẫn HTTP
-`/api/v1/sessions`. Namespace `/classroom` của T03 giữ nguyên.
+Namespace Socket.IO là `/classroom`, dùng chung với membership và chat.
+Local kết nối `http://127.0.0.1:4000/classroom` trên API hoặc
+`http://127.0.0.1:4001/classroom` nếu chạy service riêng với cùng database và
+khóa ký access token. REST vẫn dùng `/api/v1/sessions`.
 
 Sau khi pull migration cần khởi động lại API/realtime để dùng schema và build mới.
 [Giao diện T04 mục 6](../../frontend/docs/class-sessions.md) đã nối watch/attach và

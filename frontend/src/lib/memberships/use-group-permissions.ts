@@ -1,9 +1,9 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { io } from "socket.io-client";
 import type { GroupPermissions, MembershipChanged } from "@streamora/contracts";
 import { useAuth } from "@/components/auth/auth-provider";
 import { authSession } from "@/lib/auth/session";
+import { connectClassroom } from "@/lib/realtime";
 import { getGroupPermissions } from "./api";
 
 // Shared by classrooms, files and recordings. No client role is authoritative.
@@ -51,26 +51,7 @@ export function useGroupPermissions(groupId: string | null) {
   useEffect(() => {
     if (!user || !groupId) return;
     let latestVersion = 0n;
-    const base = (process.env.NEXT_PUBLIC_API_URL || "").replace(
-      /\/api\/v1\/?$/,
-      "",
-    );
-    if (base === "")
-      console.warn(
-        "[Streamora] NEXT_PUBLIC_API_URL is empty; realtime will use the current site origin.",
-      );
-    const socket = io(
-      `${process.env.NEXT_PUBLIC_REALTIME_URL ?? base}/classroom`,
-      {
-        auth: (callback) => {
-          void authSession
-            .getAccessToken()
-            .then((accessToken) => callback({ accessToken }))
-            .catch(() => callback({}));
-        },
-        transports: ["websocket"],
-      },
-    );
+    const socket = connectClassroom();
     socket.on("connect", () => {
       void refresh();
       setRevision((value) => value + 1);
@@ -99,8 +80,10 @@ export function useGroupPermissions(groupId: string | null) {
       setRevision((value) => value + 1);
       setMembershipRevision((value) => value + 1);
     });
+    socket.connect();
     return () => {
       clearInterval(renew);
+      socket.removeAllListeners();
       socket.disconnect();
     };
   }, [key, user?.id, groupId, refresh]);

@@ -223,6 +223,20 @@ export function Workspace({
     setReplyingToId(null);
   }, [workspaceGroup.groupId, channel]);
   useEffect(() => {
+    const confirmedIds = new Set(groupChat.messages.map((message) => message.id));
+    const confirmedClientIds = new Set(
+      groupChat.messages.map((message) => message.clientId),
+    );
+    setPendingMessages((current) => {
+      const remaining = current.filter(
+        (message) =>
+          !confirmedIds.has(message.id ?? "") &&
+          !confirmedClientIds.has(message.clientId ?? ""),
+      );
+      return remaining.length === current.length ? current : remaining;
+    });
+  }, [groupChat.messages]);
+  useEffect(() => {
     setModal(null);
     setRecording(false);
     setPoll(false);
@@ -466,6 +480,9 @@ export function Workspace({
   async function removeMessage(id: string) {
     try {
       await groupChat.remove(id);
+      setPendingMessages((current) =>
+        current.filter((message) => message.id !== id),
+      );
       if (replyingToId === id) setReplyingToId(null);
     } catch (error) {
       notify(

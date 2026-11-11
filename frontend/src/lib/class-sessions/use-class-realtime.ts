@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { io } from "socket.io-client";
 import type {
   ClassRealtimeAck,
   ClassWatchSnapshot,
@@ -10,6 +9,7 @@ import type {
 } from "@streamora/contracts";
 import { useAuth } from "@/components/auth/auth-provider";
 import { authSession } from "@/lib/auth/session";
+import { connectClassroom } from "@/lib/realtime";
 
 export type ClassConnectionStatus =
   "connecting" | "connected" | "reconnecting" | "expired";
@@ -43,26 +43,7 @@ export function useClassRealtime(
       nextAuth = 0;
     let reconnectAt = 0;
     const versions = new Map<string, bigint>();
-    const base = (
-      process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4000/api/v1"
-    ).replace(/\/api\/v1\/?$/, "");
-    const socket = io(
-      `${(process.env.NEXT_PUBLIC_REALTIME_URL ?? base).replace(/\/$/, "")}/sessions`,
-      {
-        autoConnect: false,
-        transports: ["websocket"],
-        auth: (callback) => {
-          void authSession
-            .getAccessToken()
-            .then((accessToken) => {
-              if (!stopped) callback({ accessToken });
-            })
-            .catch(() => {
-              if (!stopped) callback({});
-            });
-        },
-      },
-    );
+    const socket = connectClassroom();
     const emit = <T>(
       event: string,
       data: unknown,

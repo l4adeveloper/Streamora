@@ -3,7 +3,7 @@
 T05 bổ sung preview thiết bị và kết nối IVS vào các trang này; xem
 [cấu hình và nghiệm thu media](../../backend/docs/t05-handoff.md).
 
-Giao diện dùng API T04 và Socket.IO `/sessions` thật, cùng AuthProvider/API client
+Giao diện dùng API T04 và namespace Socket.IO `/classroom`, cùng AuthProvider/API client
 của T01 và phân quyền nhóm T03. Không thêm dependency hoặc migration ở mục 6.
 
 ## Mở các màn hình

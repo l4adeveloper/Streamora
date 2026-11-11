@@ -61,7 +61,7 @@ async function contextFor(actor) {
   await page.goto(`${fixture.webOrigin}/login`);
   await page.getByLabel("Email", { exact: true }).fill(actor.email);
   await page.getByLabel("Mật khẩu", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
+  await page.locator('form button[type="submit"]').click();
   await page.waitForURL("**/workspace");
   return { context, page };
 }
@@ -732,16 +732,15 @@ test("authenticated group chat sends through the backend and reloads durable his
       .click();
     await viewerHistory.getByText(text, { exact: true }).waitFor();
     await viewerHistory.getByText(owner.fullName, { exact: true }).waitFor();
-    assert.equal(
-      await fixture.prisma.groupChatMessage.count({
-        where: { groupId: group.id, senderId: owner.id, text },
-      }),
-      1,
-    );
+    const savedMessages = await fixture.prisma.groupChatMessage.findMany({
+      where: { groupId: group.id, senderId: owner.id, text },
+      select: { id: true },
+    });
+    assert.equal(savedMessages.length, 1);
 
-    const ownerMessage = ownerSession.page
-      .locator(".community-chat .message")
-      .filter({ hasText: text });
+    const ownerMessage = ownerSession.page.locator(
+      `#message-${savedMessages[0].id}`,
+    );
     await ownerMessage.hover();
     await ownerMessage
       .getByRole("button", { name: "Sửa tin nhắn", exact: true })
@@ -784,10 +783,10 @@ test("authenticated group chat sends through the backend and reloads durable his
     await viewerComposer
       .getByRole("button", { name: "Gửi tin nhắn", exact: true })
       .click();
-    await ownerSession.page
+    const ownerReply = ownerSession.page
       .locator(".community-chat .chat-history")
-      .getByText(replyText, { exact: true })
-      .waitFor();
+      .getByText(replyText, { exact: true });
+    await ownerReply.waitFor();
     const viewerReply = viewerHistory
       .locator(".message")
       .filter({ hasText: replyText });
@@ -796,7 +795,10 @@ test("authenticated group chat sends through the backend and reloads durable his
     await viewerReply
       .getByRole("button", { name: "Xóa tin nhắn", exact: true })
       .click();
-    await viewerReply.waitFor({ state: "detached" });
+    await Promise.all([
+      viewerReply.waitFor({ state: "detached" }),
+      ownerReply.waitFor({ state: "detached" }),
+    ]);
 
     await viewerSession.page.reload();
     await viewerSession.page
