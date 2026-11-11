@@ -83,7 +83,8 @@ async function configuredDatabase(config) {
   }
 }
 async function liveCheck() {
-  const workspaceAudio = process.argv.includes("--workspace-audio");
+  const rejoinOnly = process.argv.includes("--rejoin-only");
+  const workspaceAudio = rejoinOnly || process.argv.includes("--workspace-audio");
   if (!process.argv.includes("--live")) {
     console.log(
       "Run npm run build --workspace=@streamora/api, then node backend/scripts/check-ivs.cjs --live (uses real AWS resources briefly).",
@@ -493,6 +494,13 @@ async function liveCheck() {
         listeners: listeners.length,
       });
     }
+    if (rejoinOnly) {
+      await second.getByRole("button", { name: "Rời phòng", exact: true }).click();
+      await verifyRejoins();
+      assert.deepEqual(pageErrors, [], "No browser runtime errors");
+      report.ok = databaseReady;
+      return;
+    }
     for (const page of participants)
       await mediaPanel(page)
         .getByRole("button", { name: "Bật camera", exact: true })
@@ -656,6 +664,59 @@ async function liveCheck() {
       localTracksEnded: true,
       serverConnectionRevoked: true,
     });
+    async function verifyRejoins() {
+      await until("tokens of the participants still in the room expire", async () => {
+        const connections = await f.prisma.classMediaConnection.findMany({
+          where: { sessionId: room.id, state: "ACTIVE" },
+        });
+        return connections.length === 2 && connections.every(
+          (connection) => connection.expiresAt && connection.expiresAt <= new Date(),
+        );
+      }, 75000);
+
+      async function returnWithoutReload(page) {
+        await page.waitForURL((url) => !url.searchParams.has("meetingId"));
+        const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+        await page.evaluate(() => history.back());
+        await page.getByText("Bạn đang ở trong phòng", { exact: true }).waitFor();
+        assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin);
+        await mediaPanel(page)
+          .getByRole("button", { name: "Bật mic", exact: true })
+          .click();
+      }
+
+      async function waitForAllMicrophones() {
+        await until("all three participants play both remote microphones", async () => {
+          for (const page of participants) {
+            const unlock = mediaPanel(page).getByRole("button", { name: "Bật âm thanh phòng", exact: true });
+            if (await unlock.isVisible()) await unlock.click();
+            const playing = await mediaPanel(page).locator("audio").evaluateAll(
+              (elements) => elements.filter((audio) => !audio.paused && audio.currentTime > 0)
+                .map((audio) => audio.srcObject?.getAudioTracks()[0]?.id),
+            );
+            if (playing.length !== 2) return false;
+            const { inbound } = await statistics(page);
+            if (!playing.every((id) => id && inbound.some(
+              (item) => item.trackId === id && item.totalAudioEnergy > 0,
+            ))) return false;
+          }
+          return true;
+        }, 50000);
+      }
+
+      await returnWithoutReload(second);
+      await waitForAllMicrophones();
+      result("workspace-rejoin-after-token-expiry", { ok: true, participants: 3 });
+
+      for (const page of [second, third]) {
+        await page.getByRole("button", { name: "Rời phòng", exact: true }).click();
+        await page.waitForURL((url) => !url.searchParams.has("meetingId"));
+      }
+      await Promise.all([second, third].map(returnWithoutReload));
+      await waitForAllMicrophones();
+      result("workspace-multiple-rejoins-without-reload", { ok: true, participants: 3 });
+    }
+    if (third) await verifyRejoins();
     assert.equal(
       (await f.api(owner, "POST", `/sessions/${room.id}/end`, {}, randomUUID()))
         .status,
