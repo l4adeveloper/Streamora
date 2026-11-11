@@ -87,6 +87,8 @@ export interface ClassParticipation {
 
 export interface ClassParticipationWithUser extends ClassParticipation {
   user: ClassSessionUser;
+  micLocked?: boolean;
+  canModerate?: boolean;
   media?: import("./class-media").ClassMediaState;
 }
 
@@ -146,12 +148,14 @@ export interface ClassSessionPermissions {
   canRequestJoin: boolean;
   canEnter: boolean;
   canViewParticipants: boolean;
+  canViewPolls?: boolean;
 }
 
 /** Own admission state; does not expose the host's queue or other users. */
 export interface ClassAdmissionResponse {
   request: ClassJoinRequest | null;
   participation: ClassParticipation | null;
+  micLocked?: boolean;
   permissions: ClassSessionPermissions;
 }
 

@@ -33,6 +33,7 @@ import {
 
 interface Watch {
   participationId?: string;
+  since?: bigint;
 }
 interface ClientState {
   connection: ClassConnection;
@@ -225,6 +226,8 @@ export class ClassSessionsGateway
           state.connection.userId,
           sessionId,
         );
+        const watch = state.watches.get(sessionId);
+        if (watch) watch.since ??= version;
         const snapshot: ClassWatchSnapshot = {
           sessionId,
           admission,
@@ -310,7 +313,7 @@ export class ClassSessionsGateway
       where: { sessionId, userId, revokedAt: null },
     });
     if (ban) {
-      this.chatFailure("FORBIDDEN", "Bạn đã bị chặn khỏi cuộc họp này.");
+      throw new ApiError(403, "BANNED", "Bạn đã bị chặn khỏi cuộc họp này.");
     }
 
     const user = await this.prisma.user.findUnique({
@@ -617,7 +620,11 @@ export class ClassSessionsGateway
         ![403, 404].includes(error.getStatus())
       )
         throw error;
-      socket.emit("session.access-revoked", { sessionId });
+      const response = error.getResponse() as { error?: { code?: string } };
+      socket.emit("session.access-revoked", {
+        sessionId,
+        ...(response.error?.code === "BANNED" ? { reason: "BANNED" } : {}),
+      });
       await this.dropWatch(state, sessionId);
       socket.disconnect(false);
       return null;
@@ -650,10 +657,44 @@ export class ClassSessionsGateway
             return;
           }
           for (const sessionId of [...state.watches.keys()]) {
+            const since = state.watches.get(sessionId)?.since ?? this.version;
+            if (
+              changes.some(
+                (event) =>
+                  event.sessionId === sessionId &&
+                  event.version > since &&
+                  event.kind === "moderation.banned" &&
+                  event.subjectUserId === state.connection.userId,
+              )
+            ) {
+              socket.emit("session.access-revoked", {
+                sessionId,
+                reason: "BANNED",
+              });
+              socket.disconnect(false);
+              return;
+            }
             const admission = await this.reconcile(socket, state, sessionId);
             if (!admission) continue;
             for (const event of changes) {
-              if (event.sessionId !== sessionId) continue;
+              if (event.sessionId !== sessionId || event.kind === "moderation.banned")
+                continue;
+              if (event.kind === "poll.updated") {
+                if (
+                  event.version > since &&
+                  admission.permissions.canViewPolls &&
+                  event.payload &&
+                  !state.closing
+                )
+                  socket.emit("poll.updated", event.payload);
+                continue;
+              }
+              const isSubject = event.subjectUserId === state.connection.userId;
+              if (
+                (event.kind === "moderation.mute" && (!isSubject || event.version <= since)) ||
+                (event.kind === "moderation.changed" && !isSubject && !admission.permissions.canManage)
+              )
+                continue;
               const allowed =
                 event.kind === "queue.changed"
                   ? admission.permissions.canManage
@@ -662,8 +703,7 @@ export class ClassSessionsGateway
                     : ["admission.changed", "access.changed"].includes(
                       event.kind,
                     )
-                      ? !event.subjectUserId ||
-                      event.subjectUserId === state.connection.userId
+                      ? !event.subjectUserId || isSubject
                       : true;
               if (allowed && !state.closing)
                 socket.emit(event.kind, {

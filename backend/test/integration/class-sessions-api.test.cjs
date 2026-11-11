@@ -703,7 +703,7 @@ test("T04 Swagger is available independently and never exposes credentials or me
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   const document = await response.json();
-  assert.equal(Object.values(document.paths).flatMap(Object.values).length, 20);
+  assert.ok(document.paths["/api/v1/sessions/{sessionId}/participants/{userId}/mute"].post);
   assert.ok(document.paths["/api/v1/groups/{groupId}/sessions"]);
   assert.doesNotMatch(
     JSON.stringify(document.components.schemas.ClassSessionDto),

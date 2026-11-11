@@ -15,7 +15,8 @@ import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
 import { ApiError } from "../../common/api-error";
 
-export function mediaCapabilities(source: ClassMediaSource): MediaCapability[] {
+export function mediaCapabilities(source: ClassMediaSource, canPublish = true): MediaCapability[] {
+  if (!canPublish) return ["SUBSCRIBE"];
   return source === "SCREEN" ? ["PUBLISH"] : ["PUBLISH", "SUBSCRIBE"];
 }
 
@@ -74,13 +75,14 @@ export class IvsService implements OnModuleDestroy {
     userId: string,
     fullName: string,
     source: ClassMediaSource = "CAMERA",
+    canPublish = true,
   ) {
     const result = await this.client.send(
       new CreateParticipantTokenCommand({
         stageArn,
         userId,
         duration: 1,
-        capabilities: mediaCapabilities(source),
+        capabilities: mediaCapabilities(source, canPublish),
         attributes:
           source === "SCREEN" ? { fullName, "screen-share": "true" } : { fullName },
       }),

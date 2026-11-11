@@ -99,6 +99,7 @@ export function deviceError(error: unknown) {
 export function useClassMedia(
   sessionId: string,
   participationId: string | null,
+  micLocked: boolean,
 ) {
   const [status, setStatus] = useState<MediaStatus>("idle");
   const [error, setError] = useState("");
@@ -137,6 +138,18 @@ export function useClassMedia(
   const currentStatus = useRef(status);
   currentStatus.current = status;
   const root = `/sessions/${encodeURIComponent(sessionId)}`;
+  const muteRevision = useRef(0);
+  const publishLocked =
+    micLocked || (connection !== null && !connection.capabilities.includes("PUBLISH"));
+  const applyMute = useCallback(() => {
+    muteRevision.current++;
+    settings.current.micEnabled = false;
+    setMic(false);
+    for (const item of localStreams.current)
+      if (item.mediaStreamTrack.kind === "audio") item.setMuted(true);
+    for (const track of stream.current?.getAudioTracks() ?? [])
+      track.enabled = false;
+  }, []);
 
   const stopScreenShare = useCallback(() => {
     const previous = screenShare.current;
@@ -178,6 +191,18 @@ export function useClassMedia(
     [root, stopScreenShare],
   );
   useEffect(() => () => stop(), [participationId, stop]);
+  useEffect(() => {
+    if (!micLocked) return;
+    applyMute();
+    setCamera(false);
+    settings.current.cameraEnabled = false;
+    if (
+      currentConnection.current?.capabilities.includes("PUBLISH") ||
+      !currentConnection.current
+    )
+      stop();
+    else stopScreenShare();
+  }, [micLocked, applyMute, stop, stopScreenShare]);
 
   const refreshDevices = useCallback(async () => {
     if (navigator.mediaDevices?.enumerateDevices)
@@ -194,11 +219,12 @@ export function useClassMedia(
   }, [refreshDevices]);
 
   async function checkDevices(audioId: string, videoId: string) {
-    if (locked.current || stage.current) return;
+    if (publishLocked || locked.current || stage.current) return;
     locked.current = true;
     setBusy(true);
     setError("");
     const ticket = generation.current;
+    const muteAtStart = muteRevision.current;
     try {
       if (!navigator.mediaDevices?.getUserMedia)
         throw new Error("UNSUPPORTED_BROWSER");
@@ -224,10 +250,12 @@ export function useClassMedia(
         next.getTracks().forEach((t) => t.stop());
         return;
       }
+      if (muteAtStart !== muteRevision.current)
+        for (const track of next.getAudioTracks()) track.enabled = false;
       stream.current?.getTracks().forEach((t) => t.stop());
       stream.current = next;
       setPreview(next);
-      setMic(next.getAudioTracks().length > 0);
+      setMic(next.getAudioTracks().some((track) => track.enabled));
       setCamera(next.getVideoTracks().length > 0);
       await refreshDevices();
     } catch (error) {
@@ -274,6 +302,12 @@ export function useClassMedia(
       }
       currentConnection.current = issued;
       setConnection(issued);
+      const canPublish = issued.capabilities.includes("PUBLISH");
+      if (!canPublish) {
+        stream.current?.getTracks().forEach((track) => track.stop());
+        stream.current = null;
+        setPreview(null);
+      }
       settings.current = {
         micEnabled:
           settings.current.micEnabled &&
@@ -299,7 +333,8 @@ export function useClassMedia(
         );
       const next = new sdk.Stage(issued.participantToken, {
         stageStreamsToPublish: () => localStreams.current,
-        shouldPublishParticipant: () => localStreams.current.length > 0,
+        shouldPublishParticipant: () =>
+          canPublish && localStreams.current.length > 0,
         shouldSubscribeToParticipant: (person) => {
           if (person.id === screenShare.current?.connection?.participantId)
             return sdk.SubscribeType.NONE;
@@ -548,7 +583,7 @@ export function useClassMedia(
       return;
     }
     const tabId = clientId.current;
-    if (!participationId || !tabId || currentStatus.current !== "connected")
+    if (publishLocked || !participationId || !tabId || currentStatus.current !== "connected")
       return;
     if (!navigator.mediaDevices?.getDisplayMedia) {
       setError("Trình duyệt này không hỗ trợ chia sẻ màn hình.");
@@ -674,7 +709,7 @@ export function useClassMedia(
   }
 
   async function toggle(kind: "audio" | "video", deviceId = "") {
-    if (locked.current) return;
+    if (publishLocked || locked.current) return;
     const previous = stream.current?.getTracks() ?? [];
     const activeTrack = previous.find(
       (track) => track.kind === kind && track.readyState === "live",
@@ -690,6 +725,10 @@ export function useClassMedia(
     let addedTracks = false;
     if (enabled && needsCapture) {
       const ticket = generation.current;
+      const muteAtStart = muteRevision.current;
+      const cancelled = () =>
+        ticket !== generation.current ||
+        (kind === "audio" && muteAtStart !== muteRevision.current);
       locked.current = true;
       setBusy(true);
       setError("");
@@ -711,12 +750,12 @@ export function useClassMedia(
                 }
               : false,
         });
-        if (ticket !== generation.current) {
+        if (cancelled()) {
           captured.getTracks().forEach((t) => t.stop());
           return;
         }
         const sdk = await import("amazon-ivs-web-broadcast");
-        if (ticket !== generation.current) {
+        if (cancelled()) {
           captured.getTracks().forEach((t) => t.stop());
           return;
         }
@@ -785,6 +824,8 @@ export function useClassMedia(
     screenPreview,
     screenPending,
     toggleScreenShare,
+    applyMute,
+    publishLocked,
     connected: !!connection,
   };
 }

@@ -6,6 +6,7 @@ import type {
   ClassPresenceReceipt,
   ClassRealtimeInvalidation,
   ClassParticipationClosed,
+  ClassPollUpdated,
 } from "@streamora/contracts";
 import { useAuth } from "@/components/auth/auth-provider";
 import { authSession } from "@/lib/auth/session";
@@ -18,14 +19,15 @@ export function useClassRealtime(
   participationId: string | null,
   onChange: (kind: string) => void,
   onClosed: (event: ClassParticipationClosed) => void,
+  onPollUpdated: (event: ClassPollUpdated) => void,
 ) {
   const { user } = useAuth();
-  const callbacks = useRef({ onChange, onClosed });
+  const callbacks = useRef({ onChange, onClosed, onPollUpdated });
   const desired = useRef(participationId);
   const wake = useRef<(() => void) | null>(null);
   const [status, setStatus] = useState<ClassConnectionStatus>("connecting");
   useEffect(() => {
-    callbacks.current = { onChange, onClosed };
+    callbacks.current = { onChange, onClosed, onPollUpdated };
   });
   useEffect(() => {
     desired.current = participationId;
@@ -42,6 +44,7 @@ export function useClassRealtime(
       nextBeat = 0,
       nextAuth = 0;
     let reconnectAt = 0;
+    let banned = false;
     const versions = new Map<string, bigint>();
     const socket = connectClassroom();
     const emit = <T>(
@@ -50,7 +53,7 @@ export function useClassRealtime(
     ): Promise<ClassRealtimeAck<T>> =>
       socket.timeout(5000).emitWithAck(event, data);
     async function tick() {
-      if (stopped || busy) return;
+      if (stopped || busy || banned) return;
       if (!socket.connected) {
         if (!socket.active && Date.now() >= reconnectAt) socket.connect();
         return;
@@ -114,7 +117,8 @@ export function useClassRealtime(
         .then((result) => {
           if (stopped) return;
           if (!result.ok) {
-            callbacks.current.onChange("access");
+            banned = result.error.code === "BANNED";
+            callbacks.current.onChange(banned ? "banned" : "access");
             setStatus("reconnecting");
             reconnectAt = Date.now() + 5000;
             socket.disconnect();
@@ -140,6 +144,8 @@ export function useClassRealtime(
       "admission.changed",
       "participants.changed",
       "access.changed",
+      "moderation.mute",
+      "moderation.changed",
     ]) {
       socket.on(kind, (event: ClassRealtimeInvalidation) => {
         if (
@@ -154,6 +160,11 @@ export function useClassRealtime(
         callbacks.current.onChange(kind);
       });
     }
+    socket.on("poll.updated", (event: ClassPollUpdated) => {
+      if (stopped || event?.sessionId !== sessionId || !/^\d+$/.test(event.version))
+        return;
+      callbacks.current.onPollUpdated(event);
+    });
     socket.on("participation.closed", (event: ClassParticipationClosed) => {
       if (stopped || event?.sessionId !== sessionId) return;
       if (event.participationId === desired.current) {
@@ -163,11 +174,12 @@ export function useClassRealtime(
       callbacks.current.onClosed(event);
       callbacks.current.onChange("closed");
     });
-    socket.on("session.access-revoked", (event: { sessionId: string }) => {
+    socket.on("session.access-revoked", (event: { sessionId: string; reason?: "BANNED" }) => {
       if (event?.sessionId !== sessionId || stopped) return;
       ready = false;
       bound = null;
-      callbacks.current.onChange("access-revoked");
+      banned = event.reason === "BANNED";
+      callbacks.current.onChange(banned ? "banned" : "access-revoked");
       reconnectAt = Date.now() + 15000;
       socket.disconnect();
     });

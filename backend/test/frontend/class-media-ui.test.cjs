@@ -8,9 +8,9 @@ const { randomUUID } = require("node:crypto");
 const { chromium } = require("playwright");
 
 test(
-  "T05 browser handles device permissions, previews, microphone activation, preparation retries, stop and mobile",
+  "Browser handles T05 media controls and restores a T09 poll choice after refresh",
   { timeout: 120000 },
-  async () => {
+  async (t) => {
     const root = resolve(__dirname, "../../..");
     const probe = createServer();
     await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
@@ -96,6 +96,8 @@ test(
       const listenerVisitId = randomUUID();
       const joins = [];
       let joinFailures = [];
+      let poll = null;
+      let pollTest = true;
       await context.route("https://fonts.googleapis.com/**", (route) =>
         route.abort(),
       );
@@ -108,7 +110,7 @@ test(
           "Access-Control-Allow-Credentials": "true",
           "Access-Control-Allow-Headers":
             "Content-Type, Authorization, Idempotency-Key",
-          "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, OPTIONS",
         };
         if (request.method() === "OPTIONS")
           return route.fulfill({ status: 204, headers });
@@ -141,6 +143,7 @@ test(
               canRequestJoin: false,
               canEnter: false,
               canViewParticipants: true,
+              canViewPolls: pollTest,
             },
           };
         else if (path.endsWith("/participants"))
@@ -165,7 +168,42 @@ test(
             ],
             nextCursor: null,
           };
-        else if (path === `/api/v1/sessions/${sessionId}`) body = { session };
+        else if (path === `/api/v1/sessions/${sessionId}/polls`) {
+          if (request.method() === "POST") {
+            const input = request.postDataJSON();
+            poll = {
+              id: randomUUID(),
+              sessionId,
+              question: input.question,
+              options: input.options.map(({ text }) => ({
+                id: randomUUID(),
+                text,
+                count: 0,
+              })),
+              totalVotes: 0,
+              myOptionId: null,
+              version: "1",
+              status: "OPEN",
+            };
+            body = { poll };
+          } else body = { items: poll ? [poll] : [], nextCursor: null };
+        } else if (poll && path === `/api/v1/polls/${poll.id}/vote`) {
+          const { optionId } = request.postDataJSON();
+          poll = {
+            ...poll,
+            totalVotes: 1,
+            myOptionId: optionId,
+            version: "2",
+            options: poll.options.map((option) => ({
+              ...option,
+              count: Number(option.id === optionId),
+            })),
+          };
+          body = { poll };
+        } else if (poll && path === `/api/v1/polls/${poll.id}/close`) {
+          poll = { ...poll, status: "CLOSED", version: "3" };
+          body = { poll };
+        } else if (path === `/api/v1/sessions/${sessionId}`) body = { session };
         else if (path.endsWith("/join")) {
           joins.push(request.postDataJSON());
           const code = joinFailures.shift() ?? "MEDIA_UNAVAILABLE";
@@ -184,6 +222,46 @@ test(
           body: JSON.stringify(body),
         });
       });
+      await t.test(
+        "T09 creates, votes, restores the choice after refresh, and closes",
+        async () => {
+          const pollPage = await context.newPage();
+          try {
+            await pollPage.goto(`${origin}/sessions/${sessionId}`);
+            const polls = pollPage.getByRole("region", {
+              name: "Bình chọn trong buổi học",
+            });
+            await polls.getByRole("button", { name: "Tạo bình chọn" }).click();
+            await polls.getByLabel("Câu hỏi").fill("Học phần nào tiếp theo?");
+            await polls
+              .getByLabel("Lựa chọn 1", { exact: true })
+              .fill("Mạng máy tính");
+            await polls
+              .getByLabel("Lựa chọn 2", { exact: true })
+              .fill("Cơ sở dữ liệu");
+            await polls.getByRole("button", { name: "Mở bình chọn" }).click();
+            const selected = polls.getByRole("button", {
+              name: /Cơ sở dữ liệu/,
+            });
+            await selected.click();
+            const ownVote = polls.getByRole("button", {
+              name: /Cơ sở dữ liệu.*Phiếu của bạn/,
+            });
+            await ownVote.waitFor();
+            assert.equal(await selected.getAttribute("aria-pressed"), "true");
+            await pollPage.reload();
+            await ownVote.waitFor();
+            await polls.getByRole("button", { name: "Đóng bình chọn" }).click();
+            await polls
+              .getByText("Đã đóng · 1 phiếu", { exact: true })
+              .waitFor();
+            assert.ok(await selected.isDisabled());
+          } finally {
+            await pollPage.close();
+            pollTest = false;
+          }
+        },
+      );
       const page = await context.newPage();
       await page.goto(`${origin}/sessions/${sessionId}`);
       const panel = page.getByRole("region", { name: "Mic và camera" });
@@ -257,7 +335,9 @@ test(
       await panel
         .getByRole("button", { name: "Kiểm tra thiết bị", exact: true })
         .click();
-      await panel.locator("video").waitFor();
+      await panel.locator("video").waitFor({ timeout: 8000 }).catch(async () => {
+        assert.fail(`Second device preview failed: ${await panel.innerText()}`);
+      });
       joinFailures = Array(20).fill("MEDIA_STARTING");
       await panel
         .getByRole("button", { name: "Kết nối mic/camera", exact: true })
