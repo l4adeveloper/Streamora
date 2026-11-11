@@ -59,10 +59,12 @@ export function useMeetingChat(
   const socketRef = useRef<ReturnType<typeof connectClassroom> | null>(null);
 
   useEffect(() => {
+    // Reset messages immediately when sessionId changes to avoid carrying over messages from another meeting
+    setMessages([]);
+    setError(null);
+
     if (!user || !sessionId) {
-      setMessages([]);
       setStatus("idle");
-      setError(null);
       return;
     }
 
@@ -97,14 +99,11 @@ export function useMeetingChat(
           }
           const incoming = payload.messages ?? [];
           if (Array.isArray(incoming)) {
-            setMessages((current) =>
-              mergeMessages(
-                current,
-                incoming.filter(
-                  (m: unknown) => isMessage(m) && m.sessionId === sessionId,
-                ),
-              ),
+            // Strictly set only the messages belonging to this session
+            const sessionMessages = incoming.filter(
+              (m: unknown) => isMessage(m) && m.sessionId === sessionId,
             );
+            setMessages(sessionMessages);
           }
           setError(null);
           setStatus("connected");
@@ -134,7 +133,12 @@ export function useMeetingChat(
 
     socket.on("meeting-chat:message", (value: unknown) => {
       if (!active || !isMessage(value) || value.sessionId !== sessionId) return;
-      setMessages((current) => mergeMessages(current, [value]));
+      setMessages((current) =>
+        mergeMessages(
+          current.filter((m) => m.sessionId === sessionId),
+          [value],
+        ),
+      );
     });
 
     socket.on("meeting-chat:message.deleted", (value: unknown) => {
@@ -173,9 +177,13 @@ export function useMeetingChat(
     return () => {
       active = false;
       clearInterval(renew);
+      if (socket.connected) {
+        socket.emit("meeting-chat:leave", { sessionId });
+      }
       socketRef.current = null;
       socket.removeAllListeners();
       socket.disconnect();
+      setMessages([]);
     };
   }, [sessionId, user?.id]);
 
