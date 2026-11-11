@@ -112,8 +112,8 @@ tự ngắt người đang kết nối.
   dùng IVS participant ID đã lưu, không dùng userId làm participant ID.
 - Bảng `session_bans` dành cho API moderation T07 ghi trong tương lai. T05 đã
   kiểm tra ban nhưng chưa cung cấp giao diện/endpoint quản trị ban.
-- T06 có thể dùng hook/streams hiện có; token screen riêng và screen policy chưa
-  thuộc T05. T10 có thể dùng remote streams trong `useClassMedia` để trộn audio.
+- Meet dùng token chỉ có quyền `PUBLISH` cho luồng chia sẻ màn hình, tách khỏi
+  kết nối mic/camera. T10 có thể dùng remote streams trong `useClassMedia` để trộn audio.
 - T11 đăng ký handler bằng `IvsEventsService.register(detailType, handler)` trong
   module worker của mình. Handler nhận `(event, tx)` và chỉ ghi job/outbox qua tx.
   Event composition/recording chưa có handler giữ nguyên `handledAt=null` trong

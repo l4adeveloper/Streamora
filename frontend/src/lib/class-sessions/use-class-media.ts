@@ -1,21 +1,88 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 import type {
   Stage,
   StageStream,
   LocalStageStream,
   StageParticipantInfo,
 } from "amazon-ivs-web-broadcast";
-import type { JoinClassMediaResponse } from "@streamora/contracts";
+import type {
+  JoinClassMediaRequest,
+  JoinClassMediaResponse,
+} from "@streamora/contracts";
 import { apiRequest, asApiError } from "@/lib/api";
 
 export interface MediaPeer {
   id: string;
+  userId: string;
   name: string;
   stream: MediaStream;
   micEnabled: boolean;
   cameraEnabled: boolean;
+  isScreenShare: boolean;
 }
+interface ScreenShare {
+  cancel: AbortController;
+  capture?: MediaStream;
+  connection?: JoinClassMediaResponse;
+  stage?: Stage;
+  heartbeat?: ReturnType<typeof setInterval>;
+}
+
+async function requestMediaConnection(
+  root: string,
+  body: JoinClassMediaRequest,
+  signal: AbortSignal,
+) {
+  const deadline = Date.now() + 130000;
+  let attempt = 0;
+  while (!signal.aborted) {
+    try {
+      // Keep in-flight requests alive so a late token can be explicitly released.
+      return await apiRequest<JoinClassMediaResponse>(`${root}/join`, {
+        method: "POST",
+        body,
+      });
+    } catch (error) {
+      const failure = asApiError(error);
+      const delay = Math.min(4000, 500 * 2 ** attempt++);
+      if (signal.aborted) return null;
+      if (
+        failure.status !== 409 ||
+        !["MEDIA_STARTING", "MEDIA_REVOKING"].includes(failure.code) ||
+        Date.now() + delay > deadline
+      )
+        throw error;
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          signal.removeEventListener("abort", finish);
+          resolve();
+        };
+        const timer = setTimeout(finish, delay);
+        signal.addEventListener("abort", finish, { once: true });
+      });
+    }
+  }
+  return null;
+}
+
+function releaseMediaConnection(
+  root: string,
+  connection: JoinClassMediaResponse,
+) {
+  void apiRequest(`${root}/media/${connection.connectionId}/leave`, {
+    method: "POST",
+    body: { requestId: connection.requestId },
+  }).catch(() => {});
+}
+
 export type MediaStatus =
   "idle" | "connecting" | "connected" | "reconnecting" | "closed";
 export function deviceError(error: unknown) {
@@ -37,12 +104,15 @@ export function useClassMedia(
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [preview, setPreview] = useState<MediaStream | null>(null);
   const [peers, setPeers] = useState<MediaPeer[]>([]);
-  const [micEnabled, setMic] = useState(true),
-    [cameraEnabled, setCamera] = useState(true);
+  const [micEnabled, setMic] = useState(!participationId),
+    [cameraEnabled, setCamera] = useState(!participationId);
   const [connection, setConnection] = useState<JoinClassMediaResponse | null>(
     null,
   );
   const [busy, setBusy] = useState(false);
+  const [screenPreview, setScreenPreview] = useState<MediaStream | null>(null);
+  const [screenPending, setScreenPending] = useState(false);
+  const screenShare = useRef<ScreenShare | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const stage = useRef<Stage | null>(null);
   const localStreams = useRef<LocalStageStream[]>([]);
@@ -52,17 +122,33 @@ export function useClassMedia(
   const currentConnection = useRef<JoinClassMediaResponse | null>(null);
   const generation = useRef(0),
     locked = useRef(false);
-  const cancelRetryWait = useRef<(() => void) | null>(null);
+  const joinRequest = useRef<AbortController | null>(null);
+  const autoJoinedVisit = useRef<string | null>(null);
   const settings = useRef({ micEnabled, cameraEnabled });
   settings.current = { micEnabled, cameraEnabled };
   const currentStatus = useRef(status);
   currentStatus.current = status;
   const root = `/sessions/${encodeURIComponent(sessionId)}`;
 
+  const stopScreenShare = useCallback(() => {
+    const previous = screenShare.current;
+    if (!previous) return;
+    screenShare.current = null;
+    previous.cancel.abort();
+    clearInterval(previous.heartbeat);
+    previous.capture?.getTracks().forEach((track) => track.stop());
+    previous.stage?.removeAllListeners();
+    previous.stage?.leave();
+    if (previous.connection) releaseMediaConnection(root, previous.connection);
+    setScreenPending(false);
+    setScreenPreview(null);
+  }, [root]);
+
   const stop = useCallback(
     (notify = true) => {
       generation.current++;
-      cancelRetryWait.current?.();
+      joinRequest.current?.abort();
+      stopScreenShare();
       const previous = currentConnection.current;
       currentConnection.current = null;
       stage.current?.removeAllListeners();
@@ -76,24 +162,12 @@ export function useClassMedia(
       setPeers([]);
       setConnection(null);
       setStatus("idle");
-      if (notify && previous)
-        void apiRequest(`${root}/media/${previous.connectionId}/leave`, {
-          method: "POST",
-          body: { requestId: previous.requestId },
-        }).catch(() => {});
+      if (notify && previous) releaseMediaConnection(root, previous);
       requestId.current = null;
     },
-    [root],
+    [root, stopScreenShare],
   );
-  useEffect(
-    () => () => {
-      stop();
-    },
-    [stop],
-  );
-  useEffect(() => {
-    if (!participationId) stop();
-  }, [participationId, stop]);
+  useEffect(() => () => stop(), [participationId, stop]);
 
   const refreshDevices = useCallback(async () => {
     if (navigator.mediaDevices?.enumerateDevices)
@@ -118,19 +192,23 @@ export function useClassMedia(
     try {
       if (!navigator.mediaDevices?.getUserMedia)
         throw new Error("UNSUPPORTED_BROWSER");
+      const { micEnabled, cameraEnabled } = settings.current;
+      const testBoth = !micEnabled && !cameraEnabled;
       const next = await navigator.mediaDevices.getUserMedia({
-        audio: settings.current.micEnabled
-          ? audioId
-            ? { deviceId: { exact: audioId } }
-            : true
-          : false,
-        video: settings.current.cameraEnabled
-          ? {
-              ...(videoId ? { deviceId: { exact: videoId } } : {}),
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            }
-          : false,
+        audio:
+          micEnabled || testBoth
+            ? audioId
+              ? { deviceId: { exact: audioId } }
+              : true
+            : false,
+        video:
+          cameraEnabled || testBoth
+            ? {
+                ...(videoId ? { deviceId: { exact: videoId } } : {}),
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              }
+            : false,
       });
       if (ticket !== generation.current) {
         next.getTracks().forEach((t) => t.stop());
@@ -139,6 +217,8 @@ export function useClassMedia(
       stream.current?.getTracks().forEach((t) => t.stop());
       stream.current = next;
       setPreview(next);
+      setMic(next.getAudioTracks().length > 0);
+      setCamera(next.getVideoTracks().length > 0);
       await refreshDevices();
     } catch (error) {
       if (ticket === generation.current) setError(deviceError(error));
@@ -148,16 +228,27 @@ export function useClassMedia(
     }
   }
 
-  async function join() {
+  async function join(listenOnly = false) {
     if (!participationId || locked.current || stage.current) return;
     locked.current = true;
     setBusy(true);
     setError("");
     setStatus("connecting");
     const ticket = generation.current;
+    const request = new AbortController();
+    joinRequest.current = request;
+    if (listenOnly) {
+      stream.current?.getTracks().forEach((track) => track.stop());
+      stream.current = null;
+      setPreview(null);
+      setMic(false);
+      setCamera(false);
+      settings.current = { micEnabled: false, cameraEnabled: false };
+    }
     let issued: JoinClassMediaResponse | null = null;
     try {
       const sdk = await import("amazon-ivs-web-broadcast");
+      if (request.signal.aborted) return;
       clientId.current ??= crypto.randomUUID();
       requestId.current ??= crypto.randomUUID();
       const body = {
@@ -165,46 +256,10 @@ export function useClassMedia(
         clientId: clientId.current,
         requestId: requestId.current,
       };
-      const deadline = Date.now() + 130000;
-      let attempt = 0;
-      while (ticket === generation.current) {
-        try {
-          issued = await apiRequest<JoinClassMediaResponse>(`${root}/join`, {
-            method: "POST",
-            body,
-          });
-          break;
-        } catch (error) {
-          const failure = asApiError(error);
-          const delay = Math.min(4000, 500 * 2 ** attempt++);
-          if (
-            failure.status !== 409 ||
-            !["MEDIA_STARTING", "MEDIA_REVOKING"].includes(failure.code) ||
-            Date.now() + delay > deadline ||
-            ticket !== generation.current
-          )
-            throw error;
-          // Keep the same intent while another request prepares the room/token.
-          // Leaving or switching rooms cancels the wait and prevents more POSTs.
-          await new Promise<void>((resolve) => {
-            const timer = setTimeout(() => {
-              cancelRetryWait.current = null;
-              resolve();
-            }, delay);
-            cancelRetryWait.current = () => {
-              clearTimeout(timer);
-              cancelRetryWait.current = null;
-              resolve();
-            };
-          });
-        }
-      }
+      issued = await requestMediaConnection(root, body, request.signal);
       if (!issued) return;
       if (ticket !== generation.current) {
-        void apiRequest(`${root}/media/${issued.connectionId}/leave`, {
-          method: "POST",
-          body: { requestId: issued.requestId },
-        }).catch(() => {});
+        releaseMediaConnection(root, issued);
         return;
       }
       currentConnection.current = issued;
@@ -235,7 +290,10 @@ export function useClassMedia(
       const next = new sdk.Stage(issued.participantToken, {
         stageStreamsToPublish: () => localStreams.current,
         shouldPublishParticipant: () => localStreams.current.length > 0,
-        shouldSubscribeToParticipant: () => sdk.SubscribeType.AUDIO_VIDEO,
+        shouldSubscribeToParticipant: (person) =>
+          person.id === screenShare.current?.connection?.participantId
+            ? sdk.SubscribeType.NONE
+            : sdk.SubscribeType.AUDIO_VIDEO,
       });
       stage.current = next;
       const publishPeers = () => {
@@ -247,7 +305,12 @@ export function useClassMedia(
         items: StageStream[],
         remove = false,
       ) => {
-        if (person.isLocal || ticket !== generation.current) return;
+        if (
+          person.isLocal ||
+          ticket !== generation.current ||
+          person.id === screenShare.current?.connection?.participantId
+        )
+          return;
         const previous = remote.current.get(person.id);
         const tracks = new Map(
           previous?.stream.getTracks().map((t) => [t.id, t]) ?? [],
@@ -257,8 +320,15 @@ export function useClassMedia(
           else tracks.set(item.mediaStreamTrack.id, item.mediaStreamTrack);
         }
         const media = new MediaStream([...tracks.values()]);
+        const isScreenShare = person.attributes["screen-share"] === "true";
+        if (isScreenShare && !media.getVideoTracks().length) {
+          remote.current.delete(person.id);
+          publishPeers();
+          return;
+        }
         remote.current.set(person.id, {
           id: person.id,
+          userId: person.userId,
           name:
             typeof person.attributes.fullName === "string"
               ? person.attributes.fullName
@@ -267,6 +337,7 @@ export function useClassMedia(
           micEnabled: !person.audioMuted,
           cameraEnabled:
             !person.videoStopped && media.getVideoTracks().length > 0,
+          isScreenShare,
         });
         publishPeers();
       };
@@ -327,10 +398,28 @@ export function useClassMedia(
           : apiError.message,
       );
     } finally {
+      joinRequest.current = null;
       locked.current = false;
       setBusy(false);
     }
   }
+
+  const joinOnEntry = useEffectEvent(() => void join(true));
+
+  useEffect(() => {
+    if (!participationId) {
+      autoJoinedVisit.current = null;
+      return;
+    }
+    if (busy || autoJoinedVisit.current === participationId) return;
+    const ticket = generation.current;
+    const start = setTimeout(() => {
+      if (ticket !== generation.current || locked.current) return;
+      autoJoinedVisit.current = participationId;
+      joinOnEntry();
+    }, 0);
+    return () => clearTimeout(start);
+  }, [busy, participationId, root]);
   useEffect(() => {
     if (!connection || !participationId) return;
     let stopped = false,
@@ -372,18 +461,151 @@ export function useClassMedia(
     };
   }, [connection, participationId, root, stop]);
 
+  async function toggleScreenShare() {
+    if (screenShare.current) {
+      stopScreenShare();
+      return;
+    }
+    const tabId = clientId.current;
+    if (!participationId || !tabId || currentStatus.current !== "connected")
+      return;
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setError("Trình duyệt này không hỗ trợ chia sẻ màn hình.");
+      return;
+    }
+    const share: ScreenShare = { cancel: new AbortController() };
+    const { signal } = share.cancel;
+    screenShare.current = share;
+    setScreenPending(true);
+    setError("");
+    try {
+      const capture = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+        },
+        audio: false,
+      });
+      if (signal.aborted) {
+        capture.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      share.capture = capture;
+      const track = capture.getVideoTracks()[0];
+      if (!track || track.readyState !== "live")
+        throw new Error("No display track");
+      track.addEventListener("ended", stopScreenShare, { once: true, signal });
+      await track.applyConstraints({
+        width: { max: 1280 },
+        height: { max: 720 },
+        frameRate: { max: 30 },
+      });
+      if (signal.aborted) return;
+      const sdk = await import("amazon-ivs-web-broadcast");
+      const issued = await requestMediaConnection(
+        root,
+        {
+          participationId,
+          clientId: tabId,
+          requestId: crypto.randomUUID(),
+          source: "SCREEN",
+        },
+        signal,
+      );
+      if (!issued) return;
+      if (signal.aborted) {
+        releaseMediaConnection(root, issued);
+        return;
+      }
+      share.connection = issued;
+      const display = new sdk.LocalStageStream(track);
+      const publisher = new sdk.Stage(issued.participantToken, {
+        stageStreamsToPublish: () => [display],
+        shouldPublishParticipant: () => true,
+        shouldSubscribeToParticipant: () => sdk.SubscribeType.NONE,
+      });
+      share.stage = publisher;
+      const onShareError = () => {
+        if (signal.aborted) return;
+        stopScreenShare();
+        setError("Không thể tiếp tục chia sẻ màn hình. Hãy thử chia sẻ lại.");
+      };
+      publisher.on(sdk.StageEvents.ERROR, onShareError);
+      publisher.on(sdk.StageEvents.STAGE_LEFT, onShareError);
+      publisher.on(
+        sdk.StageEvents.STAGE_PARTICIPANT_PUBLISH_STATE_CHANGED,
+        (person, state) => {
+          if (
+            person.isLocal &&
+            state === sdk.StageParticipantPublishState.ERRORED
+          )
+            onShareError();
+        },
+      );
+      let connected = false;
+      publisher.on(sdk.StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
+        connected = state === sdk.StageConnectionState.CONNECTED;
+      });
+      await publisher.join();
+      if (signal.aborted) return;
+      setScreenPreview(capture);
+      setScreenPending(false);
+      let sending = false;
+      const ping = async () => {
+        if (sending || signal.aborted) return;
+        sending = true;
+        try {
+          await apiRequest(`${root}/media/${issued.connectionId}/heartbeat`, {
+            method: "POST",
+            body: {
+              participationId,
+              requestId: issued.requestId,
+              clientId: tabId,
+              connected,
+              micEnabled: false,
+              cameraEnabled: false,
+            },
+          });
+        } catch (error) {
+          if ([401, 403, 404, 409].includes(asApiError(error).status))
+            onShareError();
+        } finally {
+          sending = false;
+        }
+      };
+      share.heartbeat = setInterval(() => void ping(), 10000);
+      void ping();
+    } catch (error) {
+      if (signal.aborted) return;
+      stopScreenShare();
+      if (error instanceof DOMException && error.name === "NotAllowedError")
+        return;
+      const failure = asApiError(error);
+      setError(
+        failure.code === "UNKNOWN_ERROR"
+          ? "Không thể chia sẻ màn hình. Hãy kiểm tra quyền của trình duyệt rồi thử lại."
+          : failure.message,
+      );
+    }
+  }
+
   async function toggle(kind: "audio" | "video", deviceId = "") {
     if (locked.current) return;
-    const hasTrack = stream.current
-      ?.getTracks()
-      .some((track) => track.kind === kind && track.readyState === "live");
+    const previous = stream.current?.getTracks() ?? [];
+    const activeTrack = previous.find(
+      (track) => track.kind === kind && track.readyState === "live",
+    );
     const enabled =
-      !hasTrack ||
+      !activeTrack ||
       !(kind === "audio"
         ? settings.current.micEnabled
         : settings.current.cameraEnabled);
+    const needsCapture =
+      !activeTrack ||
+      (deviceId && activeTrack.getSettings().deviceId !== deviceId);
     let addedTracks = false;
-    if (enabled && !hasTrack) {
+    if (enabled && needsCapture) {
       const ticket = generation.current;
       locked.current = true;
       setBusy(true);
@@ -415,19 +637,28 @@ export function useClassMedia(
           captured.getTracks().forEach((t) => t.stop());
           return;
         }
+        const tracks = captured.getTracks();
+        const additions = tracks.map(
+          (track) => new sdk.LocalStageStream(track),
+        );
         const combined = new MediaStream([
-          ...(stream.current?.getTracks() ?? []).filter(
-            (track) => track.readyState === "live",
+          ...previous.filter(
+            (track) => track.kind !== kind && track.readyState === "live",
           ),
-          ...captured.getTracks(),
+          ...tracks,
         ]);
+        previous
+          .filter((track) => track.kind === kind)
+          .forEach((track) => track.stop());
         stream.current = combined;
         setPreview(combined);
         localStreams.current = [
           ...localStreams.current.filter(
-            (item) => item.mediaStreamTrack.readyState === "live",
+            ({ mediaStreamTrack }) =>
+              mediaStreamTrack.kind !== kind &&
+              mediaStreamTrack.readyState === "live",
           ),
-          ...captured.getTracks().map((t) => new sdk.LocalStageStream(t)),
+          ...additions,
         ];
         addedTracks = true;
       } catch (error) {
@@ -467,6 +698,9 @@ export function useClassMedia(
     join,
     stop,
     toggle,
+    screenPreview,
+    screenPending,
+    toggleScreenShare,
     connected: !!connection,
   };
 }

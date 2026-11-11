@@ -18,7 +18,11 @@ import {
   Maximize2,
   ChevronDown,
   Users,
+  MonitorUp,
+  MonitorOff,
 } from "lucide-react";
+import type { ClassParticipationWithUser } from "@streamora/contracts";
+import { listClassParticipants } from "@/lib/class-sessions/api";
 import { useClassMedia } from "@/lib/class-sessions/use-class-media";
 import { InlineNotice } from "@/components/common/feedback";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -29,17 +33,19 @@ function MediaTile({
   name,
   local = false,
   camera = true,
+  screen = false,
 }: {
-  stream: MediaStream;
+  stream?: MediaStream;
   name: string;
   local?: boolean;
   camera?: boolean;
+  screen?: boolean;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [blocked, setBlocked] = useState(false);
   useEffect(() => {
     const element = video.current;
-    if (!element) return;
+    if (!element || !stream) return;
     element.srcObject = stream;
     void element
       .play()
@@ -51,21 +57,25 @@ function MediaTile({
   }, [stream]);
   return (
     <div className="class-media-tile">
-      <video
-        ref={video}
-        autoPlay
-        playsInline
-        muted={local}
-        aria-label={name}
-        className={camera ? "" : "camera-off"}
-      />
-      {!camera && (
+      {stream && (
+        <video
+          ref={video}
+          autoPlay
+          playsInline
+          muted={local || screen}
+          aria-label={name}
+          className={
+            screen ? "class-media-screen-video" : camera ? "" : "camera-off"
+          }
+        />
+      )}
+      {!camera && !screen && (
         <span className="class-media-avatar" aria-hidden="true">
           {name.slice(0, 1).toUpperCase()}
         </span>
       )}
       <span className="class-media-name">{name}</span>
-      {blocked && !local && (
+      {blocked && !local && !screen && (
         <button
           className="button secondary compact class-media-play"
           onClick={() =>
@@ -89,6 +99,7 @@ export interface ClassMediaState {
 export function ClassMediaRoom({
   sessionId,
   participationId,
+  revision = 0,
   ref,
   layout = "panel",
   headerDetail,
@@ -101,6 +112,7 @@ export function ClassMediaRoom({
 }: {
   sessionId: string;
   participationId: string | null;
+  revision?: number;
   ref?: Ref<ClassMediaHandle>;
   layout?: "panel" | "workspace";
   headerDetail?: ReactNode;
@@ -111,14 +123,38 @@ export function ClassMediaRoom({
   canManage?: boolean;
   onState?: (state: ClassMediaState) => void;
 }) {
-  const media = useClassMedia(sessionId, participationId);
+  const media = useClassMedia(sessionId, disabled ? null : participationId);
   const { user } = useAuth();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [featuredId, setFeaturedId] = useState<string | null>(null);
+  const [roster, setRoster] = useState<{
+    visitId: string;
+    people: ClassParticipationWithUser[];
+  } | null>(null);
   const frame = useRef<HTMLElement>(null);
   useEffect(() => {
     if (disabled) media.stop();
   }, [disabled, media.stop]);
+  useEffect(() => {
+    if (disabled || !participationId) return;
+    const visitId = participationId;
+    let current = true;
+    async function loadRoster() {
+      const people: ClassParticipationWithUser[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await listClassParticipants(sessionId, cursor);
+        if (!current) return;
+        people.push(...page.items);
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+      setRoster({ visitId, people });
+    }
+    void loadRoster().catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [disabled, participationId, revision, sessionId]);
   const [audioId, setAudioId] = useState(""),
     [videoId, setVideoId] = useState("");
   const micOn =
@@ -147,10 +183,72 @@ export function ClassMediaRoom({
     reconnecting: "Đang khôi phục video…",
     closed: "Kết nối video đã đóng",
   };
+  const sharing = Boolean(media.screenPreview);
+  const shareLabel = sharing
+    ? "Dừng chia sẻ màn hình"
+    : media.screenPending
+      ? "Hủy chia sẻ màn hình"
+      : "Chia sẻ màn hình";
+  const shareButton = (
+    <button
+      type="button"
+      className={
+        layout === "workspace"
+          ? `device-button ${sharing ? "enabled" : ""}`
+          : "button secondary compact"
+      }
+      onClick={() => void media.toggleScreenShare()}
+      aria-label={shareLabel}
+      title={shareLabel}
+      aria-pressed={sharing}
+      disabled={
+        disabled ||
+        (!sharing && !media.screenPending && media.status !== "connected")
+      }
+    >
+      {sharing || media.screenPending ? (
+        <MonitorOff size={18} />
+      ) : (
+        <MonitorUp size={18} />
+      )}
+      {layout === "panel" && shareLabel}
+    </button>
+  );
+  const screenPeers = media.peers.filter((peer) => peer.isScreenShare);
+  const people =
+    participationId && roster?.visitId === participationId ? roster.people : [];
+  const cameraPeers = media.peers.filter((peer) => !peer.isScreenShare);
+  const publishingUsers = new Set(cameraPeers.map((peer) => peer.userId));
+  const quietPeers = people
+    .filter(
+      (visit) =>
+        visit.id !== participationId && !publishingUsers.has(visit.userId),
+    )
+    .map((visit) => ({
+      id: visit.id,
+      name: visit.user.fullName,
+      stream: undefined,
+      cameraEnabled: false,
+      isScreenShare: false,
+    }));
+  const participants = [...cameraPeers, ...quietPeers];
+  const localName = user?.fullName ?? "Bạn";
+  const localScreen = media.screenPreview && (
+    <MediaTile
+      stream={media.screenPreview}
+      name="Bạn · Màn hình"
+      local
+      screen
+    />
+  );
   if (layout === "workspace") {
-    const featured =
-      media.peers.find((peer) => peer.id === featuredId) ?? media.peers[0];
-    const localName = user?.fullName ?? "Bạn";
+    const preferred = screenPeers.length ? screenPeers : participants;
+    const featured = sharing
+      ? undefined
+      : (preferred.find((peer) => peer.id === featuredId) ?? preferred[0]);
+    const thumbnails = [...screenPeers, ...participants].filter(
+      (peer) => peer.id !== featured?.id,
+    );
     return (
       <section
         ref={frame}
@@ -176,30 +274,37 @@ export function ClassMediaRoom({
           </span>
           <span className="workspace-video-presence">
             <Users size={14} />
-            {media.status === "connected"
-              ? `${media.peers.length + 1} đang kết nối video`
+            {participationId
+              ? `${Math.max(1, people.length)} người trong phòng`
               : labels[media.status]}
           </span>
         </div>
         {media.error && <InlineNotice tone="error">{media.error}</InlineNotice>}
         <div className="workspace-media-stage">
-          {featured ? (
+          {localScreen ? (
+            <div className="workspace-media-feature">{localScreen}</div>
+          ) : featured ? (
             <div className="workspace-media-feature">
               <MediaTile
                 stream={featured.stream}
-                name={featured.name}
+                name={
+                  featured.isScreenShare
+                    ? `${featured.name} · Màn hình`
+                    : featured.name
+                }
                 camera={featured.cameraEnabled}
+                screen={featured.isScreenShare}
               />
             </div>
-          ) : media.preview ? (
+          ) : media.preview || participationId ? (
             <div className="workspace-media-feature">
               <MediaTile
-                stream={media.preview}
+                stream={media.preview ?? undefined}
                 name={`${localName} · Bạn`}
                 local
                 camera={
                   media.cameraEnabled &&
-                  media.preview.getVideoTracks().length > 0
+                  !!media.preview?.getVideoTracks().length
                 }
               />
             </div>
@@ -214,7 +319,7 @@ export function ClassMediaRoom({
               )}
             </div>
           )}
-          {featured && media.preview && (
+          {(featured || sharing) && media.preview && (
             <div className="workspace-media-local">
               <MediaTile
                 stream={media.preview}
@@ -227,17 +332,19 @@ export function ClassMediaRoom({
               />
             </div>
           )}
-          {media.peers.length > 1 && (
+          {thumbnails.length > 0 && (
             <div className="workspace-media-peers">
-              {media.peers
-                .filter((peer) => peer.id !== featured?.id)
-                .map((peer) => (
-                  <div key={peer.id} className="workspace-media-peer">
-                    <MediaTile
-                      stream={peer.stream}
-                      name={peer.name}
-                      camera={peer.cameraEnabled}
-                    />
+              {thumbnails.map((peer) => (
+                <div key={peer.id} className="workspace-media-peer">
+                  <MediaTile
+                    stream={peer.stream}
+                    name={
+                      peer.isScreenShare ? `${peer.name} · Màn hình` : peer.name
+                    }
+                    camera={peer.cameraEnabled}
+                    screen={peer.isScreenShare}
+                  />
+                  {!sharing && (!screenPeers.length || peer.isScreenShare) && (
                     <button
                       type="button"
                       className="workspace-pin-peer"
@@ -246,8 +353,9 @@ export function ClassMediaRoom({
                     >
                       <Maximize2 size={13} />
                     </button>
-                  </div>
-                ))}
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -275,6 +383,7 @@ export function ClassMediaRoom({
             >
               {cameraOn ? <Video size={18} /> : <VideoOff size={18} />}
             </button>
+            {shareButton}
             <button
               type="button"
               className="device-button"
@@ -293,11 +402,7 @@ export function ClassMediaRoom({
                 aria-label="Kiểm tra thiết bị"
                 title="Kiểm tra thiết bị"
                 onClick={() => void media.checkDevices(audioId, videoId)}
-                disabled={
-                  disabled ||
-                  media.busy ||
-                  (!media.micEnabled && !media.cameraEnabled)
-                }
+                disabled={disabled || media.busy}
               >
                 <Settings2 size={17} />
               </button>
@@ -358,7 +463,7 @@ export function ClassMediaRoom({
                   <select
                     value={audioId}
                     onChange={(event) => setAudioId(event.target.value)}
-                    disabled={media.busy || media.connected}
+                    disabled={media.busy}
                   >
                     <option value="">Thiết bị mặc định</option>
                     {media.devices
@@ -378,7 +483,7 @@ export function ClassMediaRoom({
                   <select
                     value={videoId}
                     onChange={(event) => setVideoId(event.target.value)}
-                    disabled={media.busy || media.connected}
+                    disabled={media.busy}
                   >
                     <option value="">Thiết bị mặc định</option>
                     {media.devices
@@ -419,57 +524,63 @@ export function ClassMediaRoom({
         </span>
       </div>
       {media.error && <InlineNotice tone="error">{media.error}</InlineNotice>}
-      {!media.connected && (
-        <>
-          <p className="class-muted">
-            Kiểm tra thiết bị trước khi kết nối. Bạn cũng có thể vào chỉ để nghe
-            mà không mở mic/camera.
-          </p>
-          <div className="class-media-devices">
-            <label>
-              Micro
-              <select
-                value={audioId}
-                onChange={(e) => setAudioId(e.target.value)}
-                disabled={media.busy}
-              >
-                <option value="">Thiết bị mặc định</option>
-                {media.devices
-                  .filter((d) => d.kind === "audioinput")
-                  .map((d, i) => (
-                    <option value={d.deviceId} key={d.deviceId || i}>
-                      {d.label || `Micro ${i + 1}`}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label>
-              Camera
-              <select
-                value={videoId}
-                onChange={(e) => setVideoId(e.target.value)}
-                disabled={media.busy}
-              >
-                <option value="">Thiết bị mặc định</option>
-                {media.devices
-                  .filter((d) => d.kind === "videoinput")
-                  .map((d, i) => (
-                    <option value={d.deviceId} key={d.deviceId || i}>
-                      {d.label || `Camera ${i + 1}`}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          </div>
-        </>
-      )}
+      <div className="class-media-devices">
+        <label>
+          Micro
+          <select
+            value={audioId}
+            onChange={(e) => setAudioId(e.target.value)}
+            disabled={media.busy}
+          >
+            <option value="">Thiết bị mặc định</option>
+            {media.devices
+              .filter((d) => d.kind === "audioinput")
+              .map((d, i) => (
+                <option value={d.deviceId} key={d.deviceId || i}>
+                  {d.label || `Micro ${i + 1}`}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label>
+          Camera
+          <select
+            value={videoId}
+            onChange={(e) => setVideoId(e.target.value)}
+            disabled={media.busy}
+          >
+            <option value="">Thiết bị mặc định</option>
+            {media.devices
+              .filter((d) => d.kind === "videoinput")
+              .map((d, i) => (
+                <option value={d.deviceId} key={d.deviceId || i}>
+                  {d.label || `Camera ${i + 1}`}
+                </option>
+              ))}
+          </select>
+        </label>
+      </div>
       <div className="class-media-grid">
-        {media.preview ? (
+        {localScreen && (
+          <div className="class-media-presentation">{localScreen}</div>
+        )}
+        {screenPeers.map((peer) => (
+          <div key={peer.id} className="class-media-presentation">
+            <MediaTile
+              stream={peer.stream}
+              name={`${peer.name} · Màn hình`}
+              screen
+            />
+          </div>
+        ))}
+        {media.preview || participationId ? (
           <MediaTile
-            stream={media.preview}
-            name="Bạn · xem trước"
+            stream={media.preview ?? undefined}
+            name={media.preview && !media.connected ? "Bạn · xem trước" : "Bạn"}
             local
-            camera={media.cameraEnabled}
+            camera={
+              media.cameraEnabled && !!media.preview?.getVideoTracks().length
+            }
           />
         ) : (
           <div className="class-media-placeholder">
@@ -477,7 +588,7 @@ export function ClassMediaRoom({
             <span>Thiết bị đang tắt</span>
           </div>
         )}
-        {media.peers.map((peer) => (
+        {participants.map((peer) => (
           <MediaTile
             key={peer.id}
             stream={peer.stream}
@@ -505,11 +616,12 @@ export function ClassMediaRoom({
           {cameraOn ? <Video size={16} /> : <VideoOff size={16} />}
           {cameraOn ? "Tắt camera" : "Bật camera"}
         </button>
+        {shareButton}
         {!media.connected && (
           <button
             className="button secondary"
             onClick={() => void media.checkDevices(audioId, videoId)}
-            disabled={media.busy || (!media.micEnabled && !media.cameraEnabled)}
+            disabled={media.busy}
           >
             Kiểm tra thiết bị
           </button>

@@ -34,7 +34,7 @@ export class ClassMediaController {
   @Header("Cache-Control", "no-store")
   @ApiOkResponse({ type: JoinClassMediaResponseDto })
   @ApiOperation({
-    summary: "T05 — Cấp token IVS cho đúng lượt đang tham gia",
+    summary: "Cấp token IVS cho mic/camera hoặc chia sẻ màn hình",
     description:
       "clientId theo tab; requestId giữ nguyên khi retry. Không nhận userId/role/stageArn từ client.",
   })

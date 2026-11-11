@@ -243,6 +243,11 @@ test(
         ).status,
         200,
       );
+      const participants = () =>
+        f.api(owner, "GET", `/sessions/${publicMeeting.id}/participants`);
+      const withGuest = await participants();
+      assert.equal(withGuest.status, 200);
+      assert.ok(withGuest.body.items.some((visit) => visit.userId === guest.id));
       const requested = await f.api(
         guest,
         "POST",
@@ -317,6 +322,9 @@ test(
       await f.prisma.sessionBan.create({
         data: { sessionId: publicMeeting.id, userId: guest.id },
       });
+      const afterBan = await participants();
+      assert.equal(afterBan.status, 200);
+      assert.ok(afterBan.body.items.every((visit) => visit.userId !== guest.id));
       assert.equal(
         (await f.api(guest, "GET", `/meets/${publicMeeting.joinCode}`)).status,
         403,

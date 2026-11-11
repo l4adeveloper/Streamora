@@ -558,6 +558,11 @@ model ClassMediaRoom {
   @@map("class_media_rooms")
 }
 
+enum ClassMediaSource {
+  CAMERA
+  SCREEN
+}
+
 model ClassMediaConnection {
   id String @id @default(uuid()) @db.Uuid
   sessionId String @map("session_id") @db.Uuid
@@ -565,6 +570,7 @@ model ClassMediaConnection {
   userId String @map("user_id") @db.Uuid
   authSessionId String @map("auth_session_id") @db.Uuid
   clientId String @map("client_id") @db.Uuid
+  source ClassMediaSource @default(CAMERA)
   requestId String @map("request_id") @db.Uuid
   participantId String? @unique @map("participant_id") @db.VarChar(64)
   tokenCiphertext String? @map("token_ciphertext") @db.Text
@@ -581,7 +587,7 @@ model ClassMediaConnection {
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
   authSession AuthSession @relation(fields: [authSessionId], references: [id], onDelete: Restrict)
   requests ClassMediaRequest[]
-  @@unique([participationId, clientId])
+  @@unique([participationId, clientId, source], map: "class_media_connections_participation_client_source_key")
   @@index([state, checkedAt])
   @@map("class_media_connections")
 }

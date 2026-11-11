@@ -517,6 +517,15 @@
 .class-media-tile video.camera-off {
   opacity: 0;
 }
+.class-media-tile video.class-media-screen-video {
+  object-fit: contain;
+}
+.class-media-presentation {
+  grid-column: 1 / -1;
+}
+.class-media-presentation .class-media-tile {
+  max-height: min(65vh, 650px);
+}
 .class-media-name {
   position: absolute;
   bottom: 10px;

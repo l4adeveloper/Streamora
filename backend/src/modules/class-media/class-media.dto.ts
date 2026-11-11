@@ -1,13 +1,16 @@
 import {
   IsBoolean,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  ValidateIf,
 } from "class-validator";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import type {
   ClassMediaHeartbeatRequest,
+  ClassMediaSource,
   JoinClassMediaRequest,
 } from "@streamora/contracts";
 export class JoinClassMediaDto implements JoinClassMediaRequest {
@@ -19,6 +22,10 @@ export class JoinClassMediaDto implements JoinClassMediaRequest {
   @IsString()
   @MaxLength(100)
   deviceLabel?: string;
+  @ApiPropertyOptional({ enum: ["CAMERA", "SCREEN"], default: "CAMERA" })
+  @ValidateIf((_dto, value) => value !== undefined)
+  @IsIn(["CAMERA", "SCREEN"])
+  source?: ClassMediaSource;
 }
 export class ClassMediaHeartbeatDto implements ClassMediaHeartbeatRequest {
   @ApiProperty({ format: "uuid" }) @IsUUID("4") requestId!: string;
