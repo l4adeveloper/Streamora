@@ -13,6 +13,7 @@ import { setupMembershipsOpenApi } from "./documentation/memberships-openapi";
 import { setupClassSessionsOpenApi } from "./documentation/class-sessions-openapi";
 import { setupClassMediaOpenApi } from "./documentation/class-media-openapi";
 import { setupFilesOpenApi } from "./documentation/files-openapi";
+import { AzureIoAdapter } from "./realtime/azure-io.adapter";
 import {
   requestContextMiddleware,
   type RequestLogWriter,
@@ -28,6 +29,17 @@ export async function createApplication(
 ) {
   const app = await NestFactory.create(AppModule.forRoot(config));
   configureApplication(app, config, options);
+  if (config.azureRealtime) {
+    const adapter = new AzureIoAdapter(app);
+    app.useWebSocketAdapter(adapter);
+    try {
+      await app.init();
+      await adapter.connect(config.azureRealtime);
+    } catch (error) {
+      await app.close();
+      throw error;
+    }
+  }
   return app;
 }
 

@@ -54,7 +54,7 @@ npm run dev:api
 npm run dev
 ```
 
-API mặc định cổng 4000; frontend cổng 3000. Socket.IO `/sessions` đã có ngay
+API mặc định cổng 4000; frontend cổng 3000. Socket.IO `/classroom` đã có ngay
 trên API. Nếu `frontend/.env.local` đặt `NEXT_PUBLIC_REALTIME_URL` sang cổng
 4001 thì mở thêm terminal chạy `npm run dev:realtime`. API và realtime phải
 dùng chung database/khóa ký; khởi động lại frontend sau khi đổi biến public.

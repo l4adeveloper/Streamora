@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { io } from "socket.io-client";
 import type {
   MeetingChatMessage,
   MeetingChatDeleted,
@@ -10,6 +9,7 @@ import type {
 } from "@streamora/contracts";
 import { useAuth } from "@/components/auth/auth-provider";
 import { authSession } from "@/lib/auth/session";
+import { connectClassroom } from "@/lib/realtime";
 
 export type MeetingChatStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -43,7 +43,7 @@ function mergeMessages(
 
 /**
  * Realtime meeting-scoped chat.
- * Opens its own socket connection to /sessions namespace (same as useClassRealtime)
+ * Opens its own socket connection to the /classroom namespace
  * and emits meeting-chat:* events. The user must be an active participant
  * (participationId != null) to send messages.
  */
@@ -56,7 +56,7 @@ export function useMeetingChat(
   const [messages, setMessages] = useState<MeetingChatMessage[]>([]);
   const [status, setStatus] = useState<MeetingChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const socketRef = useRef<ReturnType<typeof io> | null>(null);
+  const socketRef = useRef<ReturnType<typeof connectClassroom> | null>(null);
 
   useEffect(() => {
     if (!user || !sessionId) {
@@ -69,26 +69,7 @@ export function useMeetingChat(
     let active = true;
     setStatus("connecting");
 
-    const base = (
-      process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4000/api/v1"
-    ).replace(/\/api\/v1\/?$/, "");
-    const socket = io(
-      `${(process.env.NEXT_PUBLIC_REALTIME_URL ?? base).replace(/\/$/, "")}/sessions`,
-      {
-        autoConnect: false,
-        transports: ["websocket"],
-        auth: (callback) => {
-          void authSession
-            .getAccessToken()
-            .then((accessToken) => {
-              if (active) callback({ accessToken });
-            })
-            .catch(() => {
-              if (active) callback({});
-            });
-        },
-      },
-    );
+    const socket = connectClassroom();
     socketRef.current = socket;
 
     function joinChat() {

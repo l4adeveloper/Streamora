@@ -72,7 +72,7 @@ async function account(name) {
 async function login(page, actor, expected = "**/workspace") {
   await page.getByLabel("Email", { exact: true }).fill(actor.email);
   await page.getByLabel("Mật khẩu", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
+  await page.locator('form button[type="submit"]').click();
   await page.waitForURL(expected);
 }
 async function contextFor(actor, options = {}) {

@@ -24,6 +24,8 @@ import { AccessTokenService } from "../auth/access-token.service";
 import { SessionStore } from "../auth/session-store.service";
 import { GroupAccessService } from "./group-access.service";
 import { PrismaService } from "../../database/prisma.service";
+import { ApiError } from "../../common/api-error";
+import type { Prisma } from "../../generated/prisma/client";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
 
@@ -48,6 +50,8 @@ export class MembershipGateway
   private stopping = false;
   private version = 0n;
   private meetingVersion = 0n;
+  private chatVersion = 0n;
+  private nextChatCleanup = 0;
   private lastWarning = 0;
   private readonly logger = new Logger(MembershipGateway.name);
   constructor(
@@ -68,30 +72,25 @@ export class MembershipGateway
           throw new Error();
         const auth = await this.identity(client);
         client.data.userId = auth.user.id;
+        client.data.authSessionId = auth.sessionId;
         next();
       } catch {
         next(new Error("UNAUTHENTICATED"));
       }
     });
   }
-  async handleConnection(client: Socket) {
-    try {
-      const identity = await this.identity(client);
-      await client.join(`user:${identity.user.id}`);
-    } catch {
-      client.disconnect(true);
-    }
-  }
   async onApplicationBootstrap() {
-    const last = await this.prisma.membershipChange.findFirst({
-      orderBy: { version: "desc" },
-    });
+    const [last, lastChat, lastMeeting] = await Promise.all([
+      this.prisma.membershipChange.findFirst({ orderBy: { version: "desc" } }),
+      this.prisma.groupChatChange.findFirst({ orderBy: { version: "desc" } }),
+      this.prisma.classSessionChange.findFirst({
+        where: { kind: { in: GROUP_MEETING_EVENTS } },
+        orderBy: { version: "desc" },
+      }),
+    ]);
     this.version = last?.version ?? 0n;
-    const meeting = await this.prisma.classSessionChange.findFirst({
-      where: { kind: { in: GROUP_MEETING_EVENTS } },
-      orderBy: { version: "desc" },
-    });
-    this.meetingVersion = meeting?.version ?? 0n;
+    this.meetingVersion = lastMeeting?.version ?? 0n;
+    this.chatVersion = lastChat?.version ?? 0n;
     this.timer = setInterval(() => void this.flush(), 500);
     this.timer.unref();
   }
@@ -215,7 +214,8 @@ export class MembershipGateway
         !body ||
         typeof body !== "object" ||
         !("accessToken" in body) ||
-        typeof body.accessToken !== "string"
+        typeof body.accessToken !== "string" ||
+        Object.keys(body).some((key) => key !== "accessToken")
       )
         throw new Error();
       const claims = this.tokens.verify(body.accessToken);
@@ -223,11 +223,15 @@ export class MembershipGateway
         claims.userId,
         claims.sessionId,
       );
-      if (identity.user.id !== client.data.userId) throw new Error();
+      if (
+        identity.user.id !== client.data.userId ||
+        identity.sessionId !== client.data.authSessionId
+      )
+        throw new Error();
       client.handshake.auth.accessToken = body.accessToken;
-      return { ok: true };
+      return { ok: true, data: {} };
     } catch {
-      client.disconnect(true);
+      client.disconnect(false);
       return this.failure();
     }
   }
@@ -238,6 +242,11 @@ export class MembershipGateway
       const { groupId } = await this.authorize(client, body);
       const channel = this.channel(body);
       await client.join(`group:${groupId}`);
+      if (!client.rooms.has(`group:${groupId}`))
+        return this.chatFailure(
+          "SERVICE_UNAVAILABLE",
+          "Chưa thể tham gia cuộc trò chuyện.",
+        );
       const [rows, channels] = await Promise.all([
         this.prisma.groupChatMessage.findMany({
           where: { groupId, channel, deletedAt: null },
@@ -275,16 +284,14 @@ export class MembershipGateway
       });
       if (existing)
         return this.chatFailure("CHANNEL_EXISTS", "Tên kênh đã tồn tại.");
-      const saved = await this.prisma.groupChatChannel.create({
-        data: {
-          id: randomUUID(),
-          groupId,
-          name,
-          createdById: userId,
-        },
+      const channel = await this.prisma.$transaction(async (tx) => {
+        const saved = await tx.groupChatChannel.create({
+          data: { id: randomUUID(), groupId, name, createdById: userId },
+        });
+        const channel = this.chatChannel(saved);
+        await this.recordChatChange(tx, groupId, "chat:channel.created", channel);
+        return channel;
       });
-      const channel = this.chatChannel(saved);
-      await this.broadcastGroup(groupId, "chat:channel.created", channel);
       return { ok: true, channel };
     } catch (error) {
       if (error instanceof Error && error.message === "VALIDATION_ERROR")
@@ -350,22 +357,24 @@ export class MembershipGateway
           );
         replyToId = target.id;
       }
-      const saved = await this.prisma.groupChatMessage.create({
-        data: {
-          id: randomUUID(),
-          groupId,
-          senderId: userId,
-          senderName: fullName,
-          senderRole: role,
-          channel,
-          text: body.text.trim(),
-          replyToId,
-        },
+      const text = body.text.trim();
+      const message = await this.prisma.$transaction(async (tx) => {
+        const saved = await tx.groupChatMessage.create({
+          data: {
+            id: randomUUID(),
+            groupId,
+            senderId: userId,
+            senderName: fullName,
+            senderRole: role,
+            channel,
+            text,
+            replyToId,
+          },
+        });
+        const message = { ...this.chatMessage(saved), clientId };
+        await this.recordChatChange(tx, groupId, "chat:message", message);
+        return message;
       });
-      const message = { ...this.chatMessage(saved), clientId };
-      // Authorize recipients on every delivery so a membership removal blocks
-      // new messages immediately; reconnects recover durable history from DB.
-      await this.broadcastGroup(groupId, "chat:message", message);
       return { ok: true, id: message.id };
     } catch {
       return this.failure();
@@ -403,13 +412,20 @@ export class MembershipGateway
           "FORBIDDEN",
           "Bạn chỉ có thể sửa tin nhắn của mình.",
         );
-      const saved = await this.prisma.groupChatMessage.update({
-        where: { id: existing.id },
-        data: { text: payload.text.trim(), editedAt: new Date() },
+      const text = payload.text.trim();
+      await this.prisma.$transaction(async (tx) => {
+        const saved = await tx.groupChatMessage.update({
+          where: { id: existing.id, deletedAt: null },
+          data: { text, editedAt: new Date() },
+        });
+        await this.recordChatChange(
+          tx,
+          groupId,
+          "chat:message.updated",
+          this.chatMessage(saved),
+        );
       });
-      const message = this.chatMessage(saved);
-      await this.broadcastGroup(groupId, "chat:message.updated", message);
-      return { ok: true, id: message.id };
+      return { ok: true, id: existing.id };
     } catch {
       return this.failure();
     }
@@ -443,28 +459,46 @@ export class MembershipGateway
           "FORBIDDEN",
           "Bạn chỉ có thể xóa tin nhắn của mình.",
         );
-      await this.prisma.groupChatMessage.update({
-        where: { id: existing.id },
-        data: { deletedAt: new Date() },
+      await this.prisma.$transaction(async (tx) => {
+        await tx.groupChatMessage.update({
+          where: { id: existing.id, deletedAt: null },
+          data: { deletedAt: new Date() },
+        });
+        const deleted: GroupChatDeleted = { id: existing.id, groupId, channel };
+        await this.recordChatChange(tx, groupId, "chat:message.deleted", deleted);
       });
-      const deleted: GroupChatDeleted = { id: existing.id, groupId, channel };
-      await this.broadcastGroup(groupId, "chat:message.deleted", deleted);
       return { ok: true, id: existing.id };
     } catch {
       return this.failure();
     }
   }
-  async broadcastGroup(groupId: string, event: string, payload: unknown) {
+  private async recordChatChange(
+    tx: Prisma.TransactionClient,
+    groupId: string,
+    event: string,
+    payload: GroupChatMessage | GroupChatChannel | GroupChatDeleted,
+  ) {
+    // Allocate versions in commit order so a poll cannot skip a late commit.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(73021)::text`;
+    await tx.groupChatChange.create({
+      data: { groupId, event, payload: { ...payload } },
+    });
+  }
+
+  private async broadcastGroup(groupId: string, event: string, payload: unknown) {
+    const recipients: string[] = [];
     for (const socket of this.server.sockets.values()) {
       if (!socket.rooms.has(`group:${groupId}`)) continue;
       try {
         const auth = await this.identity(socket);
         await this.access.require(auth.user.id, groupId);
-        socket.emit(event, payload);
-      } catch {
-        await socket.leave(`group:${groupId}`);
+        recipients.push(socket.id);
+      } catch (error) {
+        // A revoked or unauthenticated socket must never receive chat content.
+        if (!(error instanceof ApiError)) throw error;
       }
     }
+    if (recipients.length) this.server.to(recipients).emit(event, payload);
   }
 
   async flush() {
@@ -514,15 +548,33 @@ export class MembershipGateway
           version: event.version.toString(),
         };
         for (const socket of this.server.sockets.values()) {
-          if (!socket.rooms.has(`user:${event.userId}`)) continue;
+          if (socket.data.userId !== event.userId) continue;
+          let disconnect = false;
           try {
             await this.access.require(event.userId, event.groupId);
-          } catch {
-            await socket.leave(`group:${event.groupId}`);
+          } catch (error) {
+            if (!(error instanceof ApiError)) throw error;
+            disconnect = socket.rooms.has(`group:${event.groupId}`);
           }
           socket.emit("membership.changed", payload);
+          if (disconnect) socket.disconnect(false);
         }
         this.version = event.version;
+      }
+      const chat = await this.prisma.groupChatChange.findMany({
+        where: { version: { gt: this.chatVersion } },
+        orderBy: { version: "asc" },
+        take: 100,
+      });
+      for (const change of chat) {
+        await this.broadcastGroup(change.groupId, change.event, change.payload);
+        this.chatVersion = change.version;
+      }
+      if (Date.now() >= this.nextChatCleanup) {
+        await this.prisma.groupChatChange.deleteMany({
+          where: { createdAt: { lt: new Date(Date.now() - 86400000) } },
+        });
+        this.nextChatCleanup = Date.now() + 3600000;
       }
     } catch {
       this.warn();
@@ -534,7 +586,7 @@ export class MembershipGateway
     if (Date.now() - this.lastWarning < 60000) return;
     this.lastWarning = Date.now();
     this.logger.warn(
-      "Thông báo thay đổi quyền đang chờ thử lại. Kiểm tra kết nối database.",
+      "Đồng bộ quyền và trò chuyện đang chờ thử lại. Kiểm tra kết nối database.",
     );
   }
 }

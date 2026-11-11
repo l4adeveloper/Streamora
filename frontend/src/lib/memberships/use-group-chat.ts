@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { io, type Socket } from "socket.io-client";
+import type { Socket } from "socket.io-client";
 import type {
   GroupChatActionAck,
   GroupChatChannel,
@@ -12,6 +12,7 @@ import type {
   GroupChatSendAck,
 } from "@streamora/contracts";
 import { authSession } from "@/lib/auth/session";
+import { connectClassroom } from "@/lib/realtime";
 
 export type GroupChatStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -107,26 +108,7 @@ export function useGroupChat(groupId: string | null, channel: string) {
 
     let active = true;
     setStatus("connecting");
-    const base = (process.env.NEXT_PUBLIC_API_URL || "").replace(
-      /\/api\/v1\/?$/,
-      "",
-    );
-    if (base === "")
-      console.warn(
-        "[Streamora] NEXT_PUBLIC_API_URL is empty; realtime will use the current site origin.",
-      );
-    const socket = io(
-      `${process.env.NEXT_PUBLIC_REALTIME_URL ?? base}/classroom`,
-      {
-        auth: (callback) => {
-          void authSession
-            .getAccessToken()
-            .then((accessToken) => callback({ accessToken }))
-            .catch(() => callback({}));
-        },
-        transports: ["websocket"],
-      },
-    );
+    const socket = connectClassroom();
     socketRef.current = socket;
     const meetingsChanged = (value: { groupId?: string }) => {
       if (active && value?.groupId === groupId)
@@ -230,6 +212,7 @@ export function useGroupChat(groupId: string | null, channel: string) {
         .catch(() => socket.disconnect());
     }, 15000);
 
+    socket.connect();
     return () => {
       active = false;
       clearInterval(renew);
