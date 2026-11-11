@@ -262,6 +262,7 @@ test(
           }
         },
       );
+      joins.length = 0;
       const page = await context.newPage();
       await page.goto(`${origin}/sessions/${sessionId}`);
       const panel = page.getByRole("region", { name: "Mic và camera" });
