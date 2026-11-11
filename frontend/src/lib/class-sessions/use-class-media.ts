@@ -19,6 +19,12 @@ import type {
 } from "@streamora/contracts";
 import { apiRequest, asApiError } from "@/lib/api";
 
+const IVS_VIDEO_CONSTRAINTS = {
+  width: { ideal: 1280, max: 1280 },
+  height: { ideal: 720, max: 720 },
+  frameRate: { ideal: 30, max: 30 },
+};
+
 export interface MediaPeer {
   id: string;
   userId: string;
@@ -248,18 +254,37 @@ export function useClassMedia(
         audio:
           micEnabled || testBoth
             ? audioId
-              ? { deviceId: { exact: audioId } }
-              : true
+              ? {
+                  deviceId: { exact: audioId },
+                  echoCancellation: true,
+                  noiseSuppression: true,
+                  autoGainControl: true,
+                }
+              : {
+                  echoCancellation: true,
+                  noiseSuppression: true,
+                  autoGainControl: true,
+                }
             : false,
         video:
           cameraEnabled || testBoth
             ? {
                 ...(videoId ? { deviceId: { exact: videoId } } : {}),
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
+                ...IVS_VIDEO_CONSTRAINTS,
+                facingMode: "user",
+                aspectRatio: { ideal: 1.7777777778 },
               }
             : false,
       });
+      // Optimize hardware encoder processing for camera
+      for (const track of next.getVideoTracks()) {
+        if ("contentHint" in track) {
+          try {
+            (track as MediaStreamTrack & { contentHint?: string }).contentHint =
+              "motion";
+          } catch {}
+        }
+      }
       if (ticket !== generation.current) {
         next.getTracks().forEach((t) => t.stop());
         return;
@@ -671,11 +696,13 @@ export function useClassMedia(
       if (!track || track.readyState !== "live")
         throw new Error("No display track");
       track.addEventListener("ended", stopScreenShare, { once: true, signal });
-      await track.applyConstraints({
-        width: { max: 1280 },
-        height: { max: 720 },
-        frameRate: { max: 30 },
-      });
+      if ("contentHint" in track) {
+        try {
+          (track as MediaStreamTrack & { contentHint?: string }).contentHint =
+            "detail";
+        } catch {}
+      }
+      await track.applyConstraints(IVS_VIDEO_CONSTRAINTS);
       if (signal.aborted) return;
       const sdk = await import("amazon-ivs-web-broadcast");
       const issued = await requestMediaConnection(
@@ -797,18 +824,38 @@ export function useClassMedia(
           audio:
             kind === "audio"
               ? deviceId
-                ? { deviceId: { exact: deviceId } }
-                : true
+                ? {
+                    deviceId: { exact: deviceId },
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                  }
+                : {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                  }
               : false,
           video:
             kind === "video"
               ? {
                   ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-                  width: { ideal: 1280 },
-                  height: { ideal: 720 },
+                  ...IVS_VIDEO_CONSTRAINTS,
+                  facingMode: "user",
+                  aspectRatio: { ideal: 1.7777777778 },
                 }
               : false,
         });
+        if (captured) {
+          for (const track of captured.getVideoTracks()) {
+            if ("contentHint" in track) {
+              try {
+                (track as MediaStreamTrack & { contentHint?: string }).contentHint =
+                  "motion";
+              } catch {}
+            }
+          }
+        }
         if (cancelled()) {
           captured.getTracks().forEach((t) => t.stop());
           return;
