@@ -74,6 +74,7 @@ export class ClassSessionAccessService {
     if (
       await tx.sessionBan.findFirst({
         where: { sessionId: row.id, userId, revokedAt: null },
+        select: { userId: true },
       })
     )
       throw new ApiError(403, "BANNED", "Bạn đã bị chặn khỏi cuộc họp này.");

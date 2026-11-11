@@ -54,7 +54,7 @@ async function socket(
   target = f.otherBase,
   origin = "http://127.0.0.1:3000",
 ) {
-  const client = io(`${target}/sessions`, {
+  const client = io(`${target}/classroom`, {
     transports: ["websocket"],
     forceNew: true,
     reconnection: false,
@@ -121,6 +121,25 @@ const changed = (client, kind, id) =>
   client.events.find(
     (event) => event.name === kind && event.data.sessionId === id,
   );
+
+test("meeting chat shares the authenticated classroom namespace with session events", async () => {
+  const session = await f.lesson();
+  const owner = await socket(f.owner);
+  const viewer = await socket(f.viewer);
+  const data = { sessionId: session.id };
+  await watch(owner, session);
+  await ok(owner, "auth:refresh", { accessToken: f.owner.token });
+  await ok(owner, "meeting-chat:join", data);
+  await ok(viewer, "meeting-chat:join", data);
+  const sent = await ok(owner, "meeting-chat:send", {
+    ...data,
+    text: "Meeting chat on classroom",
+  });
+  const received = await until(() =>
+    changed(viewer, "meeting-chat:message", session.id),
+  );
+  assert.equal(received.data.id, sent.id);
+});
 
 test("T04 socket authentication rejects invalid tokens and foreign origins; watch snapshots contain only own admission", async () => {
   await assert.rejects(socket(null), /UNAUTHENTICATED/);
@@ -502,10 +521,27 @@ test("T04 current membership gates delivery after role downgrade and removal", a
     204,
   );
   await until(() => changed(host, "session.access-revoked", session.id));
+  await until(() => !host.connected);
+  const rejoined = await socket(f.host);
   assert.equal(
-    (await ack(host, "session:watch", { sessionId: session.id })).ok,
+    (await ack(rejoined, "session:watch", { sessionId: session.id })).ok,
     false,
   );
+});
+
+test("T21 an active session ban stops delivery and rejects a new watch", async () => {
+  const session = await f.lesson();
+  const client = await socket(f.viewer);
+  await watch(client, session);
+  await f.prisma.sessionBan.create({
+    data: { sessionId: session.id, userId: f.viewer.id },
+  });
+  await until(() => changed(client, "session.access-revoked", session.id));
+  await until(() => !client.connected);
+  const rejoined = await socket(f.viewer);
+  const result = await ack(rejoined, "session:watch", { sessionId: session.id });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "BANNED");
 });
 
 test("T04 logout only revokes its own connection leases; another login can keep the same visit alive", async () => {

@@ -233,6 +233,18 @@ model GroupChatChannel {
   @@map("group_chat_channels")
 }
 
+// Each realtime instance rechecks access for the sockets it owns.
+model GroupChatChange {
+  version   BigInt   @id @default(autoincrement())
+  groupId   String   @map("group_id") @db.Uuid
+  event     String
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@map("group_chat_changes")
+}
+
 // T04: application sessions/admission only; independent of media and auth sessions.
 enum ClassSessionKind {
   GROUP
