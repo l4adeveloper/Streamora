@@ -1,5 +1,6 @@
 "use client";
 import {
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -23,7 +24,10 @@ import {
 } from "lucide-react";
 import type { ClassParticipationWithUser } from "@streamora/contracts";
 import { listClassParticipants } from "@/lib/class-sessions/api";
-import { useClassMedia } from "@/lib/class-sessions/use-class-media";
+import {
+  useClassMedia,
+  type MediaPeer,
+} from "@/lib/class-sessions/use-class-media";
 import { InlineNotice } from "@/components/common/feedback";
 import { useAuth } from "@/components/auth/auth-provider";
 import "./media.css";
@@ -214,14 +218,17 @@ function MediaTile({
 }
 
 function ParticipantAudio({
+  id,
   track,
   name,
+  reportBlocked,
 }: {
+  id: string;
   track: MediaStreamTrack;
   name: string;
+  reportBlocked: (id: string, blocked: boolean) => void;
 }) {
   const audio = useRef<HTMLAudioElement>(null);
-  const [blocked, setBlocked] = useState(false);
   useEffect(() => {
     const element = audio.current;
     if (!element) return;
@@ -233,35 +240,63 @@ function ParticipantAudio({
         error instanceof DOMException &&
         error.name === "NotAllowedError"
       )
-        setBlocked(true);
+        reportBlocked(id, true);
     });
     return () => {
       element.srcObject = null;
+      reportBlocked(id, false);
     };
-  }, [track]);
+  }, [id, track, reportBlocked]);
   return (
-    <>
-      <audio
-        ref={audio}
-        autoPlay
-        aria-label={name}
-        onPlaying={() => setBlocked(false)}
-      />
-      {blocked && (
+    <audio
+      ref={audio}
+      autoPlay
+      aria-label={name}
+      onPlaying={() => reportBlocked(id, false)}
+    />
+  );
+}
+
+function RoomAudio({ peers }: { peers: MediaPeer[] }) {
+  const playback = useRef<HTMLDivElement>(null);
+  const [blocked, setBlocked] = useState(new Set<string>());
+  const reportBlocked = useCallback((id: string, value: boolean) => {
+    setBlocked((current) => {
+      if (current.has(id) === value) return current;
+      const next = new Set(current);
+      if (value) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  return (
+    <div ref={playback} style={{ display: "contents" }}>
+      {peers.map((peer) => {
+        const track = peer.stream.getAudioTracks()[0];
+        return track ? (
+          <ParticipantAudio
+            key={peer.id}
+            id={peer.id}
+            track={track}
+            name={peer.name}
+            reportBlocked={reportBlocked}
+          />
+        ) : null;
+      })}
+      {blocked.size > 0 && (
         <button
           type="button"
           className="button secondary compact"
-          onClick={() =>
-            void audio.current
-              ?.play()
-              .then(() => setBlocked(false))
-              .catch(() => {})
-          }
+          onClick={() => {
+            // Each play() must start during the same browser user gesture.
+            for (const audio of playback.current?.querySelectorAll("audio") ?? [])
+              if (audio.paused) void audio.play().catch(() => {});
+          }}
         >
-          Bật âm thanh của {name}
+          Bật âm thanh phòng
         </button>
       )}
-    </>
+    </div>
   );
 }
 export interface ClassMediaHandle {
@@ -412,15 +447,18 @@ export function ClassMediaRoom({
       {media.unavailablePeers.length > 0 && (
         <InlineNotice>
           Không nhận được âm thanh hoặc video từ{" "}
-          {media.unavailablePeers.join(", ")}.
+          {media.unavailablePeers.join(", ")}.{" "}
+          <button
+            type="button"
+            className="button secondary compact"
+            onClick={media.retrySubscriptions}
+            disabled={media.status !== "connected"}
+          >
+            Thử kết nối lại media
+          </button>
         </InlineNotice>
       )}
-      {cameraPeers.map((peer) => {
-        const track = peer.stream.getAudioTracks()[0];
-        return track ? (
-          <ParticipantAudio key={peer.id} track={track} name={peer.name} />
-        ) : null;
-      })}
+      <RoomAudio peers={cameraPeers} />
     </>
   );
   const publishingUsers = new Set(cameraPeers.map((peer) => peer.userId));
@@ -643,7 +681,7 @@ export function ClassMediaRoom({
                 className="workspace-call-action"
                 aria-label="Ngắt thiết bị"
                 title="Ngắt thiết bị"
-                onClick={() => media.stop()}
+                onClick={media.disconnect}
                 disabled={media.busy}
               >
                 <Unplug size={15} />
@@ -829,7 +867,7 @@ export function ClassMediaRoom({
         {media.connected || media.preview ? (
           <button
             className="button secondary"
-            onClick={() => media.stop()}
+            onClick={media.disconnect}
             disabled={media.busy}
           >
             <Unplug size={16} />

@@ -367,6 +367,7 @@ async function liveCheck() {
           for (const entry of stats.values()) {
             const record = {
               kind: entry.kind ?? entry.mediaType,
+              trackId: entry.trackIdentifier,
               bytesReceived: entry.bytesReceived ?? 0,
               bytesSent: entry.bytesSent ?? 0,
               framesDecoded: entry.framesDecoded ?? 0,
@@ -428,14 +429,10 @@ async function liveCheck() {
           "The camera must stay off during microphone-only playback",
         );
         const blocked = mediaPanel(page).getByRole("button", {
-          name: /^Bật âm thanh của /,
+          name: "Bật âm thanh phòng",
+          exact: true,
         });
-        for (
-          let i = 0;
-          i < participantCount - 1 && (await blocked.count());
-          i++
-        )
-          await blocked.first().click();
+        if (await blocked.isVisible()) await blocked.click();
       }
       await until("microphones play through the audio elements", async () =>
         (await Promise.all(participants.map(inspectPlayback))).every(
@@ -454,16 +451,72 @@ async function liveCheck() {
         playback,
         statistics: await Promise.all(participants.map(statistics)),
       });
+
+      const listeners = [first, third];
+      const microphoneEnergy = async (page) => {
+        const trackId = await mediaPanel(page)
+          .locator("audio")
+          .evaluateAll(
+            (elements, name) =>
+              elements.find((audio) => audio.getAttribute("aria-label") === name)
+                ?.srcObject?.getAudioTracks()[0]?.id,
+            member.fullName,
+          );
+        if (!trackId) return 0;
+        const { inbound } = await statistics(page);
+        return inbound.find((item) => item.kind === "audio" && item.trackId === trackId)
+          ?.totalAudioEnergy ?? 0;
+      };
+      const muted = await f.api(
+        owner,
+        "POST",
+        `/sessions/${room.id}/participants/${member.id}/mute`,
+        {},
+      );
+      assert.equal(muted.status, 200, "Host requests microphone mute");
+      const unmute = mediaPanel(second).getByRole("button", {
+        name: "Bật mic",
+        exact: true,
+      });
+      await unmute.waitFor();
+      const before = await Promise.all(listeners.map(microphoneEnergy));
+      await unmute.click();
+      await until(
+        "both listeners receive the microphone after advisory mute",
+        async () =>
+          (await Promise.all(listeners.map(microphoneEnergy))).every(
+            (energy, index) => energy > before[index],
+          ),
+      );
+      result("workspace-host-mute-recovery", {
+        ok: true,
+        listeners: listeners.length,
+      });
     }
     for (const page of participants)
       await mediaPanel(page)
         .getByRole("button", { name: "Bật camera", exact: true })
         .click();
-    for (const page of participants) {
-      await page.waitForFunction(() => {
-        const remote = document.querySelector(".workspace-media-feature video");
-        return remote?.muted && remote.readyState >= 2 && remote.videoWidth > 0;
-      });
+    for (const [index, page] of participants.entries()) {
+      try {
+        await page.waitForFunction(() => {
+          const remote = document.querySelector(".workspace-media-feature video");
+          return remote?.muted && remote.readyState >= 2 && remote.videoWidth > 0;
+        });
+      } catch (error) {
+        result("remote-video-not-ready", {
+          participant: index + 1,
+          video: await mediaPanel(page).locator("video").evaluateAll((elements) =>
+            elements.map((element) => ({
+              featured: Boolean(element.closest(".workspace-media-feature")),
+              width: element.videoWidth,
+              paused: element.paused,
+              tracks: element.srcObject?.getVideoTracks().length ?? 0,
+            })),
+          ),
+        });
+        throw error;
+      }
     }
     await until(
       "bidirectional audio and video",
@@ -582,9 +635,13 @@ async function liveCheck() {
       ),
       "Leave must stop local tracks",
     );
-    await first
-      .getByText(`${participantCount - 1} đang kết nối video`, { exact: true })
+    await mediaPanel(first)
+      .getByText(`${participantCount - 1} người trong phòng`, { exact: true })
       .waitFor();
+    await mediaPanel(first)
+      .locator("audio")
+      .and(first.getByLabel(member.fullName, { exact: true }))
+      .waitFor({ state: "detached" });
     await until(
       "server media revocation",
       async () =>
