@@ -31,26 +31,20 @@ import "./media.css";
 function MediaTile({
   stream,
   name,
-  local = false,
   camera = true,
   screen = false,
 }: {
   stream?: MediaStream;
   name: string;
-  local?: boolean;
   camera?: boolean;
   screen?: boolean;
 }) {
   const video = useRef<HTMLVideoElement>(null);
-  const [blocked, setBlocked] = useState(false);
   useEffect(() => {
     const element = video.current;
     if (!element || !stream) return;
     element.srcObject = stream;
-    void element
-      .play()
-      .then(() => setBlocked(false))
-      .catch(() => setBlocked(true));
+    void element.play().catch(() => {});
     return () => {
       element.srcObject = null;
     };
@@ -62,7 +56,7 @@ function MediaTile({
           ref={video}
           autoPlay
           playsInline
-          muted={local || screen}
+          muted
           aria-label={name}
           className={
             screen ? "class-media-screen-video" : camera ? "" : "camera-off"
@@ -75,17 +69,59 @@ function MediaTile({
         </span>
       )}
       <span className="class-media-name">{name}</span>
-      {blocked && !local && !screen && (
+    </div>
+  );
+}
+
+function ParticipantAudio({
+  track,
+  name,
+}: {
+  track: MediaStreamTrack;
+  name: string;
+}) {
+  const audio = useRef<HTMLAudioElement>(null);
+  const [blocked, setBlocked] = useState(false);
+  useEffect(() => {
+    const element = audio.current;
+    if (!element) return;
+    const stream = new MediaStream([track]);
+    element.srcObject = stream;
+    void element.play().catch((error: unknown) => {
+      if (
+        element.srcObject === stream &&
+        error instanceof DOMException &&
+        error.name === "NotAllowedError"
+      )
+        setBlocked(true);
+    });
+    return () => {
+      element.srcObject = null;
+    };
+  }, [track]);
+  return (
+    <>
+      <audio
+        ref={audio}
+        autoPlay
+        aria-label={name}
+        onPlaying={() => setBlocked(false)}
+      />
+      {blocked && (
         <button
-          className="button secondary compact class-media-play"
+          type="button"
+          className="button secondary compact"
           onClick={() =>
-            void video.current?.play().then(() => setBlocked(false))
+            void audio.current
+              ?.play()
+              .then(() => setBlocked(false))
+              .catch(() => {})
           }
         >
-          Bật âm thanh
+          Bật âm thanh của {name}
         </button>
       )}
-    </div>
+    </>
   );
 }
 export interface ClassMediaHandle {
@@ -218,6 +254,23 @@ export function ClassMediaRoom({
   const people =
     participationId && roster?.visitId === participationId ? roster.people : [];
   const cameraPeers = media.peers.filter((peer) => !peer.isScreenShare);
+  const mediaFeedback = (
+    <>
+      {media.error && <InlineNotice tone="error">{media.error}</InlineNotice>}
+      {media.unavailablePeers.length > 0 && (
+        <InlineNotice>
+          Không nhận được âm thanh hoặc video từ{" "}
+          {media.unavailablePeers.join(", ")}.
+        </InlineNotice>
+      )}
+      {cameraPeers.map((peer) => {
+        const track = peer.stream.getAudioTracks()[0];
+        return track ? (
+          <ParticipantAudio key={peer.id} track={track} name={peer.name} />
+        ) : null;
+      })}
+    </>
+  );
   const publishingUsers = new Set(cameraPeers.map((peer) => peer.userId));
   const quietPeers = people
     .filter(
@@ -234,12 +287,7 @@ export function ClassMediaRoom({
   const participants = [...cameraPeers, ...quietPeers];
   const localName = user?.fullName ?? "Bạn";
   const localScreen = media.screenPreview && (
-    <MediaTile
-      stream={media.screenPreview}
-      name="Bạn · Màn hình"
-      local
-      screen
-    />
+    <MediaTile stream={media.screenPreview} name="Bạn · Màn hình" screen />
   );
   if (layout === "workspace") {
     const preferred = screenPeers.length ? screenPeers : participants;
@@ -279,7 +327,7 @@ export function ClassMediaRoom({
               : labels[media.status]}
           </span>
         </div>
-        {media.error && <InlineNotice tone="error">{media.error}</InlineNotice>}
+        {mediaFeedback}
         <div className="workspace-media-stage">
           {localScreen ? (
             <div className="workspace-media-feature">{localScreen}</div>
@@ -301,7 +349,6 @@ export function ClassMediaRoom({
               <MediaTile
                 stream={media.preview ?? undefined}
                 name={`${localName} · Bạn`}
-                local
                 camera={
                   media.cameraEnabled &&
                   !!media.preview?.getVideoTracks().length
@@ -324,7 +371,6 @@ export function ClassMediaRoom({
               <MediaTile
                 stream={media.preview}
                 name="Bạn"
-                local
                 camera={
                   media.cameraEnabled &&
                   media.preview.getVideoTracks().length > 0
@@ -523,7 +569,7 @@ export function ClassMediaRoom({
           {labels[media.status]}
         </span>
       </div>
-      {media.error && <InlineNotice tone="error">{media.error}</InlineNotice>}
+      {mediaFeedback}
       <div className="class-media-devices">
         <label>
           Micro
@@ -577,7 +623,6 @@ export function ClassMediaRoom({
           <MediaTile
             stream={media.preview ?? undefined}
             name={media.preview && !media.connected ? "Bạn · xem trước" : "Bạn"}
-            local
             camera={
               media.cameraEnabled && !!media.preview?.getVideoTracks().length
             }
