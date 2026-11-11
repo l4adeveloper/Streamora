@@ -1,14 +1,12 @@
 import type { ClassSession, ClassSessionStatus } from "@streamora/contracts";
 export const statusLabels: Record<ClassSessionStatus, string> = {
-  SCHEDULED: "Chưa bắt đầu",
+  SCHEDULED: "Sắp diễn ra",
   LIVE: "Đang diễn ra",
   ENDED: "Đã kết thúc",
   CANCELLED: "Đã hủy",
 };
 export const sessionHref = (session: ClassSession) =>
-  session.kind === "MEET"
-    ? `/meet/${session.joinCode}`
-    : `/sessions/${session.id}`;
+  `/meet/${session.joinCode}`;
 export const displayTime = (value: string | null) =>
   value
     ? new Intl.DateTimeFormat("vi-VN", {

@@ -18,6 +18,8 @@ import type {
   ClassSessionWatchRequest,
   ClassPresenceRequest,
   ClassWatchSnapshot,
+  MeetingChatMessage,
+  MeetingChatDeleted,
 } from "@streamora/contracts";
 import { ApiError } from "../../common/api-error";
 import { PrismaService } from "../../database/prisma.service";
@@ -41,11 +43,11 @@ interface ClientState {
 
 @WebSocketGateway({ namespace: "/classroom", maxHttpBufferSize: 16384 })
 export class ClassSessionsGateway
-  implements OnApplicationBootstrap, OnModuleDestroy
-{
+  implements OnApplicationBootstrap, OnModuleDestroy {
   @WebSocketServer() server!: Namespace;
   private readonly instanceId = randomUUID();
   private readonly clients = new Map<string, ClientState>();
+  private readonly meetingMessages = new Map<string, MeetingChatMessage[]>();
   private readonly logger = new Logger(ClassSessionsGateway.name);
   private timer?: ReturnType<typeof setInterval>;
   private sweepTimer?: ReturnType<typeof setInterval>;
@@ -128,7 +130,7 @@ export class ClassSessionsGateway
   }
   private enqueue<T>(state: ClientState, work: () => Promise<T>): Promise<T> {
     const result = state.tail.then(work);
-    state.tail = result.catch(() => {});
+    state.tail = result.catch(() => { });
     return result;
   }
   private action<T>(
@@ -151,7 +153,7 @@ export class ClassSessionsGateway
           if (
             error.getStatus() === 401 ||
             (error.getResponse() as { error: { code: string } }).error.code ===
-              "USER_DISABLED"
+            "USER_DISABLED"
           )
             socket.disconnect(false);
           return {
@@ -161,12 +163,13 @@ export class ClassSessionsGateway
             }),
           };
         }
+        this.logger.error("Websocket action error:", error);
         this.warn();
         return {
           ok: false as const,
           error: {
             code: "SERVICE_UNAVAILABLE",
-            message: "Chưa thể đồng bộ kết nối; vui lòng thử lại.",
+            message: `Chưa thể đồng bộ kết nối${error instanceof Error ? ` (${error.message})` : ""}; vui lòng thử lại.`,
           },
         };
       }
@@ -275,6 +278,244 @@ export class ClassSessionsGateway
       return receipt;
     });
   }
+  // ─── Meeting Chat (Ephemeral in-memory, no DB migration needed) ─────────
+
+  private chatFailure(code: string, message: string): never {
+    const status =
+      code === "FORBIDDEN" ? 403 : code === "NOT_FOUND" ? 404 : 400;
+    throw new ApiError(status, code, message);
+  }
+
+  private async checkMeetingAccess(userId: string, sessionId: string) {
+    const session = await this.prisma.classSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true,
+        status: true,
+        kind: true,
+        groupId: true,
+        createdById: true,
+        allowGuests: true,
+      },
+    });
+    if (
+      !session ||
+      session.status === "ENDED" ||
+      session.status === "CANCELLED"
+    ) {
+      this.chatFailure("FORBIDDEN", "Cuộc họp đã kết thúc.");
+    }
+
+    const ban = await this.prisma.sessionBan.findFirst({
+      where: { sessionId, userId, revokedAt: null },
+    });
+    if (ban) {
+      this.chatFailure("FORBIDDEN", "Bạn đã bị chặn khỏi cuộc họp này.");
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, globalRole: true, fullName: true },
+    });
+    if (!user) {
+      this.chatFailure("UNAUTHENTICATED", "Không tìm thấy người dùng.");
+    }
+
+    let canManage =
+      user.globalRole === "ADMIN" || session.createdById === userId;
+
+    if (session.kind === "GROUP" && session.groupId) {
+      const member = await this.prisma.groupMember.findUnique({
+        where: { userId_groupId: { userId, groupId: session.groupId } },
+      });
+      if (member) {
+        if (member.role === "OWNER" || member.role === "HOST") {
+          canManage = true;
+        }
+      } else if (!canManage && !session.allowGuests) {
+        const hasAccess =
+          (await this.prisma.classParticipation.findFirst({
+            where: { sessionId, userId },
+            select: { id: true },
+          })) ||
+          (await this.prisma.classJoinRequest.findFirst({
+            where: { sessionId, userId, status: "ACCEPTED" },
+            select: { id: true },
+          }));
+        if (!hasAccess) {
+          this.chatFailure(
+            "FORBIDDEN",
+            "Bạn chưa có quyền tham gia cuộc họp này.",
+          );
+        }
+      }
+    }
+
+    const senderRole: "ADMIN" | "HOST" | "VIEWER" =
+      user.globalRole === "ADMIN"
+        ? "ADMIN"
+        : canManage
+          ? "HOST"
+          : "VIEWER";
+
+    return { session, user, canManage, senderRole };
+  }
+
+  @SubscribeMessage("meeting-chat:join")
+  joinMeetingChat(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() value: unknown,
+  ) {
+    return this.action(socket, async (state) => {
+      const body = value as Record<string, unknown> | null;
+      if (
+        !body ||
+        typeof body.sessionId !== "string" ||
+        !isUUID(body.sessionId)
+      )
+        return this.chatFailure("VALIDATION_ERROR", "sessionId không hợp lệ.");
+      const { sessionId } = body as { sessionId: string };
+      await this.identity(socket, state);
+      if (!state.watches.has(sessionId)) {
+        state.watches.set(sessionId, {});
+      }
+
+      // Check access permission without blocking transactions
+      await this.checkMeetingAccess(state.connection.userId, sessionId);
+
+      await socket.join(`meeting-chat:${sessionId}`);
+      const messages = (this.meetingMessages.get(sessionId) ?? []).slice(-200);
+      return {
+        ok: true as const,
+        sessionId,
+        messages,
+      };
+    });
+  }
+
+  @SubscribeMessage("meeting-chat:send")
+  sendMeetingChat(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() value: unknown,
+  ) {
+    return this.action(socket, async (state) => {
+      const body = value as Record<string, unknown> | null;
+      if (
+        !body ||
+        typeof body.sessionId !== "string" ||
+        !isUUID(body.sessionId) ||
+        typeof body.text !== "string" ||
+        !body.text.trim() ||
+        body.text.trim().length > 4000
+      )
+        return this.chatFailure(
+          "VALIDATION_ERROR",
+          "Dữ liệu tin nhắn không hợp lệ.",
+        );
+      const { sessionId } = body as { sessionId: string };
+      await this.identity(socket, state);
+      if (!state.watches.has(sessionId)) {
+        state.watches.set(sessionId, {});
+      }
+
+      // Any user with access to this meeting session can chat
+      const { user, senderRole } = await this.checkMeetingAccess(
+        state.connection.userId,
+        sessionId,
+      );
+
+      let clientId: string | null = null;
+      if (body.clientId !== undefined && body.clientId !== null) {
+        if (typeof body.clientId !== "string" || !isUUID(body.clientId))
+          return this.chatFailure("VALIDATION_ERROR", "clientId không hợp lệ.");
+        clientId = body.clientId;
+      }
+      let replyToId: string | null = null;
+      if (body.replyToId !== undefined && body.replyToId !== null) {
+        if (typeof body.replyToId !== "string" || !isUUID(body.replyToId))
+          return this.chatFailure("VALIDATION_ERROR", "replyToId không hợp lệ.");
+        const currentList = this.meetingMessages.get(sessionId) ?? [];
+        const target = currentList.find((m) => m.id === body.replyToId);
+        if (!target)
+          return this.chatFailure(
+            "NOT_FOUND",
+            "Tin nhắn được trả lời không còn tồn tại.",
+          );
+        replyToId = target.id;
+      }
+      const message: MeetingChatMessage = {
+        id: randomUUID(),
+        clientId,
+        sessionId,
+        senderId: state.connection.userId,
+        senderName: user.fullName,
+        senderRole,
+        text: body.text.trim(),
+        replyToId,
+        createdAt: new Date().toISOString(),
+      };
+      let list = this.meetingMessages.get(sessionId);
+      if (!list) {
+        list = [];
+        this.meetingMessages.set(sessionId, list);
+      }
+      list.push(message);
+      if (list.length > 500) list.shift();
+
+      this.server
+        .to(`meeting-chat:${sessionId}`)
+        .emit("meeting-chat:message", message);
+      return { ok: true as const, id: message.id };
+    });
+  }
+
+  @SubscribeMessage("meeting-chat:delete")
+  deleteMeetingChat(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() value: unknown,
+  ) {
+    return this.action(socket, async (state) => {
+      const body = value as Record<string, unknown> | null;
+      if (
+        !body ||
+        typeof body.sessionId !== "string" ||
+        !isUUID(body.sessionId) ||
+        typeof body.id !== "string" ||
+        !isUUID(body.id)
+      )
+        return this.chatFailure("VALIDATION_ERROR", "Dữ liệu không hợp lệ.");
+      const { sessionId, id } = body as { sessionId: string; id: string };
+      await this.identity(socket, state);
+      if (!state.watches.has(sessionId)) {
+        state.watches.set(sessionId, {});
+      }
+      const { canManage } = await this.checkMeetingAccess(
+        state.connection.userId,
+        sessionId,
+      );
+      const list = this.meetingMessages.get(sessionId) ?? [];
+      const index = list.findIndex((m) => m.id === id);
+      if (index === -1)
+        return this.chatFailure("NOT_FOUND", "Tin nhắn không tồn tại.");
+      const existing = list[index];
+      if (
+        !canManage &&
+        existing.senderId !== state.connection.userId
+      ) {
+        return this.chatFailure(
+          "FORBIDDEN",
+          "Bạn chỉ có thể xóa tin nhắn của mình.",
+        );
+      }
+      list.splice(index, 1);
+      const deleted: MeetingChatDeleted = { id, sessionId };
+      this.server
+        .to(`meeting-chat:${sessionId}`)
+        .emit("meeting-chat:message.deleted", deleted);
+      return { ok: true as const, id };
+    });
+  }
+
   handleDisconnect(socket: Socket) {
     const state = this.clients.get(socket.id);
     if (!state) return;
@@ -353,6 +594,11 @@ export class ClassSessionsGateway
         orderBy: { version: "asc" },
         take: 100,
       });
+      for (const event of changes) {
+        if (event.kind === "session.ended") {
+          this.meetingMessages.delete(event.sessionId);
+        }
+      }
       for (const socket of this.server.sockets.values()) {
         const state = this.clients.get(socket.id);
         if (!state || state.closing || !state.watches.size) continue;
@@ -376,10 +622,10 @@ export class ClassSessionsGateway
                   : event.kind === "participants.changed"
                     ? admission.permissions.canViewParticipants
                     : ["admission.changed", "access.changed"].includes(
-                          event.kind,
-                        )
+                      event.kind,
+                    )
                       ? !event.subjectUserId ||
-                        event.subjectUserId === state.connection.userId
+                      event.subjectUserId === state.connection.userId
                       : true;
               if (allowed && !state.closing)
                 socket.emit(event.kind, {

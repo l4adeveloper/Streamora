@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type {
   ClassMediaHeartbeatRequest,
@@ -17,6 +17,7 @@ import {
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
 import { ApiError } from "../../common/api-error";
+import { safeErrorCode } from "../../common/safe-error-code";
 import { IvsService } from "./ivs.service";
 import { openMediaToken, sealMediaToken } from "./media-token";
 
@@ -26,8 +27,20 @@ const unavailable = () =>
     "MEDIA_UNAVAILABLE",
     "Chưa thể kết nối phòng video. Vui lòng thử lại.",
   );
+const rejectedStageRequests = new Set([
+  "AccessDeniedException",
+  "ValidationException",
+  "ServiceQuotaExceededException",
+  "PendingVerification",
+  "UnrecognizedClientException",
+  "InvalidSignatureException",
+  "ExpiredTokenException",
+  "CredentialsProviderError",
+  "ThrottlingException",
+]);
 @Injectable()
 export class ClassMediaService {
+  private readonly logger = new Logger(ClassMediaService.name);
   constructor(
     private readonly db: PrismaService,
     private readonly participants: ClassParticipantService,
@@ -75,20 +88,29 @@ export class ClassMediaService {
     if (current.state === "READY" && current.stageArn) return current.stageArn;
     if (["CLOSED", "CLOSING"].includes(current.state))
       throw new ApiError(409, "SESSION_NOT_LIVE", "Phòng video đã đóng.");
+    const leaseUntil = new Date(now.getTime() + 120000);
     const claimed = await this.db.classMediaRoom.updateMany({
       where: {
         sessionId,
         state: "PROVISIONING",
         OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }],
       },
-      data: { leaseUntil: new Date(now.getTime() + 120000) },
+      data: { leaseUntil },
     });
-    if (!claimed.count)
+    if (!claimed.count) {
+      // Another instance may have finished between the initial read and claim.
+      const latest = await this.db.classMediaRoom.findUniqueOrThrow({
+        where: { sessionId },
+      });
+      if (latest.state === "READY" && latest.stageArn) return latest.stageArn;
+      if (["CLOSED", "CLOSING"].includes(latest.state))
+        throw new ApiError(409, "SESSION_NOT_LIVE", "Phòng video đã đóng.");
       throw new ApiError(
         409,
         "MEDIA_STARTING",
         "Phòng video đang được chuẩn bị. Vui lòng thử lại.",
       );
+    }
     try {
       const stageArn = await this.ivs.ensureStage(sessionId);
       await this.db.classMediaRoom.update({
@@ -96,9 +118,31 @@ export class ClassMediaService {
         data: { stageArn, state: "READY", leaseUntil: null },
       });
       return stageArn;
-    } catch {
-      // Leave the lease in place after an uncertain AWS result; the next owner
-      // discovers the tagged Stage before creating another one.
+    } catch (error) {
+      const name =
+        error instanceof Error && /^[A-Za-z0-9_]{1,64}$/.test(error.name)
+          ? error.name
+          : "UnknownError";
+      const rejected = rejectedStageRequests.has(name);
+      this.logger.warn(
+        JSON.stringify({
+          event: "ivs_stage_provision_failed",
+          sessionId,
+          type: name,
+          code: safeErrorCode(error),
+          leaseRetained: !rejected,
+        }),
+      );
+      if (rejected) {
+        // A definite rejection did not create a Stage. Only release this claim,
+        // so correcting credentials/IAM does not require a two-minute wait.
+        await this.db.classMediaRoom.updateMany({
+          where: { sessionId, state: "PROVISIONING", leaseUntil },
+          data: { leaseUntil: null },
+        });
+      }
+      // Keep the lease for uncertain timeouts/5xx. Recovery discovers the tagged
+      // Stage after expiry instead of immediately creating a duplicate.
       throw unavailable();
     }
   }

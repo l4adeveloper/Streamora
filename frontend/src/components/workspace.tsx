@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -53,6 +54,17 @@ import { LoadingState, RequestError } from "./common/feedback";
 import { MembersPanel, NoGroupSelected } from "./memberships/members-panel";
 import { GroupsListPage } from "./groups/groups-list-page";
 import { MeetHub } from "./class-sessions/meet-hub";
+import { CreateGroupMeeting } from "./class-sessions/create-group-meeting";
+import { WorkspaceMeetingRoom } from "./class-sessions/workspace-meeting-room";
+import {
+  MeetingPeoplePanel,
+  MeetingChatSidePanel,
+  type SessionRoomHandle,
+  type MeetingRoomState,
+} from "./class-sessions/session-room";
+import type { ClassSession } from "@streamora/contracts";
+import { useWorkspaceMeetings } from "@/lib/class-sessions/use-workspace-meetings";
+import { getClassSession } from "@/lib/class-sessions/api";
 import { useWorkspaceGroup } from "@/lib/memberships/use-workspace-group";
 import { useGroupPermissions } from "@/lib/memberships/use-group-permissions";
 import { useGroupChat } from "@/lib/memberships/use-group-chat";
@@ -81,19 +93,188 @@ function groupInitials(name: string) {
     .toUpperCase();
 }
 export function Workspace({
-  view,
+  view: baseView,
   channel = "trò-chuyện-chung",
 }: {
   view: View;
   channel?: string;
 }) {
+  const router = useRouter();
   const { notify } = useToast();
   const { user } = useAuth();
   const workspaceGroup = useWorkspaceGroup();
+  function openMeetingCreation() {
+    if (workspaceGroup.groupId && permissions?.canHost)
+      setModal("create-meeting");
+  }
   const groupAccess = useGroupPermissions(workspaceGroup.groupId);
   const permissions = groupAccess.permissions;
+  const rooms = useWorkspaceMeetings(
+    workspaceGroup.groupId,
+    !!permissions,
+    groupAccess.revision,
+  );
+  const [meetingSelection, setMeetingSelection] = useState<{
+    id: string;
+    groupId: string;
+  } | null>(null);
+  const selectionRef = useRef(meetingSelection);
+  selectionRef.current = meetingSelection;
+  const activeMeetingId =
+    meetingSelection?.groupId === workspaceGroup.groupId
+      ? meetingSelection?.id
+      : null;
+  const [roomInfo, setRoomInfo] = useState<ClassSession | null>(null);
+  const selectedMeeting =
+    roomInfo?.id === activeMeetingId
+      ? roomInfo
+      : rooms.items.find((room) => room.id === activeMeetingId);
+  const roomRef = useRef<SessionRoomHandle>(null);
+  const [roomState, setRoomState] = useState<MeetingRoomState | null>(null);
+  const reportRoomState = useCallback((state: MeetingRoomState) => {
+    if (selectionRef.current?.id === state.sessionId) setRoomState(state);
+  }, []);
+  const workspaceScope = useRef("");
+  workspaceScope.current = `${user?.id ?? ""}:${workspaceGroup.groupId ?? ""}`;
+  const switching = useRef(false);
+  const [roomSwitching, setRoomSwitching] = useState(false);
+  const view: View = activeMeetingId
+    ? "meetings"
+    : baseView === "meetings" ||
+        (baseView === "live" && !!workspaceGroup.groupId)
+      ? "chat"
+      : baseView;
+  const changeWorkspace = useCallback(
+    async (apply: () => void) => {
+      if (switching.current) return;
+      switching.current = true;
+      setRoomSwitching(true);
+      const expected = workspaceScope.current;
+      try {
+        await roomRef.current?.leave();
+        if (workspaceScope.current === expected) apply();
+      } catch {
+        notify("Chưa thể rời phòng hiện tại. Kiểm tra kết nối rồi thử lại.", {
+          tone: "error",
+        });
+      } finally {
+        switching.current = false;
+        setRoomSwitching(false);
+      }
+    },
+    [notify],
+  );
+  const updateRoom = useCallback(
+    (session: ClassSession) => {
+      rooms.update(session);
+      if (selectionRef.current?.id === session.id)
+        setRoomInfo((current) =>
+          current?.id === session.id &&
+          current.title === session.title &&
+          current.status === session.status
+            ? current
+            : session,
+        );
+    },
+    [rooms.update],
+  );
+  function openRoom(session: ClassSession) {
+    if (
+      session.id === activeMeetingId ||
+      session.groupId !== workspaceGroup.groupId
+    )
+      return;
+    void changeWorkspace(() => {
+      setMeetingSelection({ id: session.id, groupId: session.groupId! });
+      setRoomInfo(session);
+      setMembersView(false);
+      setMobileNav(false);
+      setModal(null);
+      setPanel(!matchMedia("(max-width: 900px)").matches);
+      setPanelTab("chat");
+      const url = new URL(location.href);
+      url.searchParams.set("meetingId", session.id);
+      url.searchParams.set("groupId", session.groupId!);
+      url.searchParams.delete("create");
+      url.searchParams.delete("tab");
+      history.pushState(null, "", url);
+    });
+  }
+  async function openMeetingById(id: string) {
+    const expected = workspaceScope.current;
+    try {
+      const room =
+        rooms.items.find((item) => item.id === id) ??
+        (await getClassSession(id)).session;
+      if (workspaceScope.current === expected) openRoom(room);
+    } catch {
+      notify("Chưa thể mở cuộc họp. Kiểm tra quyền truy cập và thử lại.", {
+        tone: "error",
+      });
+    }
+  }
+  function returnToChat() {
+    void changeWorkspace(() => {
+      setMeetingSelection(null);
+      setRoomInfo(null);
+      const url = new URL(location.href);
+      url.searchParams.delete("meetingId");
+      history.pushState(null, "", url);
+    });
+  }
+  function selectWorkspaceGroup(groupId: string) {
+    if (groupId === workspaceGroup.groupId) return;
+    void changeWorkspace(() => {
+      setMeetingSelection(null);
+      setRoomInfo(null);
+      workspaceGroup.selectGroup(groupId);
+    });
+  }
+  useEffect(() => {
+    if (!user) {
+      setMeetingSelection(null);
+      return;
+    }
+    let current = true;
+    const restore = async () => {
+      const params = new URLSearchParams(location.search);
+      const id = params.get("meetingId"),
+        groupId = params.get("groupId");
+      if (selectionRef.current?.id !== id) {
+        try {
+          await roomRef.current?.leave();
+        } catch {
+          const previous = selectionRef.current;
+          if (current && previous) {
+            workspaceGroup.selectGroup(previous.groupId);
+            const url = new URL(location.href);
+            url.searchParams.set("meetingId", previous.id);
+            history.replaceState(null, "", url);
+            notify("Chưa thể chuyển phòng. Kiểm tra kết nối rồi thử lại.", {
+              tone: "error",
+            });
+          }
+          return;
+        }
+      }
+      if (current) {
+        setMeetingSelection(id && groupId ? { id, groupId } : null);
+        setRoomInfo(null);
+        if (id) {
+          setPanel(!matchMedia("(max-width: 900px)").matches);
+          setPanelTab("chat");
+        }
+      }
+    };
+    void restore();
+    window.addEventListener("popstate", restore);
+    return () => {
+      current = false;
+      window.removeEventListener("popstate", restore);
+    };
+  }, [user?.id]);
   const [membersView, setMembersView] = useState(false);
-  const [panel, setPanel] = useState(view !== "files");
+  const [panel, setPanel] = useState(view !== "files" && view !== "meetings");
   const [panelTab, setPanelTab] = useState<"chat" | "members">(
     view === "chat" ? "members" : "chat",
   );
@@ -159,6 +340,7 @@ export function Workspace({
       }),
       createdAt: message.createdAt,
       replyToId: message.replyToId,
+      meetingId: message.meetingId,
       editedAt: message.editedAt,
       host: message.senderRole !== "VIEWER",
     }),
@@ -247,6 +429,17 @@ export function Workspace({
     setMic(false);
     setSharing(false);
   }, [workspaceGroup.groupId]);
+  useEffect(() => {
+    if (
+      permissions?.canHost &&
+      new URLSearchParams(location.search).get("create") === "1"
+    ) {
+      setModal("create-meeting");
+      const url = new URL(location.href);
+      url.searchParams.delete("create");
+      history.replaceState(null, "", url);
+    }
+  }, [workspaceGroup.groupId, permissions?.canHost]);
   useEffect(() => {
     if (!workspaceGroup.groupId || groupAccess.loading) return;
     if (!permissions) {
@@ -494,7 +687,7 @@ export function Workspace({
   const inviteUrl =
     typeof location === "undefined"
       ? ""
-      : `${location.origin}${view === "room" ? location.pathname : "/rooms/htpt-buoi-05"}`;
+      : `${location.origin}${selectedMeeting ? `/meet/${selectedMeeting.joinCode}` : view === "room" ? location.pathname : "/workspace"}`;
   async function copyInvite() {
     const url = inviteUrl;
     try {
@@ -528,15 +721,17 @@ export function Workspace({
     setRecording(!recording);
   }
   const title =
-    view === "live"
-      ? "Lớp học trực tiếp"
-      : view === "meet"
-        ? "Cuộc họp của bạn"
-        : view === "files"
-          ? "Tài liệu chung"
-          : view === "chat"
-            ? channel
-            : activeRoomName;
+    view === "meetings"
+      ? (selectedMeeting?.title ?? "Cuộc họp")
+      : view === "live"
+        ? "Lớp học trực tiếp"
+        : view === "meet"
+          ? "Cuộc họp của bạn"
+          : view === "files"
+            ? "Tài liệu chung"
+            : view === "chat"
+              ? channel
+              : activeRoomName;
   const currentSection = membersView
     ? "Thành viên"
     : view === "chat"
@@ -557,6 +752,15 @@ export function Workspace({
       return;
     setMembersView(false);
     setMobileNav(false);
+    if (activeMeetingId) {
+      event.preventDefault();
+      const href = event.currentTarget.href;
+      void changeWorkspace(() => {
+        setMeetingSelection(null);
+        setRoomInfo(null);
+        router.push(href);
+      });
+    }
   }
 
   const chatProps = {
@@ -572,6 +776,9 @@ export function Workspace({
     onCancelReply: () => setReplyingToId(null),
     onEdit: workspaceGroup.groupId ? editMessage : undefined,
     onDelete: workspaceGroup.groupId ? removeMessage : undefined,
+    onMeetingOpen: workspaceGroup.groupId
+      ? (id: string) => void openMeetingById(id)
+      : undefined,
     infoText: workspaceGroup.groupId
       ? "Cuộc trò chuyện được lưu trong cộng đồng"
       : user
@@ -604,11 +811,12 @@ export function Workspace({
               className={`community-icon ${item.id === workspaceGroup.groupId ? "selected" : ""}`}
               title={item.name}
               aria-label={`Mở nhóm ${item.name}`}
+              disabled={roomSwitching}
               aria-current={
                 item.id === workspaceGroup.groupId ? "true" : undefined
               }
               onClick={() => {
-                workspaceGroup.selectGroup(item.id);
+                selectWorkspaceGroup(item.id);
                 if (matchMedia("(max-width: 650px)").matches)
                   setMobileNav(true);
               }}
@@ -678,10 +886,17 @@ export function Workspace({
             <button
               className={`channel ${membersView ? "selected" : ""}`}
               onClick={() => {
-                setMembersView(true);
-                setPanel(false);
-                setPanelTab("members");
-                setMobileNav(false);
+                void changeWorkspace(() => {
+                  setMeetingSelection(null);
+                  setRoomInfo(null);
+                  const url = new URL(location.href);
+                  url.searchParams.delete("meetingId");
+                  history.replaceState(null, "", url);
+                  setMembersView(true);
+                  setPanel(false);
+                  setPanelTab("members");
+                  setMobileNav(false);
+                });
               }}
             >
               <Users size={18} /> Thành viên
@@ -711,12 +926,13 @@ export function Workspace({
               <Hash size={19} /> hỏi-đáp{" "}
               <span className="channel-count">3</span>
             </button>
-            <button
-              className="channel"
-              onClick={() => setModal("notifications")}
+            <Link
+              className={`channel ${!membersView && view === "chat" && channel === "thông-báo" ? "selected" : ""}`}
+              href={`/community/${encodeURIComponent("thông-báo")}${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
+              onClick={navigateWorkspace}
             >
               <Hash size={19} /> thông-báo <Bell size={13} />
-            </button>
+            </Link>
           </div>
           <div className="custom-channels">
             {customChannels.map((name) => (
@@ -734,54 +950,96 @@ export function Workspace({
           <div className="channel-section">
             <div className="section-label">
               <ChevronDown size={12} /> Phòng học{" "}
+              {permissions?.canHost && (
+                <button
+                  type="button"
+                  aria-label="Tạo phòng học"
+                  onClick={openMeetingCreation}
+                >
+                  <Plus size={14} />
+                </button>
+              )}
+            </div>
+            <nav
+              className="workspace-meeting-channels"
+              aria-label="Phòng họp của lớp"
+              aria-busy={rooms.loading || roomSwitching}
+            >
+              {rooms.items.map((room) => (
+                <button
+                  key={room.id}
+                  type="button"
+                  className={`channel workspace-meeting-channel ${!membersView && activeMeetingId === room.id ? "selected" : ""}`}
+                  aria-current={
+                    !membersView && activeMeetingId === room.id
+                      ? "page"
+                      : undefined
+                  }
+                  disabled={roomSwitching}
+                  title={`${room.title} · ${room.status === "LIVE" ? "Đang diễn ra" : "Sắp diễn ra"}`}
+                  onClick={() => openRoom(room)}
+                >
+                  <Video size={19} />
+                  <span className="workspace-meeting-name">{room.title}</span>
+                  <span
+                    className={`workspace-meeting-status ${room.status.toLowerCase()}`}
+                  >
+                    {room.status === "LIVE" ? "Trực tiếp" : "Sắp tới"}
+                  </span>
+                </button>
+              ))}
+              {rooms.loading && !rooms.items.length && (
+                <span className="workspace-meeting-loading" role="status">
+                  Đang tải phòng…
+                </span>
+              )}
+              {!!rooms.error && (
+                <button
+                  type="button"
+                  className="channel"
+                  onClick={() => void rooms.refresh()}
+                >
+                  <RefreshCw size={16} />
+                  Tải lại phòng họp
+                </button>
+              )}
+            </nav>
+            {!workspaceGroup.groupId && !user && (
+              <>
+                <Link
+                  href="/workspace"
+                  onClick={navigateWorkspace}
+                  className={`channel live-channel ${!membersView && view === "live" ? "selected" : ""}`}
+                >
+                  <Radio size={19} /> Lớp học trực tiếp{" "}
+                  <span className="live-dot" />
+                </Link>
+                <div className="channel-participants">
+                  <div className="stacked-avatars">
+                    <Avatar initials="NH" small />
+                    <Avatar initials="MA" color="pink" small />
+                    <Avatar initials="TP" color="blue" small />
+                  </div>
+                  <span>+21 đang tham gia</span>
+                </div>
+                <Link
+                  href="/rooms/nhom-01"
+                  onClick={navigateWorkspace}
+                  className={`channel ${!membersView && view === "room" ? "selected" : ""}`}
+                >
+                  <Volume2 size={19} /> Phòng học nhóm <small>4</small>
+                </Link>
+              </>
+            )}
+            {permissions?.canHost && (
               <button
                 type="button"
-                aria-label="Tạo phòng học"
-                onClick={() => setModal("meet")}
+                onClick={openMeetingCreation}
+                className={`channel ${!membersView && view === "meet" ? "selected" : ""}`}
               >
-                <Plus size={14} />
+                <Video size={19} /> Tạo cuộc họp <Plus size={14} />
               </button>
-            </div>
-            {workspaceGroup.groupId && (
-              <Link
-                href={`/groups/${workspaceGroup.groupId}/sessions`}
-                onClick={navigateWorkspace}
-                className="channel"
-              >
-                <CalendarDays size={19} />
-                Lịch học của nhóm
-              </Link>
             )}
-            <Link
-              href="/workspace"
-              onClick={navigateWorkspace}
-              className={`channel live-channel ${!membersView && view === "live" ? "selected" : ""}`}
-            >
-              <Radio size={19} /> Lớp học trực tiếp{" "}
-              <span className="live-dot" />
-            </Link>
-            <div className="channel-participants">
-              <div className="stacked-avatars">
-                <Avatar initials="NH" small />
-                <Avatar initials="MA" color="pink" small />
-                <Avatar initials="TP" color="blue" small />
-              </div>
-              <span>+21 đang tham gia</span>
-            </div>
-            <Link
-              href="/rooms/nhom-01"
-              onClick={navigateWorkspace}
-              className={`channel ${!membersView && view === "room" ? "selected" : ""}`}
-            >
-              <Volume2 size={19} /> Phòng học nhóm <small>4</small>
-            </Link>
-            <button
-              type="button"
-              onClick={() => setModal("meet")}
-              className={`channel ${!membersView && view === "meet" ? "selected" : ""}`}
-            >
-              <Video size={19} /> Tạo cuộc họp <Plus size={14} />
-            </button>
           </div>
           <div className="channel-section">
             <div className="section-label">
@@ -944,6 +1202,27 @@ export function Workspace({
               )
             ) : (
               <>
+                {view === "meetings" &&
+                  activeMeetingId &&
+                  workspaceGroup.groupId && (
+                    <WorkspaceMeetingRoom
+                      key={activeMeetingId}
+                      ref={roomRef}
+                      sessionId={activeMeetingId}
+                      groupId={workspaceGroup.groupId}
+                      onSession={updateRoom}
+                      onExit={returnToChat}
+                      onState={reportRoomState}
+                      onOpenPeople={() => {
+                        setPanel(true);
+                        setPanelTab("members");
+                      }}
+                      onOpenChat={() => {
+                        setPanel(true);
+                        setPanelTab("chat");
+                      }}
+                    />
+                  )}
                 {view === "live" && (
                   <>
                     <div className="session-info">
@@ -1404,7 +1683,8 @@ export function Workspace({
                     className={panelTab === "chat" ? "selected" : ""}
                     onClick={() => setPanelTab("chat")}
                   >
-                    Trò chuyện <span>{messages.length}</span>
+                    {view === "meetings" ? "Chat cuộc họp" : "Trò chuyện"}{" "}
+                    {view !== "meetings" && <span>{messages.length}</span>}
                   </button>
                   <button
                     className={panelTab === "members" ? "selected" : ""}
@@ -1420,8 +1700,27 @@ export function Workspace({
                   </IconButton>
                 </div>
               )}
-              {view !== "chat" && panelTab === "chat" ? (
+              {view === "meetings" && activeMeetingId && panelTab === "chat" ? (
+                <MeetingChatSidePanel
+                  sessionId={activeMeetingId}
+                  participationId={roomState?.participationId ?? null}
+                  canManage={!!roomState?.canManage}
+                  userId={roomState?.userId ?? user?.id}
+                />
+              ) : view !== "chat" && panelTab === "chat" ? (
                 <WorkspaceChat {...chatProps} />
+              ) : view === "meetings" && activeMeetingId ? (
+                roomState?.sessionId === activeMeetingId ? (
+                  <MeetingPeoplePanel
+                    state={roomState}
+                    decide={(requestId, decision) =>
+                      roomRef.current?.decide(requestId, decision) ??
+                      Promise.resolve()
+                    }
+                  />
+                ) : (
+                  <LoadingState message="Đang tải người tham gia…" />
+                )
               ) : !user ? (
                 <div className="membership-empty">
                   <p>Đăng nhập để xem thành viên.</p>
@@ -1458,6 +1757,20 @@ export function Workspace({
           )}
         </div>
       </div>
+      {modal === "create-meeting" &&
+        workspaceGroup.groupId &&
+        permissions?.canHost && (
+          <CreateGroupMeeting
+            key={`${user?.id}:${workspaceGroup.groupId}`}
+            groupId={workspaceGroup.groupId}
+            groupName={group}
+            onClose={() => setModal(null)}
+            onCreated={(room) => {
+              rooms.update(room);
+              openRoom(room);
+            }}
+          />
+        )}
       {modal === "groups" && (
         <div
           className="modal-backdrop groups-overlay-backdrop"
@@ -1496,370 +1809,383 @@ export function Workspace({
           </section>
         </div>
       )}
-      {modal && modal !== "groups" && modal !== "meet" && (
-        <div className="modal-backdrop" onClick={() => setModal(null)}>
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Hộp thao tác"
-            className="modal"
-            data-workspace-dialog="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <IconButton label="Đóng" onClick={() => setModal(null)}>
-              <X size={20} />
-            </IconButton>
-            {modal === "invite" && (
-              <>
-                <div className="card-icon">
-                  <Users />
-                </div>
-                <h2>Học cùng nhau, tốt hơn.</h2>
-                <p>Gửi liên kết này để mời mọi người vào phòng trải nghiệm.</p>
-                <div className="invite-link">
-                  <code>{inviteUrl}</code>
-                  <IconButton label="Sao chép liên kết" onClick={copyInvite}>
-                    <Copy size={17} />
-                  </IconButton>
-                </div>
-                <button className="button primary" onClick={copyInvite}>
-                  <Copy size={16} /> Sao chép liên kết mời
-                </button>
-              </>
-            )}
-            {modal === "poll" && (
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  setPoll(true);
-                  setVote(null);
-                  setModal(null);
-                }}
-              >
-                <div className="card-icon">
-                  <BarChart3 />
-                </div>
-                <h2>Cùng lắng nghe mọi người.</h2>
-                <p>Tạo bình chọn nhanh trong phòng trải nghiệm.</p>
-                <label htmlFor="poll-question">Câu hỏi</label>
-                <input
-                  id="poll-question"
-                  required
-                  value={pollQuestion}
-                  onChange={(e) => setPollQuestion(e.target.value)}
-                />
-                {pollOptions.map((option, index) => (
-                  <label key={index}>
-                    Lựa chọn {index + 1}
-                    <input
-                      required
-                      value={option}
-                      onChange={(e) =>
-                        setPollOptions(
-                          pollOptions.map((item, i) =>
-                            i === index ? e.target.value : item,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                ))}
-                <button className="button primary" type="submit">
-                  Mở bình chọn <ArrowRight size={16} />
-                </button>
-              </form>
-            )}
-            {modal === "search" && (
-              <>
-                <h2>Tìm trong không gian</h2>
-                <div className="input-icon">
-                  <Search size={18} />
+      {modal &&
+        modal !== "groups" &&
+        modal !== "meet" &&
+        modal !== "create-meeting" && (
+          <div className="modal-backdrop" onClick={() => setModal(null)}>
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-label="Hộp thao tác"
+              className="modal"
+              data-workspace-dialog="true"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <IconButton label="Đóng" onClick={() => setModal(null)}>
+                <X size={20} />
+              </IconButton>
+              {modal === "invite" && (
+                <>
+                  <div className="card-icon">
+                    <Users />
+                  </div>
+                  <h2>Học cùng nhau, tốt hơn.</h2>
+                  <p>
+                    {selectedMeeting
+                      ? selectedMeeting.allowGuests
+                        ? "Gửi liên kết cuộc họp. Khách cần đăng nhập và được chủ phòng duyệt."
+                        : "Liên kết cuộc họp này chỉ dành cho thành viên trong Group."
+                      : "Gửi liên kết này để mời mọi người vào không gian học tập."}
+                  </p>
+                  <div className="invite-link">
+                    <code>{inviteUrl}</code>
+                    <IconButton label="Sao chép liên kết" onClick={copyInvite}>
+                      <Copy size={17} />
+                    </IconButton>
+                  </div>
+                  <button className="button primary" onClick={copyInvite}>
+                    <Copy size={16} /> Sao chép liên kết mời
+                  </button>
+                </>
+              )}
+              {modal === "poll" && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setPoll(true);
+                    setVote(null);
+                    setModal(null);
+                  }}
+                >
+                  <div className="card-icon">
+                    <BarChart3 />
+                  </div>
+                  <h2>Cùng lắng nghe mọi người.</h2>
+                  <p>Tạo bình chọn nhanh trong phòng trải nghiệm.</p>
+                  <label htmlFor="poll-question">Câu hỏi</label>
                   <input
-                    autoFocus
-                    placeholder="Tìm tài liệu, cuộc trò chuyện…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    id="poll-question"
+                    required
+                    value={pollQuestion}
+                    onChange={(e) => setPollQuestion(e.target.value)}
                   />
-                </div>
-                <div className="search-results">
-                  {search.trim() ? (
-                    <>
-                      {files
-                        .filter((f) =>
+                  {pollOptions.map((option, index) => (
+                    <label key={index}>
+                      Lựa chọn {index + 1}
+                      <input
+                        required
+                        value={option}
+                        onChange={(e) =>
+                          setPollOptions(
+                            pollOptions.map((item, i) =>
+                              i === index ? e.target.value : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                  ))}
+                  <button className="button primary" type="submit">
+                    Mở bình chọn <ArrowRight size={16} />
+                  </button>
+                </form>
+              )}
+              {modal === "search" && (
+                <>
+                  <h2>Tìm trong không gian</h2>
+                  <div className="input-icon">
+                    <Search size={18} />
+                    <input
+                      autoFocus
+                      placeholder="Tìm tài liệu, cuộc trò chuyện…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="search-results">
+                    {search.trim() ? (
+                      <>
+                        {files
+                          .filter((f) =>
+                            f.name
+                              .toLocaleLowerCase("vi")
+                              .includes(search.toLocaleLowerCase("vi")),
+                          )
+                          .map((f) => (
+                            <Link key={f.name} href="/files">
+                              <FileText size={17} />
+                              {f.name}
+                              <ArrowRight size={15} />
+                            </Link>
+                          ))}
+                        {messages
+                          .filter((m) =>
+                            m.text
+                              .toLocaleLowerCase("vi")
+                              .includes(search.toLocaleLowerCase("vi")),
+                          )
+                          .map((m, i) => (
+                            <Link key={i} href="/community">
+                              <MessageCircle size={17} />
+                              <span>
+                                <b>{m.name}</b>
+                                <small>{m.text}</small>
+                              </span>
+                            </Link>
+                          ))}
+                        {!files.some((f) =>
                           f.name
                             .toLocaleLowerCase("vi")
                             .includes(search.toLocaleLowerCase("vi")),
-                        )
-                        .map((f) => (
-                          <Link key={f.name} href="/files">
-                            <FileText size={17} />
-                            {f.name}
-                            <ArrowRight size={15} />
-                          </Link>
-                        ))}
-                      {messages
-                        .filter((m) =>
-                          m.text
-                            .toLocaleLowerCase("vi")
-                            .includes(search.toLocaleLowerCase("vi")),
-                        )
-                        .map((m, i) => (
-                          <Link key={i} href="/community">
-                            <MessageCircle size={17} />
-                            <span>
-                              <b>{m.name}</b>
-                              <small>{m.text}</small>
-                            </span>
-                          </Link>
-                        ))}
-                      {!files.some((f) =>
-                        f.name
-                          .toLocaleLowerCase("vi")
-                          .includes(search.toLocaleLowerCase("vi")),
-                      ) &&
-                        !messages.some((m) =>
-                          m.text
-                            .toLocaleLowerCase("vi")
-                            .includes(search.toLocaleLowerCase("vi")),
-                        ) && <p>Không có kết quả phù hợp.</p>}
-                    </>
-                  ) : (
-                    <p>Nhập từ khóa để tìm trong dữ liệu mẫu của cộng đồng.</p>
-                  )}
-                </div>
-              </>
-            )}
-            {modal === "settings" && (
-              <>
-                <div className="card-icon">
-                  <Settings2 />
-                </div>
-                <h2>Thiết lập của bạn</h2>
-                <p>Điều chỉnh chất lượng chia sẻ phù hợp với nội dung.</p>
-                <label htmlFor="fps">
-                  Tốc độ khung hình khi chia sẻ màn hình
-                </label>
-                <select
-                  id="fps"
-                  value={fps}
-                  onChange={(e) => setFps(e.target.value)}
-                >
-                  <option value="15">15 khung hình/giây · Tài liệu</option>
-                  <option value="30">30 khung hình/giây · Cân bằng</option>
-                  <option value="60">60 khung hình/giây · Chuyển động</option>
-                </select>
-                <p className="settings-note">
-                  Áp dụng khi bắt đầu chia sẻ lần tiếp theo. Trình duyệt có thể
-                  điều chỉnh theo thiết bị.
-                </p>
-                <button
-                  className="button primary"
-                  onClick={() => {
-                    setModal(null);
-                    notify("Đã lưu thiết lập chia sẻ cho phiên này.");
-                  }}
-                >
-                  <Check size={17} /> Lưu thiết lập
-                </button>
-              </>
-            )}
-            {modal === "notifications" && (
-              <>
-                <div className="card-icon">
-                  <Bell />
-                </div>
-                <h2>Thông báo của bạn</h2>
-                <div className="notice">
-                  <Radio size={20} />
-                  <div>
-                    <b>Buổi 05 đang diễn ra</b>
-                    <p>Kiến trúc hệ thống phân tán · Phòng học trực tiếp</p>
-                    <Link href="/workspace">
-                      Vào lớp học <ArrowRight size={13} />
-                    </Link>
+                        ) &&
+                          !messages.some((m) =>
+                            m.text
+                              .toLocaleLowerCase("vi")
+                              .includes(search.toLocaleLowerCase("vi")),
+                          ) && <p>Không có kết quả phù hợp.</p>}
+                      </>
+                    ) : (
+                      <p>
+                        Nhập từ khóa để tìm trong dữ liệu mẫu của cộng đồng.
+                      </p>
+                    )}
                   </div>
-                </div>
-                <div className="notice">
-                  <Folder size={20} />
-                  <div>
-                    <b>Tài liệu mới trong thư viện</b>
-                    <p>Nguyễn Hoàng đã chia sẻ slide buổi học.</p>
-                    <Link href="/files">
-                      Xem thư viện <ArrowRight size={13} />
-                    </Link>
+                </>
+              )}
+              {modal === "settings" && (
+                <>
+                  <div className="card-icon">
+                    <Settings2 />
                   </div>
-                </div>
-                <small>Thông báo minh họa</small>
-              </>
-            )}
-            {modal === "help" && (
-              <>
-                <div className="card-icon">
-                  <Clock3 />
-                </div>
-                <h2>Học theo nhịp của bạn.</h2>
-                <p>
-                  Chọn một kênh bên trái để trò chuyện, vào lớp hoặc mở thư
-                  viện. Ở lớp trực tiếp, kéo thanh thời gian để tua lại; chọn
-                  “Về trực tiếp” để theo kịp bài học.
-                </p>
-                <p>
-                  Camera, micro và chia sẻ màn hình sử dụng quyền thiết bị thật
-                  và chỉ hiển thị cục bộ. Cuộc gọi nhiều người, ghi hình, lưu
-                  tệp đang ở chế độ minh họa. Mục Thành viên sử dụng tài khoản,
-                  nhóm và phân quyền thật.
-                </p>
-                <button
-                  className="button primary"
-                  onClick={() => setModal(null)}
-                >
-                  Bắt đầu khám phá <ArrowRight size={16} />
-                </button>
-              </>
-            )}
-            {modal === "community-settings" && (
-              <>
-                <div className="card-icon">
-                  <ShieldCheck />
-                </div>
-                <h2>{group}</h2>
-                <p>Vai trò trong cộng đồng mẫu</p>
-                <div className="role-row">
-                  <span className="role-dot violet" />
-                  <b>Người quản trị</b>
-                  <span>Quản lý cộng đồng</span>
-                </div>
-                <div className="role-row">
-                  <span className="role-dot green" />
-                  <b>Giảng viên</b>
-                  <span>Quản lý buổi học</span>
-                </div>
-                <div className="role-row">
-                  <span className="role-dot blue" />
-                  <b>Thành viên</b>
-                  <span>Tham gia và trao đổi</span>
-                </div>
-                <p>
-                  Quyền truy cập thực tế sẽ được xác thực bởi máy chủ khi tích
-                  hợp đăng nhập.
-                </p>
-                <button
-                  className="button primary"
-                  onClick={() => setModal("invite")}
-                >
-                  <Users size={16} /> Mời thành viên
-                </button>
-              </>
-            )}
-            {modal === "channel" && (
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const name = String(
-                    new FormData(e.currentTarget).get("name") || "",
-                  )
-                    .trim()
-                    .toLocaleLowerCase("vi")
-                    .replace(/\s+/g, "-");
-                  if (!name) return;
-                  if (
-                    customChannels.includes(name) ||
-                    ["trò-chuyện-chung", "hỏi-đáp", "thông-báo"].includes(name)
-                  ) {
-                    notify("Tên kênh đã tồn tại.");
-                    return;
-                  }
-                  if (workspaceGroup.groupId) {
-                    try {
-                      await groupChat.createChannel(name);
-                    } catch (error) {
-                      notify(
-                        error instanceof Error
-                          ? error.message
-                          : "Không thể tạo kênh.",
-                      );
+                  <h2>Thiết lập của bạn</h2>
+                  <p>Điều chỉnh chất lượng chia sẻ phù hợp với nội dung.</p>
+                  <label htmlFor="fps">
+                    Tốc độ khung hình khi chia sẻ màn hình
+                  </label>
+                  <select
+                    id="fps"
+                    value={fps}
+                    onChange={(e) => setFps(e.target.value)}
+                  >
+                    <option value="15">15 khung hình/giây · Tài liệu</option>
+                    <option value="30">30 khung hình/giây · Cân bằng</option>
+                    <option value="60">60 khung hình/giây · Chuyển động</option>
+                  </select>
+                  <p className="settings-note">
+                    Áp dụng khi bắt đầu chia sẻ lần tiếp theo. Trình duyệt có
+                    thể điều chỉnh theo thiết bị.
+                  </p>
+                  <button
+                    className="button primary"
+                    onClick={() => {
+                      setModal(null);
+                      notify("Đã lưu thiết lập chia sẻ cho phiên này.");
+                    }}
+                  >
+                    <Check size={17} /> Lưu thiết lập
+                  </button>
+                </>
+              )}
+              {modal === "notifications" && (
+                <>
+                  <div className="card-icon">
+                    <Bell />
+                  </div>
+                  <h2>Thông báo của bạn</h2>
+                  <div className="notice">
+                    <Radio size={20} />
+                    <div>
+                      <b>Buổi 05 đang diễn ra</b>
+                      <p>Kiến trúc hệ thống phân tán · Phòng học trực tiếp</p>
+                      <Link href="/workspace">
+                        Vào lớp học <ArrowRight size={13} />
+                      </Link>
+                    </div>
+                  </div>
+                  <div className="notice">
+                    <Folder size={20} />
+                    <div>
+                      <b>Tài liệu mới trong thư viện</b>
+                      <p>Nguyễn Hoàng đã chia sẻ slide buổi học.</p>
+                      <Link href="/files">
+                        Xem thư viện <ArrowRight size={13} />
+                      </Link>
+                    </div>
+                  </div>
+                  <small>Thông báo minh họa</small>
+                </>
+              )}
+              {modal === "help" && (
+                <>
+                  <div className="card-icon">
+                    <Clock3 />
+                  </div>
+                  <h2>Học theo nhịp của bạn.</h2>
+                  <p>
+                    Chọn một kênh bên trái để trò chuyện, vào lớp hoặc mở thư
+                    viện. Ở lớp trực tiếp, kéo thanh thời gian để tua lại; chọn
+                    “Về trực tiếp” để theo kịp bài học.
+                  </p>
+                  <p>
+                    Camera, micro và chia sẻ màn hình sử dụng quyền thiết bị
+                    thật và chỉ hiển thị cục bộ. Cuộc gọi nhiều người, ghi hình,
+                    lưu tệp đang ở chế độ minh họa. Mục Thành viên sử dụng tài
+                    khoản, nhóm và phân quyền thật.
+                  </p>
+                  <button
+                    className="button primary"
+                    onClick={() => setModal(null)}
+                  >
+                    Bắt đầu khám phá <ArrowRight size={16} />
+                  </button>
+                </>
+              )}
+              {modal === "community-settings" && (
+                <>
+                  <div className="card-icon">
+                    <ShieldCheck />
+                  </div>
+                  <h2>{group}</h2>
+                  <p>Vai trò trong cộng đồng mẫu</p>
+                  <div className="role-row">
+                    <span className="role-dot violet" />
+                    <b>Người quản trị</b>
+                    <span>Quản lý cộng đồng</span>
+                  </div>
+                  <div className="role-row">
+                    <span className="role-dot green" />
+                    <b>Giảng viên</b>
+                    <span>Quản lý buổi học</span>
+                  </div>
+                  <div className="role-row">
+                    <span className="role-dot blue" />
+                    <b>Thành viên</b>
+                    <span>Tham gia và trao đổi</span>
+                  </div>
+                  <p>
+                    Quyền truy cập thực tế sẽ được xác thực bởi máy chủ khi tích
+                    hợp đăng nhập.
+                  </p>
+                  <button
+                    className="button primary"
+                    onClick={() => setModal("invite")}
+                  >
+                    <Users size={16} /> Mời thành viên
+                  </button>
+                </>
+              )}
+              {modal === "channel" && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const name = String(
+                      new FormData(e.currentTarget).get("name") || "",
+                    )
+                      .trim()
+                      .toLocaleLowerCase("vi")
+                      .replace(/\s+/g, "-");
+                    if (!name) return;
+                    if (
+                      customChannels.includes(name) ||
+                      ["trò-chuyện-chung", "hỏi-đáp", "thông-báo"].includes(
+                        name,
+                      )
+                    ) {
+                      notify("Tên kênh đã tồn tại.");
                       return;
                     }
-                  } else {
-                    const next = [...localCustomChannels, name];
-                    setLocalCustomChannels(next);
-                    localStorage.setItem(
-                      "streamora-channels",
-                      JSON.stringify(next),
-                    );
-                  }
-                  location.href = `/community/${encodeURIComponent(name)}`;
-                }}
-              >
-                <div className="card-icon">
-                  <Hash />
-                </div>
-                <h2>Thêm một cuộc trò chuyện.</h2>
-                <p>
-                  {workspaceGroup.groupId
-                    ? "Kênh sẽ hiển thị cho mọi thành viên trong nhóm."
-                    : "Kênh được lưu riêng trên trình duyệt này."}
-                </p>
-                <label htmlFor="channel-name">Tên kênh</label>
-                <input
-                  name="name"
-                  required
-                  maxLength={40}
-                  id="channel-name"
-                  placeholder="Ví dụ: thảo-luận-bài-tập"
-                />
-                <button className="button primary">
-                  Tạo kênh <Plus size={15} />
-                </button>
-              </form>
-            )}
-            {modal === "questions" && (
-              <>
-                <div className="card-icon">
-                  <MessageCircle />
-                </div>
-                <h2>Góc hỏi đáp</h2>
-                <p>Cùng giải đáp những câu hỏi trong buổi học.</p>
-                {[
-                  "Khi nào nên dùng nhiều máy chủ?",
-                  "Cân bằng tải xử lý lỗi như thế nào?",
-                  "Làm sao để dữ liệu luôn nhất quán?",
-                ].map((q) => (
-                  <div className="question-item" key={q}>
-                    <Hash size={17} />
-                    {q}
-                  </div>
-                ))}
-                <Link href="/community" className="button primary">
-                  Thảo luận cùng mọi người <ArrowRight size={16} />
-                </Link>
-              </>
-            )}
-            {modal.startsWith("file:") && (
-              <>
-                <div className="card-icon">
-                  <FileText />
-                </div>
-                <h2>{modal.slice(5)}</h2>
-                <p>
-                  Đây là mục tài liệu minh họa. Nội dung tệp chưa được lưu trên
-                  máy chủ nên chưa thể tải xuống hoặc phát bản ghi.
-                </p>
-                <p>
-                  Khi tích hợp thư viện thật, mục này sẽ mở tài liệu hoặc trình
-                  phát bản ghi của cộng đồng.
-                </p>
-                <button
-                  className="button primary"
-                  onClick={() => setModal(null)}
+                    if (workspaceGroup.groupId) {
+                      try {
+                        await groupChat.createChannel(name);
+                      } catch (error) {
+                        notify(
+                          error instanceof Error
+                            ? error.message
+                            : "Không thể tạo kênh.",
+                        );
+                        return;
+                      }
+                    } else {
+                      const next = [...localCustomChannels, name];
+                      setLocalCustomChannels(next);
+                      localStorage.setItem(
+                        "streamora-channels",
+                        JSON.stringify(next),
+                      );
+                    }
+                    location.href = `/community/${encodeURIComponent(name)}`;
+                  }}
                 >
-                  Đã hiểu <Check size={16} />
-                </button>
-              </>
-            )}
-          </section>
-        </div>
-      )}
+                  <div className="card-icon">
+                    <Hash />
+                  </div>
+                  <h2>Thêm một cuộc trò chuyện.</h2>
+                  <p>
+                    {workspaceGroup.groupId
+                      ? "Kênh sẽ hiển thị cho mọi thành viên trong nhóm."
+                      : "Kênh được lưu riêng trên trình duyệt này."}
+                  </p>
+                  <label htmlFor="channel-name">Tên kênh</label>
+                  <input
+                    name="name"
+                    required
+                    maxLength={40}
+                    id="channel-name"
+                    placeholder="Ví dụ: thảo-luận-bài-tập"
+                  />
+                  <button className="button primary">
+                    Tạo kênh <Plus size={15} />
+                  </button>
+                </form>
+              )}
+              {modal === "questions" && (
+                <>
+                  <div className="card-icon">
+                    <MessageCircle />
+                  </div>
+                  <h2>Góc hỏi đáp</h2>
+                  <p>Cùng giải đáp những câu hỏi trong buổi học.</p>
+                  {[
+                    "Khi nào nên dùng nhiều máy chủ?",
+                    "Cân bằng tải xử lý lỗi như thế nào?",
+                    "Làm sao để dữ liệu luôn nhất quán?",
+                  ].map((q) => (
+                    <div className="question-item" key={q}>
+                      <Hash size={17} />
+                      {q}
+                    </div>
+                  ))}
+                  <Link href="/community" className="button primary">
+                    Thảo luận cùng mọi người <ArrowRight size={16} />
+                  </Link>
+                </>
+              )}
+              {modal.startsWith("file:") && (
+                <>
+                  <div className="card-icon">
+                    <FileText />
+                  </div>
+                  <h2>{modal.slice(5)}</h2>
+                  <p>
+                    Đây là mục tài liệu minh họa. Nội dung tệp chưa được lưu
+                    trên máy chủ nên chưa thể tải xuống hoặc phát bản ghi.
+                  </p>
+                  <p>
+                    Khi tích hợp thư viện thật, mục này sẽ mở tài liệu hoặc
+                    trình phát bản ghi của cộng đồng.
+                  </p>
+                  <button
+                    className="button primary"
+                    onClick={() => setModal(null)}
+                  >
+                    Đã hiểu <Check size={16} />
+                  </button>
+                </>
+              )}
+            </section>
+          </div>
+        )}
     </div>
   );
 }

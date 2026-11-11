@@ -104,6 +104,7 @@ async function groupFixture() {
 async function lesson(owner, group, live = true, title = "Buổi học T04") {
   const { session } = await api(owner, "POST", `/groups/${group.id}/sessions`, {
     title,
+    memberAdmission: "APPROVAL",
     scheduledAt: "2026-10-25T06:30:00Z",
   });
   if (live) await api(owner, "POST", `/sessions/${session.id}/start`, {});

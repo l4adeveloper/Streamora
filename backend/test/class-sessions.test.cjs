@@ -25,7 +25,6 @@ test("T04 validates real zoned timestamps, rejects forged ownership/state, and d
     "Lớp học",
   );
   for (const value of [
-    undefined,
     null,
     "2026-10-25",
     "2026-10-25T19:00:00",
@@ -87,7 +86,7 @@ test("T04 lifecycle commands accept only an absent body or an empty object", () 
 test("T04 OpenAPI publishes lifecycle and meet routes with authentication and minimal discovery", async () => {
   const doc = await exportClassSessionsOpenApi({ check: true });
   const operations = Object.values(doc.paths).flatMap(Object.values);
-  assert.equal(operations.length, 19);
+  assert.equal(operations.length, 20);
   for (const operation of operations)
     assert.deepEqual(operation.security, [{ accessToken: [] }]);
   for (const name of [
@@ -97,16 +96,25 @@ test("T04 OpenAPI publishes lifecycle and meet routes with authentication and mi
   ])
     assert.equal(doc.components.schemas[name].additionalProperties, false);
   assert.ok(
-    doc.components.schemas.CreateGroupClassSessionDto.required.includes(
-      "scheduledAt",
-    ),
+    !(
+      doc.components.schemas.CreateGroupClassSessionDto.required ?? []
+    ).includes("scheduledAt"),
   );
   assert.ok(
     !doc.components.schemas.CreateMeetDto.required.includes("scheduledAt"),
   );
   assert.deepEqual(
     Object.keys(doc.components.schemas.MeetPreviewDto.properties).sort(),
-    ["host", "id", "status", "title"],
+    [
+      "allowGuests",
+      "groupId",
+      "host",
+      "id",
+      "joinCode",
+      "mode",
+      "status",
+      "title",
+    ],
   );
   assert.deepEqual(
     Object.keys(doc.components.schemas.ClassSessionUserDto.properties).sort(),

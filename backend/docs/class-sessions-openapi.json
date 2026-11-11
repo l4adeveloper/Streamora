@@ -546,6 +546,249 @@
         ]
       }
     },
+    "/api/v1/sessions/{sessionId}/access": {
+      "get": {
+        "operationId": "classsessions_resolve",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Thành công.",
+            "headers": {
+              "X-Request-ID": {
+                "description": "ID request do server tạo.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetPreviewResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_ERROR / INVALID_CURSOR",
+            "headers": {
+              "X-Request-ID": {
+                "description": "ID request do server tạo.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED",
+            "headers": {
+              "X-Request-ID": {
+                "description": "ID request do server tạo.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN / USER_DISABLED",
+            "headers": {
+              "X-Request-ID": {
+                "description": "ID request do server tạo.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "GROUP_NOT_FOUND / SESSION_NOT_FOUND",
+            "headers": {
+              "X-Request-ID": {
+                "description": "ID request do server tạo.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SESSION_NOT_EDITABLE / INVALID_SESSION_STATE / IDEMPOTENCY_CONFLICT",
+            "headers": {
+              "X-Request-ID": {
+                "description": "ID request do server tạo.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR — không trả stack/secret.",
+            "headers": {
+              "X-Request-ID": {
+                "description": "ID request do server tạo.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "SERVICE_UNAVAILABLE — có thể thử lại thao tác đọc.",
+            "headers": {
+              "X-Request-ID": {
+                "description": "ID request do server tạo.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "summary": "Xác thực quyền và xác định giao diện Meeting",
+        "tags": [
+          "T04 Class Sessions"
+        ]
+      }
+    },
     "/api/v1/sessions/{sessionId}": {
       "get": {
         "description": "Lớp: MEMBER/ADMIN. Meet: chủ phòng/ADMIN hoặc người đang tham gia. Dùng GET /meets/:code cho thông tin tối thiểu trước khi vào meet.",
@@ -5098,11 +5341,24 @@
           "title": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 100
+            "maxLength": 100,
+            "description": "Bỏ trống để tự sinh Cuộc họp 1, 2, 3… trong nhóm."
           },
           "description": {
             "type": "string",
             "maxLength": 2000
+          },
+          "allowGuests": {
+            "type": "boolean",
+            "default": false
+          },
+          "memberAdmission": {
+            "type": "string",
+            "enum": [
+              "DIRECT",
+              "APPROVAL"
+            ],
+            "default": "DIRECT"
           },
           "scheduledAt": {
             "type": "string",
@@ -5110,10 +5366,6 @@
             "description": "ISO8601 có múi giờ; ví dụ 2026-10-25T19:00:00+07:00."
           }
         },
-        "required": [
-          "title",
-          "scheduledAt"
-        ],
         "additionalProperties": false
       },
       "ClassSessionDto": {
@@ -5142,6 +5394,16 @@
           "title": {
             "type": "string",
             "maxLength": 100
+          },
+          "allowGuests": {
+            "type": "boolean"
+          },
+          "memberAdmission": {
+            "type": "string",
+            "enum": [
+              "DIRECT",
+              "APPROVAL"
+            ]
           },
           "description": {
             "type": "string",
@@ -5196,6 +5458,8 @@
           "groupId",
           "createdById",
           "title",
+          "allowGuests",
+          "memberAdmission",
           "description",
           "joinCode",
           "scheduledAt",
@@ -5235,6 +5499,84 @@
         "required": [
           "items",
           "nextCursor"
+        ]
+      },
+      "ClassSessionUserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fullName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "fullName"
+        ]
+      },
+      "MeetPreviewDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/components/schemas/ClassSessionUserDto"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SCHEDULED",
+              "LIVE",
+              "ENDED",
+              "CANCELLED"
+            ]
+          },
+          "groupId": {
+            "type": "string",
+            "nullable": true
+          },
+          "allowGuests": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "WORKSPACE",
+              "STANDALONE"
+            ]
+          },
+          "joinCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "host",
+          "status",
+          "groupId",
+          "allowGuests",
+          "mode",
+          "joinCode"
+        ]
+      },
+      "MeetPreviewResponseDto": {
+        "type": "object",
+        "properties": {
+          "meet": {
+            "$ref": "#/components/schemas/MeetPreviewDto"
+          }
+        },
+        "required": [
+          "meet"
         ]
       },
       "UpdateClassSessionDto": {
@@ -5280,63 +5622,6 @@
           "title"
         ],
         "additionalProperties": false
-      },
-      "ClassSessionUserDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "fullName": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "fullName"
-        ]
-      },
-      "MeetPreviewDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "title": {
-            "type": "string"
-          },
-          "host": {
-            "$ref": "#/components/schemas/ClassSessionUserDto"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "SCHEDULED",
-              "LIVE",
-              "ENDED",
-              "CANCELLED"
-            ]
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "host",
-          "status"
-        ]
-      },
-      "MeetPreviewResponseDto": {
-        "type": "object",
-        "properties": {
-          "meet": {
-            "$ref": "#/components/schemas/MeetPreviewDto"
-          }
-        },
-        "required": [
-          "meet"
-        ]
       },
       "ClassJoinRequestDto": {
         "type": "object",

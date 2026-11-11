@@ -111,6 +111,7 @@ model Group {
   createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   deletedAt     DateTime?          @map("deleted_at") @db.Timestamptz(3)
+  meetingSequence Int             @default(0) @map("meeting_sequence")
   members       GroupMember[]
   owner         User               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   rooms         GroupRoom[]
@@ -201,6 +202,8 @@ model GroupChatMessage {
   channel    String             @db.VarChar(100)
   text       String             @db.VarChar(4000)
   replyToId  String?            @map("reply_to_id") @db.Uuid
+  meetingId  String?            @unique @map("meeting_id") @db.Uuid
+  meeting    ClassSession?      @relation(fields: [meetingId], references: [id], onDelete: Restrict)
   createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   editedAt   DateTime?          @map("edited_at") @db.Timestamptz(3)
   deletedAt  DateTime?          @map("deleted_at") @db.Timestamptz(3)
@@ -285,6 +288,8 @@ model ClassSession {
   groupId        String?               @map("group_id") @db.Uuid
   createdById    String                @map("created_by_id") @db.Uuid
   title          String                @db.VarChar(100)
+  allowGuests    Boolean               @default(false) @map("allow_guests")
+  memberAdmission String               @default("DIRECT") @map("member_admission") @db.VarChar(10)
   description    String?               @db.VarChar(2000)
   joinCode       String                @unique @map("join_code") @db.VarChar(12)
   scheduledAt    DateTime?             @map("scheduled_at") @db.Timestamptz(3)
@@ -305,6 +310,7 @@ model ClassSession {
   recordingAssets RecordingAsset[]
   mediaRoom      ClassMediaRoom?
   mediaBans      SessionBan[]
+  announcement  GroupChatMessage?
 
   @@index([groupId, scheduledAt, id], map: "class_sessions_group_schedule_idx")
   @@index([groupId, status, scheduledAt, id], map: "class_sessions_group_status_schedule_idx")

@@ -11,6 +11,8 @@ export function useWorkspaceGroup() {
     groups: Group[];
     groupId: string | null;
   }>({ userId: "", groups: [], groupId: null });
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const sequence = useRef(0);
@@ -56,13 +58,36 @@ export function useWorkspaceGroup() {
   }, [load]);
   const current =
     state.userId === user?.id ? state : { groups: [], groupId: null };
-  function selectGroup(groupId: string) {
-    if (!user) return;
-    setState((previous) => ({ ...previous, groupId }));
-    sessionStorage.setItem(`streamora-group:${user.id}`, groupId);
-    const url = new URL(location.href);
-    url.searchParams.set("groupId", groupId);
-    history.replaceState(null, "", url);
-  }
+  useEffect(() => {
+    const sync = () => {
+      const groupId = new URLSearchParams(location.search).get("groupId");
+      setState((previous) =>
+        previous.userId === user?.id &&
+        previous.groups.some((group) => group.id === groupId)
+          ? { ...previous, groupId }
+          : previous,
+      );
+    };
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, [user?.id]);
+  const selectGroup = useCallback(
+    (groupId: string) => {
+      if (
+        !user ||
+        stateRef.current.userId !== user.id ||
+        !stateRef.current.groups.some((group) => group.id === groupId)
+      )
+        return;
+      setState((previous) => ({ ...previous, groupId }));
+      sessionStorage.setItem(`streamora-group:${user.id}`, groupId);
+      const url = new URL(location.href);
+      url.searchParams.set("groupId", groupId);
+      url.searchParams.delete("meetingId");
+      url.searchParams.delete("create");
+      history.replaceState(null, "", url);
+    },
+    [user?.id],
+  );
   return { ...current, selectGroup, loading, error, reload: load };
 }

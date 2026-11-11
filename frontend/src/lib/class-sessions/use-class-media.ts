@@ -52,6 +52,7 @@ export function useClassMedia(
   const currentConnection = useRef<JoinClassMediaResponse | null>(null);
   const generation = useRef(0),
     locked = useRef(false);
+  const cancelRetryWait = useRef<(() => void) | null>(null);
   const settings = useRef({ micEnabled, cameraEnabled });
   settings.current = { micEnabled, cameraEnabled };
   const currentStatus = useRef(status);
@@ -61,6 +62,7 @@ export function useClassMedia(
   const stop = useCallback(
     (notify = true) => {
       generation.current++;
+      cancelRetryWait.current?.();
       const previous = currentConnection.current;
       currentConnection.current = null;
       stage.current?.removeAllListeners();
@@ -158,14 +160,46 @@ export function useClassMedia(
       const sdk = await import("amazon-ivs-web-broadcast");
       clientId.current ??= crypto.randomUUID();
       requestId.current ??= crypto.randomUUID();
-      issued = await apiRequest<JoinClassMediaResponse>(`${root}/join`, {
-        method: "POST",
-        body: {
-          participationId,
-          clientId: clientId.current,
-          requestId: requestId.current,
-        },
-      });
+      const body = {
+        participationId,
+        clientId: clientId.current,
+        requestId: requestId.current,
+      };
+      const deadline = Date.now() + 130000;
+      let attempt = 0;
+      while (ticket === generation.current) {
+        try {
+          issued = await apiRequest<JoinClassMediaResponse>(`${root}/join`, {
+            method: "POST",
+            body,
+          });
+          break;
+        } catch (error) {
+          const failure = asApiError(error);
+          const delay = Math.min(4000, 500 * 2 ** attempt++);
+          if (
+            failure.status !== 409 ||
+            !["MEDIA_STARTING", "MEDIA_REVOKING"].includes(failure.code) ||
+            Date.now() + delay > deadline ||
+            ticket !== generation.current
+          )
+            throw error;
+          // Keep the same intent while another request prepares the room/token.
+          // Leaving or switching rooms cancels the wait and prevents more POSTs.
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(() => {
+              cancelRetryWait.current = null;
+              resolve();
+            }, delay);
+            cancelRetryWait.current = () => {
+              clearTimeout(timer);
+              cancelRetryWait.current = null;
+              resolve();
+            };
+          });
+        }
+      }
+      if (!issued) return;
       if (ticket !== generation.current) {
         void apiRequest(`${root}/media/${issued.connectionId}/leave`, {
           method: "POST",

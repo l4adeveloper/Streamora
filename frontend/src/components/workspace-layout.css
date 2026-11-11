@@ -1,4 +1,72 @@
 /* The workspace is a viewport shell; lists and conversations own their scroll. */
+.workspace-meeting-channels {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.channel.workspace-meeting-channel {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+.workspace-meeting-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-meeting-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.workspace-meeting-status.live {
+  color: var(--success);
+}
+.workspace-meeting-status.live::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.workspace-meeting-loading {
+  padding: 8px 14px;
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+.workspace-meeting-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  background: var(--elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: var(--shadow-dialog);
+}
+.workspace-meeting-dialog h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+}
+.meeting-group-context {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 16px 0 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.meeting-group-context strong {
+  color: var(--text);
+  font-weight: 500;
+}
 html:has(.app-shell),
 body:has(.app-shell) {
   height: 100%;

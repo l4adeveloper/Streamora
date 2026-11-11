@@ -122,6 +122,25 @@ const changed = (client, kind, id) =>
     (event) => event.name === kind && event.data.sessionId === id,
   );
 
+test("meeting chat shares the authenticated classroom namespace with session events", async () => {
+  const session = await f.lesson();
+  const owner = await socket(f.owner);
+  const viewer = await socket(f.viewer);
+  const data = { sessionId: session.id };
+  await watch(owner, session);
+  await ok(owner, "auth:refresh", { accessToken: f.owner.token });
+  await ok(owner, "meeting-chat:join", data);
+  await ok(viewer, "meeting-chat:join", data);
+  const sent = await ok(owner, "meeting-chat:send", {
+    ...data,
+    text: "Meeting chat on classroom",
+  });
+  const received = await until(() =>
+    changed(viewer, "meeting-chat:message", session.id),
+  );
+  assert.equal(received.data.id, sent.id);
+});
+
 test("T04 socket authentication rejects invalid tokens and foreign origins; watch snapshots contain only own admission", async () => {
   await assert.rejects(socket(null), /UNAUTHENTICATED/);
   await assert.rejects(socket({ token: "invalid" }), /UNAUTHENTICATED/);
