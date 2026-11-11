@@ -1,5 +1,6 @@
 // Explicit opt-in: creates one temporary AWS Stage and connects two synthetic
-// browser participants. Uses an isolated database and removes its own Stage.
+// browser participants (three with --workspace-audio). Uses an isolated
+// database and removes its own Stage.
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
 const { readFile, cp, mkdir, writeFile, rm } = require("node:fs/promises");
@@ -82,6 +83,7 @@ async function configuredDatabase(config) {
   }
 }
 async function liveCheck() {
+  const workspaceAudio = process.argv.includes("--workspace-audio");
   if (!process.argv.includes("--live")) {
     console.log(
       "Run npm run build --workspace=@streamora/api, then node backend/scripts/check-ivs.cjs --live (uses real AWS resources briefly).",
@@ -131,6 +133,9 @@ async function liveCheck() {
     f = await createMeetingFixture(origin, { ivs: config.ivs });
     owner = await f.account("IVS smoke · Chủ phòng");
     const member = await f.account("IVS smoke · Thành viên");
+    const otherMember = workspaceAudio
+      ? await f.account("IVS smoke · Thành viên 2")
+      : null;
     const password = randomUUID() + "Aa1!";
     const passwordHash = await require("argon2").hash(password);
     await f.prisma.user.updateMany({ data: { passwordHash } });
@@ -142,6 +147,9 @@ async function liveCheck() {
           create: [
             { userId: owner.id, role: "OWNER" },
             { userId: member.id, role: "VIEWER" },
+            ...(otherMember
+              ? [{ userId: otherMember.id, role: "VIEWER" }]
+              : []),
           ],
         },
       },
@@ -226,7 +234,9 @@ async function liveCheck() {
       args: [
         "--use-fake-ui-for-media-stream",
         "--use-fake-device-for-media-stream",
-        "--autoplay-policy=no-user-gesture-required",
+        ...(workspaceAudio
+          ? []
+          : ["--autoplay-policy=no-user-gesture-required"]),
       ],
     });
     const pageErrors = [],
@@ -266,9 +276,13 @@ async function liveCheck() {
     }
     const first = await login(owner),
       second = await login(member);
+    const third = otherMember ? await login(otherMember) : null;
+    const participants = [first, second, ...(third ? [third] : [])];
+    const participantCount = participants.length;
     const mediaPanel = (page) =>
       page.getByRole("region", { name: "Mic và camera", exact: true });
-    for (const page of [first, second]) {
+    for (const page of participants) {
+      if (workspaceAudio && page !== first) continue;
       const panel = mediaPanel(page);
       await panel
         .getByRole("button", { name: "Kiểm tra thiết bị", exact: true })
@@ -281,10 +295,16 @@ async function liveCheck() {
       );
     }
     await Promise.all(
-      [first, second].map(async (page) => {
+      participants.map(async (page) => {
         const panel = mediaPanel(page);
         await panel
-          .getByRole("button", { name: "Kết nối mic/camera", exact: true })
+          .getByRole("button", {
+            name:
+              workspaceAudio && page !== first
+                ? "Kết nối để nghe"
+                : "Kết nối mic/camera",
+            exact: true,
+          })
           .click();
         await panel
           .locator(".workspace-video-presence")
@@ -292,6 +312,50 @@ async function liveCheck() {
           .waitFor();
       }),
     );
+    if (third) {
+      // Viewers join without devices; one starts video first, then both use
+      // the microphone control next to their Workspace account.
+      await mediaPanel(third)
+        .getByRole("button", { name: "Bật camera", exact: true })
+        .click();
+      for (const page of [second, third]) {
+        await page
+          .locator(".workspace-identity")
+          .getByRole("button", { name: "Bật micro", exact: true })
+          .click();
+        await mediaPanel(page)
+          .getByRole("button", { name: "Tắt mic", exact: true })
+          .waitFor();
+        await page
+          .locator(".workspace-identity")
+          .getByRole("button", { name: "Tắt micro", exact: true })
+          .waitFor();
+      }
+      const controls = await Promise.all(
+        [second, third].map(async (page) => ({
+          accountMicOn:
+            (await page
+              .locator(".workspace-identity")
+              .getByRole("button", { name: "Tắt micro", exact: true })
+              .count()) === 1,
+          meetingMicOn:
+            (await mediaPanel(page)
+              .getByRole("button", { name: "Tắt mic", exact: true })
+              .count()) === 1,
+        })),
+      );
+      result("workspace-microphone-controls", {
+        ok: controls.every((item) => item.accountMicOn && item.meetingMicOn),
+        controls,
+      });
+      assert.ok(
+        controls.every((item) => item.accountMicOn && item.meetingMicOn),
+        "Workspace account mic and meeting mic must operate the same IVS microphone",
+      );
+      await mediaPanel(second)
+        .getByRole("button", { name: "Bật camera", exact: true })
+        .click();
+    }
     stageArn = (
       await f.prisma.classMediaRoom.findUnique({
         where: { sessionId: room.id },
@@ -300,13 +364,13 @@ async function liveCheck() {
     assert.ok(stageArn, "AWS Stage must be persisted");
     assert.equal(
       mediaResponses.filter((item) => item.status === 200).length,
-      2,
-      "Both participants must receive real IVS credentials",
+      participantCount,
+      "All participants must receive real IVS credentials",
     );
     assert.equal(await f.prisma.classMediaRoom.count(), 1, "One shared Stage");
-    for (const page of [first, second]) {
+    for (const page of participants) {
       await mediaPanel(page)
-        .getByText("2 đang kết nối video", { exact: true })
+        .getByText(`${participantCount} đang kết nối video`, { exact: true })
         .waitFor();
       await page.waitForFunction(() => {
         const remote = document.querySelector(".workspace-media-feature video");
@@ -323,7 +387,7 @@ async function liveCheck() {
     result("real-ivs-stage-and-tokens", {
       ok: true,
       stages: 1,
-      connectedBrowsers: 2,
+      connectedBrowsers: participantCount,
       simultaneousJoins: true,
       preparationRetries: mediaResponses.filter((item) => item.status === 409)
         .length,
@@ -366,6 +430,52 @@ async function liveCheck() {
           item.totalSamplesReceived >= 48000 &&
           item.totalAudioEnergy > 0,
       );
+    if (third) {
+      const audioFromEveryone = (stats) =>
+        stats.inbound.filter(
+          (item) =>
+            item.kind === "audio" &&
+            item.bytesReceived > 0 &&
+            item.totalAudioEnergy > 0 &&
+            item.totalSamplesReceived >= 48000,
+        ).length >=
+        participantCount - 1;
+      await until("every participant hears both other microphones", async () =>
+        (await Promise.all(participants.map(statistics))).every(
+          audioFromEveryone,
+        ),
+      );
+      const playback = await Promise.all(
+        participants.map((page) =>
+          page.locator(".class-media-room video").evaluateAll((videos) =>
+            videos
+              .filter(
+                (video) =>
+                  !video.muted && video.srcObject?.getAudioTracks().length,
+              )
+              .map((video) => ({
+                playing: !video.paused && video.currentTime > 0,
+                tracks: video.srcObject.getAudioTracks().length,
+              })),
+          ),
+        ),
+      );
+      assert.ok(
+        playback.every(
+          (videos) =>
+            videos.length >= participantCount - 1 &&
+            videos.every((video) => video.playing),
+        ),
+        "All remote microphones must also play in rendered media elements",
+      );
+      result("three-way-workspace-audio", {
+        ok: true,
+        participants: participantCount,
+        lateMicrophones: true,
+        playback,
+        statistics: await Promise.all(participants.map(statistics)),
+      });
+    }
     await until(
       "bidirectional audio and video",
       async () =>
@@ -406,7 +516,7 @@ async function liveCheck() {
         where: { sessionId: room.id },
       });
       return (
-        rows.length === 2 &&
+        rows.length === participantCount &&
         rows.every(
           (row) =>
             row.state === "ACTIVE" &&
@@ -418,14 +528,17 @@ async function liveCheck() {
     result("sustained-media-and-heartbeat", {
       ok: true,
       observedSeconds: 12,
-      awsConfirmedParticipants: 2,
+      awsConfirmedParticipants: participantCount,
       ...sustained,
     });
     await first
       .getByRole("button", { name: "Chế độ tối", exact: true })
       .click();
     await first.screenshot({
-      path: join(output, "two-participants.png"),
+      path: join(
+        output,
+        third ? "three-participants.png" : "two-participants.png",
+      ),
       fullPage: true,
       animations: "disabled",
     });
@@ -471,7 +584,9 @@ async function liveCheck() {
       ),
       "Leave must stop local tracks",
     );
-    await first.getByText("1 đang kết nối video", { exact: true }).waitFor();
+    await first
+      .getByText(`${participantCount - 1} đang kết nối video`, { exact: true })
+      .waitFor();
     await until(
       "server media revocation",
       async () =>

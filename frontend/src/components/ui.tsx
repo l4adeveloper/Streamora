@@ -49,11 +49,13 @@ export function IconButton({
   label,
   onClick,
   active = false,
+  disabled = false,
 }: {
   children: React.ReactNode;
   label: string;
   onClick?: () => void;
   active?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -62,6 +64,7 @@ export function IconButton({
       aria-label={label}
       className={`icon-button ${active ? "active" : ""}`}
       onClick={onClick}
+      disabled={disabled}
     >
       {children}
     </button>

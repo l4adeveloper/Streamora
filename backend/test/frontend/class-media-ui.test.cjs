@@ -8,7 +8,7 @@ const { randomUUID } = require("node:crypto");
 const { chromium } = require("playwright");
 
 test(
-  "T05 browser previews devices, retries room preparation, cancels retries on stop and fits mobile",
+  "T05 browser handles device permissions, previews, microphone activation, preparation retries, stop and mobile",
   { timeout: 120000 },
   async () => {
     const root = resolve(__dirname, "../../..");
@@ -180,6 +180,14 @@ test(
       await page.goto(`${origin}/sessions/${sessionId}`);
       const panel = page.getByRole("region", { name: "Mic và camera" });
       await panel.waitFor();
+      assert.equal(
+        await panel
+          .getByRole("button", { name: "Bật mic", exact: true })
+          .getAttribute("aria-pressed"),
+        "false",
+        "A microphone that has not been captured must appear off",
+      );
+      assert.equal(await panel.locator("video").count(), 0);
       await panel
         .getByRole("button", { name: "Kiểm tra thiết bị", exact: true })
         .click();
@@ -268,6 +276,67 @@ test(
           )
           .count(),
         0,
+      );
+      // Starting the microphone directly must capture audio and connect the
+      // admitted participant. Denying permission must never start a join.
+      await page.reload();
+      await panel.waitFor();
+      await page.evaluate(() => {
+        window.__getUserMedia = navigator.mediaDevices.getUserMedia.bind(
+          navigator.mediaDevices,
+        );
+        navigator.mediaDevices.getUserMedia = async () => {
+          throw new DOMException("Permission denied", "NotAllowedError");
+        };
+      });
+      const beforeMicrophone = joins.length;
+      await panel.getByRole("button", { name: "Bật mic", exact: true }).click();
+      await panel.getByText(/Bạn chưa cho phép truy cập mic\/camera/).waitFor();
+      assert.equal(joins.length, beforeMicrophone);
+      assert.equal(await panel.locator("video").count(), 0);
+      assert.equal(
+        await panel
+          .getByRole("button", { name: "Bật mic", exact: true })
+          .getAttribute("aria-pressed"),
+        "false",
+      );
+      await page.evaluate(() => {
+        navigator.mediaDevices.getUserMedia = window.__getUserMedia;
+      });
+      joinFailures = Array(20).fill("MEDIA_STARTING");
+      await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/join") && response.status() === 409,
+        ),
+        panel.getByRole("button", { name: "Bật mic", exact: true }).click(),
+      ]);
+      const microphoneTracks = await panel
+        .locator("video")
+        .evaluateHandle((video) => video.srcObject.getTracks());
+      assert.deepEqual(
+        await microphoneTracks.evaluate((tracks) =>
+          tracks.map((track) => track.kind),
+        ),
+        ["audio"],
+        "Enabling the microphone must not also turn on the camera",
+      );
+      assert.equal(
+        await panel
+          .getByRole("button", { name: "Tắt mic", exact: true })
+          .getAttribute("aria-pressed"),
+        "true",
+      );
+      await page
+        .getByRole("button", { name: "Rời phòng", exact: true })
+        .click();
+      const microphoneStoppedCount = joins.length;
+      await page.waitForTimeout(1600);
+      assert.equal(joins.length, microphoneStoppedCount);
+      assert.ok(
+        await microphoneTracks.evaluate((tracks) =>
+          tracks.every((track) => track.readyState === "ended"),
+        ),
       );
       // Persistent preparation has a bounded wait and gives the user control
       // again. Advance browser time instead of spending two real minutes.

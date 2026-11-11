@@ -209,11 +209,20 @@ export function useClassMedia(
       }
       currentConnection.current = issued;
       setConnection(issued);
-      if (!stream.current) {
-        setMic(false);
-        setCamera(false);
-        settings.current = { micEnabled: false, cameraEnabled: false };
-      }
+      settings.current = {
+        micEnabled:
+          settings.current.micEnabled &&
+          !!stream.current
+            ?.getAudioTracks()
+            .some((track) => track.readyState === "live" && track.enabled),
+        cameraEnabled:
+          settings.current.cameraEnabled &&
+          !!stream.current
+            ?.getVideoTracks()
+            .some((track) => track.readyState === "live" && track.enabled),
+      };
+      setMic(settings.current.micEnabled);
+      setCamera(settings.current.cameraEnabled);
       localStreams.current = (stream.current?.getTracks() ?? [])
         .filter((t) => t.readyState === "live")
         .map((t) => new sdk.LocalStageStream(t));
@@ -363,26 +372,38 @@ export function useClassMedia(
     };
   }, [connection, participationId, root, stop]);
 
-  async function toggle(kind: "audio" | "video") {
+  async function toggle(kind: "audio" | "video", deviceId = "") {
     if (locked.current) return;
-    const enabled = kind === "audio" ? !micEnabled : !cameraEnabled;
-    if (
-      enabled &&
-      stage.current &&
-      !stream.current
-        ?.getTracks()
-        .some((t) => t.kind === kind && t.readyState === "live")
-    ) {
+    const hasTrack = stream.current
+      ?.getTracks()
+      .some((track) => track.kind === kind && track.readyState === "live");
+    const enabled =
+      !hasTrack ||
+      !(kind === "audio"
+        ? settings.current.micEnabled
+        : settings.current.cameraEnabled);
+    let addedTracks = false;
+    if (enabled && !hasTrack) {
       const ticket = generation.current;
       locked.current = true;
       setBusy(true);
       setError("");
+      let captured: MediaStream | null = null;
       try {
-        const captured = await navigator.mediaDevices.getUserMedia({
-          audio: kind === "audio",
+        captured = await navigator.mediaDevices.getUserMedia({
+          audio:
+            kind === "audio"
+              ? deviceId
+                ? { deviceId: { exact: deviceId } }
+                : true
+              : false,
           video:
             kind === "video"
-              ? { width: { ideal: 1280 }, height: { ideal: 720 } }
+              ? {
+                  ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                }
               : false,
         });
         if (ticket !== generation.current) {
@@ -395,16 +416,22 @@ export function useClassMedia(
           return;
         }
         const combined = new MediaStream([
-          ...(stream.current?.getTracks() ?? []),
+          ...(stream.current?.getTracks() ?? []).filter(
+            (track) => track.readyState === "live",
+          ),
           ...captured.getTracks(),
         ]);
         stream.current = combined;
         setPreview(combined);
-        localStreams.current.push(
+        localStreams.current = [
+          ...localStreams.current.filter(
+            (item) => item.mediaStreamTrack.readyState === "live",
+          ),
           ...captured.getTracks().map((t) => new sdk.LocalStageStream(t)),
-        );
-        stage.current?.refreshStrategy();
+        ];
+        addedTracks = true;
       } catch (error) {
+        captured?.getTracks().forEach((track) => track.stop());
         if (ticket === generation.current) setError(deviceError(error));
         return;
       } finally {
@@ -412,12 +439,20 @@ export function useClassMedia(
         setBusy(false);
       }
     }
+    settings.current = {
+      ...settings.current,
+      [kind === "audio" ? "micEnabled" : "cameraEnabled"]: enabled,
+    };
     if (kind === "audio") setMic(enabled);
     else setCamera(enabled);
     for (const item of localStreams.current)
       if (item.mediaStreamTrack.kind === kind) item.setMuted(!enabled);
     for (const track of stream.current?.getTracks() ?? [])
       if (track.kind === kind) track.enabled = enabled;
+    if (addedTracks) stage.current?.refreshStrategy();
+    // An explicit device click should publish into an admitted room, including
+    // when the participant initially joined only to listen.
+    if (enabled && participationId && !stage.current) await join();
   }
   return {
     status,

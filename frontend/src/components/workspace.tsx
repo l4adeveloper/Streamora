@@ -314,6 +314,11 @@ export function Workspace({
   const [files, setFiles] = useState(initialFiles);
   const [filter, setFilter] = useState("Tất cả");
   const [mic, setMic] = useState(false);
+  const meetingState =
+    roomState?.sessionId === activeMeetingId ? roomState : null;
+  const workspaceMic = activeMeetingId
+    ? !!meetingState?.media?.micEnabled
+    : mic;
   const [camera, setCamera] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -404,6 +409,12 @@ export function Workspace({
   const cameraStream = useRef<MediaStream | null>(null);
   const screenStream = useRef<MediaStream | null>(null);
   const micStream = useRef<MediaStream | null>(null);
+  useEffect(() => {
+    if (!activeMeetingId) return;
+    micStream.current?.getTracks().forEach((track) => track.stop());
+    micStream.current = null;
+    setMic(false);
+  }, [activeMeetingId]);
   const localVideo = useRef<HTMLVideoElement>(null);
   const screenVideo = useRef<HTMLVideoElement>(null);
   useEffect(() => {
@@ -562,6 +573,11 @@ export function Workspace({
       screenVideo.current.srcObject = screenStream.current;
   }, [sharing]);
   async function toggleMedia(kind: "camera" | "mic" | "screen") {
+    if (kind === "mic" && activeMeetingId) {
+      if (meetingState?.active && !meetingState.pending)
+        await roomRef.current?.toggleMicrophone();
+      return;
+    }
     if (
       workspaceGroup.groupId &&
       (!permissions || (kind === "screen" && !permissions.canHost))
@@ -1092,11 +1108,18 @@ export function Workspace({
           <SessionIdentity />
         </Link>
         <IconButton
-          label={mic ? "Tắt micro" : "Bật micro"}
-          active={mic}
+          label={workspaceMic ? "Tắt micro" : "Bật micro"}
+          active={workspaceMic}
+          disabled={
+            !!activeMeetingId &&
+            (!meetingState?.active ||
+              meetingState.pending ||
+              meetingState.media?.busy ||
+              roomSwitching)
+          }
           onClick={() => toggleMedia("mic")}
         >
-          {mic ? <Mic size={16} /> : <MicOff size={16} />}
+          {workspaceMic ? <Mic size={16} /> : <MicOff size={16} />}
         </IconButton>
         <IconButton label="Cài đặt" onClick={() => setModal("settings")}>
           <Settings2 size={16} />

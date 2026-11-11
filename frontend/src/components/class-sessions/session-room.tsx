@@ -46,7 +46,11 @@ import { useClassRealtime } from "@/lib/class-sessions/use-class-realtime";
 import { useMeetingChat } from "@/lib/class-sessions/use-meeting-chat";
 import { SessionStatus } from "./session-card";
 import { SessionForm } from "./session-form";
-import { ClassMediaRoom, type ClassMediaHandle } from "./class-media-room";
+import {
+  ClassMediaRoom,
+  type ClassMediaHandle,
+  type ClassMediaState,
+} from "./class-media-room";
 import { MeetingChatPanel } from "./meeting-chat-panel";
 import "./sessions.css";
 import "./meeting-chat.css";
@@ -75,9 +79,11 @@ export interface MeetingRoomState {
   active?: boolean;
   userId?: string;
   status?: string;
+  media?: ClassMediaState;
 }
 export interface SessionRoomHandle {
   leave: () => Promise<void>;
+  toggleMicrophone: () => Promise<void>;
   decide: (requestId: string, decision: "ACCEPT" | "REJECT") => Promise<void>;
 }
 export function SessionRoom({
@@ -131,10 +137,16 @@ export function SessionRoom({
   const intent = useRef<{ signature: string; key: string } | null>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
   const mediaRef = useRef<ClassMediaHandle>(null);
+  const [mediaState, setMediaState] = useState<ClassMediaState>({
+    micEnabled: false,
+    busy: false,
+  });
   const actionFlight = useRef<Promise<unknown> | null>(null);
   useImperativeHandle(
     ref,
     () => ({
+      toggleMicrophone: () =>
+        mediaRef.current?.toggleMicrophone() ?? Promise.resolve(),
       decide: (requestId, decision) =>
         run("decide", () =>
           api.decideClassJoin(sessionId!, requestId, decision),
@@ -317,6 +329,7 @@ export function SessionRoom({
         active,
         userId: visit?.userId,
         status,
+        media: mediaState,
       });
   }, [
     id,
@@ -327,6 +340,7 @@ export function SessionRoom({
     visit?.id,
     visit?.userId,
     status,
+    mediaState,
     onState,
   ]);
   const currentRequest = admission?.request;
@@ -519,6 +533,7 @@ export function SessionRoom({
             <ClassMediaRoom
               key={data.id}
               ref={mediaRef}
+              onState={setMediaState}
               sessionId={data.id}
               participationId={active ? visit.id : null}
               layout="workspace"
@@ -1064,6 +1079,7 @@ export function SessionRoom({
             {status === "LIVE" && !error && (
               <ClassMediaRoom
                 ref={mediaRef}
+                onState={setMediaState}
                 key={data.id}
                 sessionId={data.id}
                 participationId={active ? visit.id : null}

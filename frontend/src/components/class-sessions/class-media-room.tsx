@@ -80,6 +80,11 @@ function MediaTile({
 }
 export interface ClassMediaHandle {
   stop: () => void;
+  toggleMicrophone: () => Promise<void>;
+}
+export interface ClassMediaState {
+  micEnabled: boolean;
+  busy: boolean;
 }
 export function ClassMediaRoom({
   sessionId,
@@ -92,6 +97,7 @@ export function ClassMediaRoom({
   leaveAction,
   disabled = false,
   canManage = false,
+  onState,
 }: {
   sessionId: string;
   participationId: string | null;
@@ -103,6 +109,7 @@ export function ClassMediaRoom({
   leaveAction?: ReactNode;
   disabled?: boolean;
   canManage?: boolean;
+  onState?: (state: ClassMediaState) => void;
 }) {
   const media = useClassMedia(sessionId, participationId);
   const { user } = useAuth();
@@ -112,9 +119,27 @@ export function ClassMediaRoom({
   useEffect(() => {
     if (disabled) media.stop();
   }, [disabled, media.stop]);
-  useImperativeHandle(ref, () => ({ stop: () => media.stop() }), [media.stop]);
   const [audioId, setAudioId] = useState(""),
     [videoId, setVideoId] = useState("");
+  const micOn =
+    media.micEnabled &&
+    !!media.preview
+      ?.getAudioTracks()
+      .some((track) => track.readyState === "live" && track.enabled);
+  const cameraOn =
+    media.cameraEnabled &&
+    !!media.preview
+      ?.getVideoTracks()
+      .some((track) => track.readyState === "live" && track.enabled);
+  useImperativeHandle(ref, () => ({
+    stop: () => media.stop(),
+    toggleMicrophone: async () => {
+      if (!disabled && !media.busy) await media.toggle("audio", audioId);
+    },
+  }));
+  useEffect(() => {
+    onState?.({ micEnabled: micOn, busy: media.busy });
+  }, [onState, micOn, media.busy]);
   const labels = {
     idle: "Chưa kết nối video",
     connecting: "Đang kết nối video…",
@@ -230,29 +255,25 @@ export function ClassMediaRoom({
           <div className="workspace-device-controls">
             <button
               type="button"
-              className={`device-button ${media.micEnabled ? "enabled" : ""}`}
-              onClick={() => void media.toggle("audio")}
-              title={media.micEnabled ? "Tắt mic" : "Bật mic"}
-              aria-label={media.micEnabled ? "Tắt mic" : "Bật mic"}
-              aria-pressed={media.micEnabled}
+              className={`device-button ${micOn ? "enabled" : ""}`}
+              onClick={() => void media.toggle("audio", audioId)}
+              title={micOn ? "Tắt mic" : "Bật mic"}
+              aria-label={micOn ? "Tắt mic" : "Bật mic"}
+              aria-pressed={micOn}
               disabled={disabled || media.busy}
             >
-              {media.micEnabled ? <Mic size={18} /> : <MicOff size={18} />}
+              {micOn ? <Mic size={18} /> : <MicOff size={18} />}
             </button>
             <button
               type="button"
-              className={`device-button ${media.cameraEnabled ? "enabled" : ""}`}
-              onClick={() => void media.toggle("video")}
-              title={media.cameraEnabled ? "Tắt camera" : "Bật camera"}
-              aria-label={media.cameraEnabled ? "Tắt camera" : "Bật camera"}
-              aria-pressed={media.cameraEnabled}
+              className={`device-button ${cameraOn ? "enabled" : ""}`}
+              onClick={() => void media.toggle("video", videoId)}
+              title={cameraOn ? "Tắt camera" : "Bật camera"}
+              aria-label={cameraOn ? "Tắt camera" : "Bật camera"}
+              aria-pressed={cameraOn}
               disabled={disabled || media.busy}
             >
-              {media.cameraEnabled ? (
-                <Video size={18} />
-              ) : (
-                <VideoOff size={18} />
-              )}
+              {cameraOn ? <Video size={18} /> : <VideoOff size={18} />}
             </button>
             <button
               type="button"
@@ -468,21 +489,21 @@ export function ClassMediaRoom({
       <div className="class-actions">
         <button
           className="button secondary compact"
-          onClick={() => media.toggle("audio")}
-          aria-pressed={media.micEnabled}
+          onClick={() => void media.toggle("audio", audioId)}
+          aria-pressed={micOn}
           disabled={media.busy}
         >
-          {media.micEnabled ? <Mic size={16} /> : <MicOff size={16} />}
-          {media.micEnabled ? "Tắt mic" : "Bật mic"}
+          {micOn ? <Mic size={16} /> : <MicOff size={16} />}
+          {micOn ? "Tắt mic" : "Bật mic"}
         </button>
         <button
           className="button secondary compact"
-          onClick={() => media.toggle("video")}
-          aria-pressed={media.cameraEnabled}
+          onClick={() => void media.toggle("video", videoId)}
+          aria-pressed={cameraOn}
           disabled={media.busy}
         >
-          {media.cameraEnabled ? <Video size={16} /> : <VideoOff size={16} />}
-          {media.cameraEnabled ? "Tắt camera" : "Bật camera"}
+          {cameraOn ? <Video size={16} /> : <VideoOff size={16} />}
+          {cameraOn ? "Tắt camera" : "Bật camera"}
         </button>
         {!media.connected && (
           <button
