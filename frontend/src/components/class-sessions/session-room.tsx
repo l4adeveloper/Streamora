@@ -536,6 +536,7 @@ export function SessionRoom({
               onState={setMediaState}
               sessionId={data.id}
               participationId={active ? visit.id : null}
+              revision={revision}
               layout="workspace"
               disabled={["ENDED", "CANCELLED"].includes(status)}
               canManage={manage}
@@ -583,9 +584,7 @@ export function SessionRoom({
                     </>
                   )}
                   {status === "LIVE" &&
-                    (active ? (
-                      <p>Bật thiết bị hoặc kết nối để nghe cuộc họp.</p>
-                    ) : (
+                    (active ? null : (
                       <div className="workspace-call-admission">
                         {currentRequest?.status === "PENDING" && (
                           <>
@@ -1083,6 +1082,7 @@ export function SessionRoom({
                 key={data.id}
                 sessionId={data.id}
                 participationId={active ? visit.id : null}
+                revision={revision}
               />
             )}
             <div className="class-grid">

@@ -42,7 +42,7 @@
             "accessToken": []
           }
         ],
-        "summary": "T05 — Cấp token IVS cho đúng lượt đang tham gia",
+        "summary": "Cấp token IVS cho mic/camera hoặc chia sẻ màn hình",
         "tags": [
           "Class media T05"
         ]
@@ -192,6 +192,14 @@
           "deviceLabel": {
             "type": "string",
             "maxLength": 100
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "CAMERA",
+              "SCREEN"
+            ],
+            "default": "CAMERA"
           }
         },
         "required": [

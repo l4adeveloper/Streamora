@@ -100,6 +100,7 @@ Khi cả frontend và API đang chạy, có thể mở Swagger qua proxy fronten
 | Thành viên — T03       | Tìm/thêm/xóa thành viên, HOST/VIEWER, bảo vệ OWNER và thu hồi quyền          | [T03](backend/docs/t03-handoff.md) |
 | Lịch học và Meet — T04 | Lịch, vòng đời buổi học, xin vào/duyệt/vào/ra và realtime                    | [T04](backend/docs/t04-handoff.md) |
 | Mic/camera — T05 | Preview, token backend, join/leave/reconnect IVS; cần nghiệm thu AWS thật | [T05](backend/docs/t05-handoff.md) |
+| Chia sẻ màn hình | Phát màn hình qua IVS trong Meet độc lập và trong Workspace | [Meet](backend/docs/meetings.md) |
 | Thư viện — T15         | Metadata PostgreSQL, tìm kiếm, quản lý file và preview                       | [T15](backend/docs/t15-handoff.md) |
 | Upload multipart — T16 | Nhiều file, chia part, ký URL, complete/abort; local và adapter S3           | [T16](backend/docs/t16-handoff.md) |
 | Tiếp tục upload — T17  | Pause/resume, khôi phục nguồn/hàng đợi sau reload, retry và chia lượt truyền | [T17](backend/docs/t17-handoff.md) |
@@ -109,7 +110,7 @@ Chat trong nhóm dùng API/realtime thật; phần demo không gắn nhóm vẫn
 ### Còn minh họa hoặc cần tích hợp tiếp
 
 - Trình phát trực tiếp trong workspace có thanh tua, tốc độ/chất lượng và toàn màn hình minh họa; chưa có luồng HLS/DVR thật.
-- T05 đã có code preview và kết nối mic/camera qua AWS IVS; cần cấu hình AWS và nghiệm thu media thật. Chia sẻ màn hình qua IVS thuộc T06.
+- Mic/camera và chia sẻ màn hình cần cấu hình AWS IVS để chạy với người tham gia thật.
 - Ghi hình và bản ghi trong workspace còn minh họa; T10/T11, IVS server-side composition và Web Audio API là phần tích hợp tiếp.
 - Cần triển khai pipeline encode AWS, retry/DLQ, Redis adapter, replication GCS, CDN và hạ tầng Kubernetes/HPA/WAF/metrics.
 - S3 có adapter, IAM/CORS/lifecycle mẫu; chưa triển khai và kiểm thử upload S3 thật. Preview video local xem [hướng dẫn video](backend/docs/video-preview-local.md).
