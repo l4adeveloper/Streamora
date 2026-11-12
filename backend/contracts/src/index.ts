@@ -6,6 +6,7 @@ export * from "./class-sessions";
 export * from "./files";
 export * from "./class-media";
 export * from "./polls";
+export * from "./class-recordings";
 
 export type CommunityRole = "owner" | "teacher" | "member";
 export type ChannelType = "text" | "voice" | "live";

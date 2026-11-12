@@ -128,6 +128,9 @@ export function useClassMedia(
   const [busy, setBusy] = useState(false);
   const [screenPreview, setScreenPreview] = useState<MediaStream | null>(null);
   const [screenPending, setScreenPending] = useState(false);
+  const [screenParticipantId, setScreenParticipantId] = useState<string | null>(
+    null,
+  );
   const screenShare = useRef<ScreenShare | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const stage = useRef<Stage | null>(null);
@@ -184,6 +187,7 @@ export function useClassMedia(
     if (previous.connection) releaseMediaConnection(root, previous.connection);
     setScreenPending(false);
     setScreenPreview(null);
+    setScreenParticipantId(null);
   }, [root]);
 
   const stop = useCallback(
@@ -722,14 +726,24 @@ export function useClassMedia(
     setScreenPending(true);
     setError("");
     try {
-      const capture = await navigator.mediaDevices.getDisplayMedia({
+      // Ask for tab/system audio too, so viewers and recordings hear the
+      // shared video. Browsers that cannot capture audio return video only.
+      const options: DisplayMediaStreamOptions & {
+        systemAudio?: "include" | "exclude";
+      } = {
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
           frameRate: { ideal: 30 },
         },
-        audio: false,
-      });
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+        systemAudio: "include",
+      };
+      const capture = await navigator.mediaDevices.getDisplayMedia(options);
       if (signal.aborted) {
         capture.getTracks().forEach((track) => track.stop());
         return;
@@ -765,8 +779,12 @@ export function useClassMedia(
       }
       share.connection = issued;
       const display = new sdk.LocalStageStream(track);
+      const screenAudio = capture
+        .getAudioTracks()
+        .filter((item) => item.readyState === "live")
+        .map((item) => new sdk.LocalStageStream(item));
       const publisher = new sdk.Stage(issued.participantToken, {
-        stageStreamsToPublish: () => [display],
+        stageStreamsToPublish: () => [display, ...screenAudio],
         shouldPublishParticipant: () => true,
         shouldSubscribeToParticipant: () => sdk.SubscribeType.NONE,
       });
@@ -797,6 +815,7 @@ export function useClassMedia(
       await publisher.join();
       if (signal.aborted) return;
       setScreenPreview(capture);
+      setScreenParticipantId(issued.participantId);
       setScreenPending(false);
       let sending = false;
       const ping = async () => {
@@ -974,7 +993,13 @@ export function useClassMedia(
     toggle,
     screenPreview,
     screenPending,
+    screenParticipantId,
     toggleScreenShare,
+    /** Ends this tab's screen share, e.g. when a recording keeps someone else's. */
+    endScreenShare: (notice?: string) => {
+      stopScreenShare();
+      if (notice) setError(notice);
+    },
     applyMute,
     publishLocked,
     connected: !!connection,

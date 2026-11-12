@@ -49,6 +49,7 @@ model User {
   micLocks             SessionMicLock[]
   createdPolls         ClassPoll[]
   pollVotes            ClassPollVote[]
+  classRecordings      ClassRecording[]
 
   uploads UploadSession[]
   @@map("users")
@@ -315,6 +316,7 @@ model ClassSession {
   mediaBans      SessionBan[]
   micLocks       SessionMicLock[]
   polls          ClassPoll[]
+  recordings     ClassRecording[]
   announcement  GroupChatMessage?
 
   @@index([groupId, scheduledAt, id], map: "class_sessions_group_schedule_idx")
@@ -526,6 +528,7 @@ model LibraryFile {
   usages      FileUsage[]
   deletion    FileObjectDeletion?
   upload      UploadSession?
+  classRecording ClassRecording?
   storageLocationId String? @map("storage_location_id") @db.Char(64)
   storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
   @@index([groupId, status, createdAt, id])
@@ -634,6 +637,8 @@ model ClassMediaConnection {
   state String @default("ISSUING") @db.VarChar(20)
   connected Boolean @default(false)
   canPublish Boolean @default(true) @map("can_publish")
+  // When the current token became ACTIVE; orders screen shares while recording.
+  activatedAt DateTime? @map("activated_at") @db.Timestamptz(3)
   micEnabled Boolean? @map("mic_enabled")
   cameraEnabled Boolean? @map("camera_enabled")
   lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
@@ -701,4 +706,26 @@ model StorageLocation {
   uploads UploadSession[]
   deletions FileObjectDeletion[]
   @@map("storage_locations")
+}
+
+// Session recording composed in the recorder's browser and saved through the
+// upload pipeline. While RECORDING, at most one screen share stays published.
+// The partial unique index (one RECORDING row per session) lives in the migration.
+model ClassRecording {
+  id String @id @db.Uuid
+  sessionId String @map("session_id") @db.Uuid
+  recorderId String @map("recorder_id") @db.Uuid
+  status String @default("RECORDING") @db.VarChar(20)
+  cameraPosition String @default("bottom-right") @map("camera_position") @db.VarChar(12)
+  cameraVisible Boolean @default(true) @map("camera_visible")
+  fileId String? @unique @map("file_id") @db.Uuid
+  startedAt DateTime @default(now()) @map("started_at") @db.Timestamptz(3)
+  stoppedAt DateTime? @map("stopped_at") @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  version Int @default(1)
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  recorder User @relation(fields: [recorderId], references: [id], onDelete: Restrict)
+  file LibraryFile? @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  @@index([sessionId, startedAt(sort: Desc)])
+  @@map("class_recordings")
 }

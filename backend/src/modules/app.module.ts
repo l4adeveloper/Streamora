@@ -11,6 +11,7 @@ import { ClassSessionsModule } from "./class-sessions/class-sessions.module";
 import { ClassMediaModule } from "./class-media/class-media.module";
 import { ClassModerationModule } from "./class-moderation/class-moderation.module";
 import { PollsModule } from "./polls/polls.module";
+import { ClassRecordingsModule } from "./class-recordings/class-recordings.module";
 import { DatabaseModule } from "../database/database.module";
 import { ConfigurationModule } from "../config/configuration.module";
 import type { EnvironmentConfig } from "../config/environment";
@@ -35,6 +36,7 @@ class HealthController {
     ClassMediaModule,
     ClassModerationModule,
     PollsModule,
+    ClassRecordingsModule,
     CommunitiesModule,
     RoomsModule,
     FilesModule,
