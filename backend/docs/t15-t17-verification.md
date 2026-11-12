@@ -97,3 +97,21 @@ Chưa nghiệm thu EC2/S3 thật, IAM/CORS trên AWS, ZIP lớn qua internet ho�
 upload 1 GiB ở lượt này. Kiểm thử controller có hash 1 GiB để đo cache fingerprint,
 không phải benchmark truyền 1 GiB. Không thay các ghi nhận lịch sử bằng kết quả local.
 Thư mục rỗng và tạo/di chuyển thư mục thủ công vẫn chưa có trong sản phẩm.
+
+## Bổ sung: buộc đổi tên/xóa thư mục đang tải lên
+
+Lượt kiểm thử bổ sung sau khi thêm force: **49/49 ca đạt**, gồm 24 ca
+unit/controller/adapter, 20 ca API/database và 5 ca UI (2 T15, 3 T17).
+Typecheck toàn monorepo và build API đạt. Database vẫn là cluster local riêng
+127.0.0.1:55442, không dùng database ứng dụng/EC2.
+
+Bổ sung bằng chứng: từ chối force sai kiểu/không đủ quyền; chỉ hủy đúng cây và
+không ảnh hưởng thư mục có prefix tương tự; active sessions chuyển về hủy và dọn;
+INITIALIZING không thành ACTIVE sau force; COMPLETING không xuất bản file muộn và
+object đã ghép được xóa. UI xác nhận rõ trước khi force, dừng 4 lượt đang truyền
+cùng 2 draft chờ, và tab thứ hai tự chuyển 6 job sang đã hủy qua BroadcastChannel.
+Các ca pause/resume, reload hàng đợi và quota hiện có tiếp tục đạt.
+
+Trong lượt đầu, kiểm thử phát hiện bảng tiến độ 6 file che nút quản lý thư mục.
+Đã thêm thu gọn/mở rộng bảng tiến độ, kiểm thử thao tác thật qua nút thu gọn rồi
+force đã đạt, không dùng click cưỡng ép để bỏ qua vấn đề bố cục.

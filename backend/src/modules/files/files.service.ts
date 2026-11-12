@@ -1,6 +1,6 @@
 import { ZipArchive } from "archiver";
 import { Readable } from "node:stream";
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import { isUUID } from "class-validator";
 import type { FileResponse, FileStatus } from "@streamora/contracts";
 import type {
@@ -15,6 +15,7 @@ import { FileStorageService } from "./file-storage.service";
 import { PREVIEW_TYPES } from "./file-preview";
 import { VideoPlaybackService } from "./video-playback.service";
 import type { FileListQueryDto } from "./files.dto";
+import { FolderUploadCancellation } from "./folder-upload-cancellation";
 import { presentFile as present } from "./file-presenter";
 
 function cursorFor(file: DbFile, groupId: string, query: FileListQueryDto) {
@@ -62,6 +63,7 @@ export class FilesService {
     private readonly access: GroupAccessService,
     private readonly storage: FileStorageService,
     private readonly video: VideoPlaybackService,
+    @Optional() private readonly cancellation?: FolderUploadCancellation,
   ) {}
 
   async list(userId: string, groupId: string, query: FileListQueryDto) {
@@ -155,6 +157,7 @@ export class FilesService {
     groupId: string,
     folderPath: string,
     name?: string,
+    force = false,
   ) {
     const deleted = await this.prisma.$transaction(
       async (tx) => {
@@ -168,7 +171,18 @@ export class FilesService {
         const rows = await tx.libraryFile.findMany({
           where: this.folderWhere(groupId, folderPath),
         });
-        if (!rows.length)
+        const pendingWhere = {
+          groupId,
+          status: { in: ["INITIALIZING", "ACTIVE", "COMPLETING", "ABORTING"] },
+          OR: [
+            { folderPath },
+            { folderPath: { startsWith: folderPath + "/" } },
+          ],
+        };
+        const pending = await tx.uploadSession.findMany({
+          where: pendingWhere,
+        });
+        if (!rows.length && !pending.length)
           throw new ApiError(
             404,
             "FOLDER_NOT_FOUND",
@@ -176,30 +190,29 @@ export class FilesService {
           );
         if (
           !permissions.canHost &&
-          rows.some((file) => file.createdBy !== userId)
+          (rows.some((file) => file.createdBy !== userId) ||
+            pending.some((upload) => upload.userId !== userId))
         )
           throw new ApiError(
             403,
             "FORBIDDEN",
             "Bạn không có quyền quản lý toàn bộ thư mục.",
           );
-        if (
-          await tx.uploadSession.count({
-            where: {
-              groupId,
-              status: { in: ["ACTIVE", "COMPLETING"] },
-              OR: [
-                { folderPath },
-                { folderPath: { startsWith: folderPath + "/" } },
-              ],
-            },
-          })
-        )
+        if (pending.length && !force)
           throw new ApiError(
             409,
             "FOLDER_BUSY",
             "Thư mục còn file đang tải lên.",
           );
+        const cancelPending = async () => {
+          if (!force || !pending.length) return;
+          // Retain in-flight leases so storage I/O finishes before its worker cleans up.
+          // ABORTING prevents publication; idle sessions are handled by upload cleanup.
+          await tx.uploadSession.updateMany({
+            where: pendingWhere,
+            data: { status: "ABORTING" },
+          });
+        };
         if (name !== undefined) {
           const parent = folderPath.split("/").slice(0, -1).join("/");
           const target = [parent, name].filter(Boolean).join("/");
@@ -218,6 +231,7 @@ export class FilesService {
             })
           )
             throw new ApiError(409, "FOLDER_EXISTS", "Tên thư mục đã tồn tại.");
+          await cancelPending();
           for (const file of rows) {
             const path = target + file.folderPath.slice(folderPath.length);
             if (path.length > 2048)
@@ -244,6 +258,7 @@ export class FilesService {
             "FILE_IN_USE",
             "Thư mục chứa file đang được sử dụng.",
           );
+        await cancelPending();
         for (const file of rows) {
           await tx.$queryRaw`SELECT id FROM files WHERE id = ${file.id}::uuid FOR UPDATE`;
           // Recheck after locking against recording/pinning races.
@@ -265,6 +280,7 @@ export class FilesService {
       },
       { timeout: 30000 },
     );
+    if (force) this.cancellation?.requestCleanup();
     for (const file of deleted) {
       try {
         await this.storage.delete(file.objectKey, file.storageLocationId);

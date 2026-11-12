@@ -53,16 +53,21 @@ export function renameFolder(
   groupId: string,
   folderPath: string,
   name: string,
+  force = false,
 ) {
   return apiRequest<void>(`/groups/${groupId}/files/folders`, {
     method: "PATCH",
-    body: { folderPath, name },
+    body: { folderPath, name, force },
   });
 }
-export function deleteFolder(groupId: string, folderPath: string) {
+export function deleteFolder(
+  groupId: string,
+  folderPath: string,
+  force = false,
+) {
   return apiRequest<void>(`/groups/${groupId}/files/folders`, {
     method: "DELETE",
-    body: { folderPath },
+    body: { folderPath, force },
   });
 }
 export function downloadFolder(groupId: string, folderPath: string) {

@@ -820,3 +820,188 @@ test("T15/T16 folders: persist multipart paths, search nested files, ZIP, rename
     (await db.fileObjectDeletion.findUnique({ where: { fileId } })).completedAt,
   );
 });
+
+test("Force folder changes cancel active uploads, preserve siblings and reject invalid force without side effects", async () => {
+  const root = "Force-" + randomUUID();
+  const one = await api("POST", "/uploads", {
+    ...input(8),
+    folderPath: root + "/Sub",
+  });
+  const two = await api("POST", "/uploads", {
+    ...input(8),
+    folderPath: root + "-sibling",
+  });
+  const endpoint = `/groups/${group.id}/files/folders`;
+  assert.equal(
+    (
+      await api("PATCH", endpoint, {
+        folderPath: root,
+        name: root + "New",
+        force: "true",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await api(
+        "PATCH",
+        endpoint,
+        { folderPath: root, name: root + "New" },
+        other,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await api("PATCH", endpoint, { folderPath: root, name: root + "New" }))
+      .body.error.code,
+    "FOLDER_BUSY",
+  );
+  assert.equal(
+    (await db.uploadSession.findUnique({ where: { id: one.body.uploadId } }))
+      .status,
+    "ACTIVE",
+  );
+  assert.equal(
+    (
+      await api("PATCH", endpoint, {
+        folderPath: root,
+        name: root + "New",
+        force: true,
+      })
+    ).status,
+    204,
+  );
+  assert.ok(
+    ["ABORTING", "ABORTED"].includes(
+      (await db.uploadSession.findUnique({ where: { id: one.body.uploadId } }))
+        .status,
+    ),
+  );
+  assert.equal((await sign(one.body.uploadId, [1])).status, 409);
+  assert.equal(
+    (await db.uploadSession.findUnique({ where: { id: two.body.uploadId } }))
+      .status,
+    "ACTIVE",
+  );
+  const uploads = app.get(
+    require("../../dist/modules/uploads/uploads.service").UploadsService,
+  );
+  await uploads.cleanupExpired();
+  assert.equal(
+    (await db.uploadSession.findUnique({ where: { id: one.body.uploadId } }))
+      .status,
+    "ABORTED",
+  );
+  assert.equal(
+    (
+      await api("DELETE", endpoint, {
+        folderPath: root + "-sibling",
+        force: true,
+      })
+    ).status,
+    204,
+  );
+  await uploads.cleanupExpired();
+  assert.equal(
+    (await db.uploadSession.findUnique({ where: { id: two.body.uploadId } }))
+      .status,
+    "ABORTED",
+  );
+});
+
+test("Force folder rename during storage initialization prevents the late upload from becoming active", async () => {
+  const root = "Init-" + randomUUID();
+  const storage = app.get(
+    require("../../dist/modules/uploads/multipart-storage.service")
+      .MultipartStorageService,
+  );
+  const original = storage.create;
+  let entered, release;
+  const ready = new Promise((r) => (entered = r)),
+    gate = new Promise((r) => (release = r));
+  storage.create = async (...args) => {
+    const id = await original.apply(storage, args);
+    entered();
+    await gate;
+    return id;
+  };
+  const pending = api("POST", "/uploads", { ...input(8), folderPath: root });
+  try {
+    await ready;
+    assert.equal(
+      (
+        await api("PATCH", `/groups/${group.id}/files/folders`, {
+          folderPath: root,
+          name: root + "New",
+          force: true,
+        })
+      ).status,
+      204,
+    );
+  } finally {
+    release();
+    storage.create = original;
+  }
+  assert.equal((await pending).status, 409);
+  const session = await db.uploadSession.findFirst({
+    where: { groupId: group.id, folderPath: root },
+  });
+  assert.equal(session.status, "ABORTED");
+  assert.equal(session.fileId, null);
+});
+
+test("Force folder deletion during storage complete prevents late publication and removes the completed object", async () => {
+  const root = "Complete-" + randomUUID();
+  const created = await api("POST", "/uploads", {
+    ...input(8),
+    folderPath: root,
+  });
+  const id = created.body.uploadId;
+  const part = await put(id, 1, Buffer.alloc(8, 4));
+  const storage = app.get(
+    require("../../dist/modules/uploads/multipart-storage.service")
+      .MultipartStorageService,
+  );
+  const original = storage.complete;
+  let entered, release;
+  const ready = new Promise((r) => (entered = r)),
+    gate = new Promise((r) => (release = r));
+  storage.complete = async (...args) => {
+    const value = await original.apply(storage, args);
+    entered();
+    await gate;
+    return value;
+  };
+  const pending = api("POST", `/uploads/${id}/complete`, { parts: [part] });
+  try {
+    await ready;
+    assert.equal(
+      (
+        await api("DELETE", `/groups/${group.id}/files/folders`, {
+          folderPath: root,
+          force: true,
+        })
+      ).status,
+      204,
+    );
+  } finally {
+    release();
+    storage.complete = original;
+  }
+  assert.equal((await pending).status, 409);
+  const session = await db.uploadSession.findUnique({ where: { id } });
+  assert.equal(session.status, "ABORTED");
+  assert.equal(session.fileId, null);
+  assert.equal(
+    await storage.size(session.objectKey, session.storageLocationId),
+    null,
+  );
+  assert.equal(
+    await db.libraryFile.count({
+      where: { groupId: group.id, folderPath: root },
+    }),
+    0,
+  );
+});

@@ -502,3 +502,12 @@ Các điểm cần bàn giao rõ:
 - T17 không triển khai worker nền trong trình duyệt, CDN, chuyển mã video hoặc replication
   đa cloud. Migration thư mục thuộc bản mở rộng T15/T16. Các phần mở rộng tiếp tục dùng hợp đồng
   uploads/storage hiện có thay vì tạo luồng upload thứ hai.
+
+## Hủy upload do thay đổi thư mục
+
+Khi người dùng xác nhận force ở T15, uploader dừng mọi job còn chạy/chờ thuộc cây
+đó, gỡ khỏi queue và IndexedDB, đồng bộ giữa các tab cùng origin. Đây là hủy, không
+phải pause: không giữ parts để resume. Không tự hủy chỉ vì lần đổi tên/xóa đầu tiên
+báo FOLDER_BUSY. Nếu server đã hủy phiên từ nơi khác, lỗi truyền/complete được đối
+chiếu status ABORTING/ABORTED và hiển thị đã hủy. Xem cơ chế lease/cleanup và quyền
+trong [T15](t15-handoff.md#buộc-thay-đổi-thư-mục-khi-đang-tải-lên).

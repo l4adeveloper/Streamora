@@ -284,6 +284,7 @@ test(
     });
     const root = resolve(".preview", `folder-ui-${randomUUID()}`);
     const materials = resolve(root, "Materials");
+    let releaseForceGate;
     try {
       await mkdir(resolve(materials, "Sub"), { recursive: true });
       await writeFile(
@@ -417,6 +418,54 @@ test(
       const download = await downloadPromise;
       assert.equal(download.suggestedFilename(), "Materials.zip");
       assert.equal(await download.failure(), null);
+      const gate = new Promise((resolve) => {
+        releaseForceGate = resolve;
+      });
+      await page.route("**/parts?token=*", async (route) => {
+        if (route.request().method() !== "PUT") return route.continue();
+        await gate;
+        await route.abort("aborted").catch(() => {});
+      });
+      await page
+        .locator(".library-file-name")
+        .filter({ hasText: "Materials" })
+        .click();
+      await page
+        .locator('.file-uploader input[type="file"]:not([webkitdirectory])')
+        .setInputFiles(
+          Array.from({ length: 6 }, (_, i) => ({
+            name: "force-" + i + ".txt",
+            mimeType: "text/plain",
+            buffer: Buffer.alloc(64, i + 1),
+          })),
+        );
+      for (let attempt = 0; attempt < 200; attempt++) {
+        if (
+          (await fixture.prisma.uploadSession.count({
+            where: { groupId: group.id, status: "ACTIVE" },
+          })) === 4
+        )
+          break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      assert.equal(
+        await fixture.prisma.uploadSession.count({
+          where: { groupId: group.id, status: "ACTIVE" },
+        }),
+        4,
+      );
+      const otherTab = await context.newPage();
+      await otherTab.goto(`${fixture.webOrigin}/files?groupId=${group.id}`);
+      await otherTab.waitForFunction(
+        () =>
+          [...document.querySelectorAll(".upload-job.paused")].filter((e) =>
+            e.textContent.includes("force-"),
+          ).length === 6,
+      );
+      await page.getByRole("button", { name: "Thư viện", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Thu gọn tiến độ tải lên", exact: true })
+        .click();
       await page
         .getByRole("button", { name: "Đổi tên thư mục Materials", exact: true })
         .click();
@@ -428,6 +477,34 @@ test(
       await rename
         .getByRole("button", { name: "Lưu tên", exact: true })
         .click();
+      await rename
+        .getByText("Buộc thực hiện sẽ hủy mọi file", { exact: false })
+        .waitFor();
+      assert.equal(
+        await page
+          .locator(".upload-job.cancelled")
+          .filter({ hasText: "force-" })
+          .count(),
+        0,
+      );
+      await rename
+        .getByRole("button", { name: "Hủy tải lên và đổi tên", exact: true })
+        .click();
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll(".upload-job.cancelled")].filter((e) =>
+            e.textContent.includes("force-"),
+          ).length === 6,
+      );
+      await otherTab.waitForFunction(
+        () =>
+          [...document.querySelectorAll(".upload-job.cancelled")].filter((e) =>
+            e.textContent.includes("force-"),
+          ).length === 6,
+      );
+      releaseForceGate();
+      await otherTab.close();
+
       await rename.waitFor({ state: "hidden" });
       await page
         .getByRole("button", { name: "Xóa thư mục Renamed", exact: true })
@@ -451,6 +528,7 @@ test(
       );
       assert.deepEqual(errors, []);
     } finally {
+      releaseForceGate?.();
       await context.close();
       if (!root.startsWith(resolve(".preview") + require("node:path").sep))
         throw Error("Unsafe cleanup path");

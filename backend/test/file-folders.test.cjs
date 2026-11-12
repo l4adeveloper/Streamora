@@ -89,7 +89,8 @@ function folderFixture({
   ];
   const updates = [],
     deletions = [],
-    removed = [];
+    removed = [],
+    canceled = [];
   const tx = {
     $queryRaw: async () => [],
     libraryFile: {
@@ -97,7 +98,10 @@ function folderFixture({
       count: async () => collision,
       update: async (q) => updates.push(q),
     },
-    uploadSession: { count: async () => busy },
+    uploadSession: {
+      findMany: async () => (busy ? [{ id: "pending", userId: owner }] : []),
+      updateMany: async (q) => canceled.push(q),
+    },
     fileUsage: { count: async () => usage },
     fileObjectDeletion: { create: async (q) => deletions.push(q) },
   };
@@ -115,7 +119,7 @@ function folderFixture({
     },
     {},
   );
-  return { service, updates, deletions, removed };
+  return { service, updates, deletions, removed, canceled };
 }
 
 test("folder names and paths reject traversal and separators", async () => {
@@ -219,4 +223,30 @@ test("search returns matching files across nested folders without folder rows", 
     { folderPath: "Lessons" },
     { folderPath: { startsWith: "Lessons/" } },
   ]);
+});
+
+test("force folder changes cancel matching upload sessions without bypassing permissions or file usage", async () => {
+  const rename = folderFixture({ busy: 1 });
+  await rename.service.changeFolder("u", "g", "Lessons", "New", true);
+  assert.equal(rename.canceled.length, 1);
+  assert.deepEqual(rename.canceled[0].data, { status: "ABORTING" });
+  const deletion = folderFixture({ busy: 1 });
+  await deletion.service.changeFolder("u", "g", "Lessons", undefined, true);
+  assert.equal(deletion.canceled.length, 1);
+  assert.equal(deletion.deletions.length, 2);
+  const forbidden = folderFixture({ busy: 1, owner: "other" });
+  await assert.rejects(
+    forbidden.service.changeFolder("u", "g", "Lessons", "New", true),
+  );
+  assert.equal(forbidden.canceled.length, 0);
+  const used = folderFixture({ busy: 1, usage: 1 });
+  await assert.rejects(
+    used.service.changeFolder("u", "g", "Lessons", undefined, true),
+  );
+  assert.equal(used.canceled.length, 0);
+  const collision = folderFixture({ busy: 1, collision: 1 });
+  await assert.rejects(
+    collision.service.changeFolder("u", "g", "Lessons", "New", true),
+  );
+  assert.equal(collision.canceled.length, 0);
 });

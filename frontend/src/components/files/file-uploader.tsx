@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   CircleAlert,
   LoaderCircle,
   Pause,
@@ -10,8 +12,18 @@ import {
   X,
 } from "lucide-react";
 import { asApiError } from "@/lib/api";
-import { abortUpload, createPartLimiter, uploadFile } from "@/lib/files/upload";
+import {
+  abortUpload,
+  createPartLimiter,
+  getUpload,
+  uploadFile,
+} from "@/lib/files/upload";
 import { uploadStore, type UploadFileHandle } from "@/lib/files/upload-store";
+import {
+  folderChangeEvent,
+  folderChangeChannel,
+  type FolderChange,
+} from "@/lib/files/folder-events";
 import { useAuth } from "@/components/auth/auth-provider";
 
 type Status =
@@ -42,6 +54,7 @@ type Runtime = {
   complete?: () => Promise<unknown>;
   cancelling?: boolean;
   paused?: boolean;
+  forced?: boolean;
   percent: number;
   checkpointAt: number;
   running: boolean;
@@ -78,6 +91,9 @@ export function FileUploader({
 }) {
   const { user } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [collapsed, setCollapsed] = useState(false);
+  const currentJobs = useRef(jobs);
+  currentJobs.current = jobs;
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const uploadMenu = useRef<HTMLDetailsElement>(null);
@@ -203,10 +219,28 @@ export function FileUploader({
       setTimeout(() => dismiss(id), 5000),
     );
   }
+  async function reconcileCancellation(job: Job, runtime: Runtime) {
+    if (runtime.forced) return true;
+    if (!runtime.uploadId) return false;
+    const state = await getUpload(runtime.uploadId).catch(() => undefined);
+    if (runtime.forced) return true;
+    if (!state || !["ABORTING", "ABORTED"].includes(state.status)) return false;
+    reserved.current.delete(runtime.uploadId);
+    await uploadStore.remove(runtime.uploadId).catch(() => {});
+    runtime.complete = undefined;
+    update(job.id, {
+      status: "cancelled",
+      message: "Phiên tải lên đã bị hủy trên máy chủ.",
+    });
+    quotaFreed();
+    autoDismiss(job.id);
+    return true;
+  }
   async function complete(job: Job, runtime: Runtime) {
     update(job.id, { status: "finishing", percent: 99, message: undefined });
     try {
       await runtime.complete!();
+      if (runtime.forced) return;
       if (runtime.uploadId) reserved.current.delete(runtime.uploadId);
       quotaFreed();
       runtime.uploadId = undefined;
@@ -219,6 +253,7 @@ export function FileUploader({
       if (alive.current) uploaded.current();
       autoDismiss(job.id);
     } catch (cause) {
+      if (await reconcileCancellation(job, runtime)) return;
       update(job.id, {
         status: "error",
         message: `${asApiError(cause).message} Có thể thử hoàn tất lại.`,
@@ -295,6 +330,13 @@ export function FileUploader({
     } catch (cause) {
       // A rapid resume may already have installed a new runtime for this file.
       if (runtimes.current.get(job.id) !== runtime) return;
+      if (runtime.forced) return;
+      if (
+        !runtime.controller.signal.aborted &&
+        (await reconcileCancellation(job, runtime))
+      )
+        return;
+      if (runtime.forced) return;
       if (runtime.paused) {
         update(job.id, {
           status: "paused",
@@ -575,6 +617,65 @@ export function FileUploader({
       }
     }
   }
+  useEffect(() => {
+    const stop = (change: FolderChange) => {
+      if (
+        change?.groupId !== groupId ||
+        typeof change.folderPath !== "string" ||
+        !change.folderPath
+      )
+        return;
+      const affected = currentJobs.current.filter(
+        (job) =>
+          !["done", "cancelled"].includes(job.status) &&
+          (job.folderPath === change.folderPath ||
+            job.folderPath?.startsWith(change.folderPath + "/")),
+      );
+      const ids = new Set(affected.map((job) => job.id));
+      queue.current = queue.current.filter((job) => !ids.has(job.id));
+      for (const job of affected) {
+        cancelled.current.add(job.id);
+        preparing.current.delete(job.id);
+        const runtime = runtimes.current.get(job.id);
+        if (runtime) {
+          runtime.forced = true;
+          runtime.paused = false;
+          runtime.complete = undefined;
+          runtime.controller.abort();
+        }
+        for (const id of new Set(
+          [job.pendingId, job.resumeId, runtime?.uploadId].filter(
+            (id): id is string => !!id,
+          ),
+        )) {
+          reserved.current.delete(id);
+          void uploadStore.remove(id).catch(() => {});
+        }
+        update(job.id, {
+          status: "cancelled",
+          message: "Đã hủy do thay đổi thư mục.",
+        });
+      }
+      for (const job of affected) {
+        runtimes.current.get(job.id)?.release();
+        autoDismiss(job.id);
+      }
+      quotaFreed();
+      pump();
+    };
+    const local = (event: Event) =>
+      stop((event as CustomEvent<FolderChange>).detail);
+    window.addEventListener(folderChangeEvent, local);
+    const channel =
+      typeof BroadcastChannel !== "undefined"
+        ? new BroadcastChannel(folderChangeChannel)
+        : undefined;
+    if (channel) channel.onmessage = (event) => stop(event.data);
+    return () => {
+      window.removeEventListener(folderChangeEvent, local);
+      channel?.close();
+    };
+  }, [groupId]);
   const working = jobs.filter((job) =>
     ["saving", "queued", "uploading", "finishing"].includes(job.status),
   ).length;
@@ -698,7 +799,10 @@ export function FileUploader({
       </section>
       {storageError && <p role="alert">{storageError}</p>}
       {jobs.length > 0 && (
-        <aside className="upload-popover" aria-label="Trạng thái tải lên">
+        <aside
+          className={`upload-popover ${collapsed ? "is-collapsed" : ""}`}
+          aria-label="Trạng thái tải lên"
+        >
           <div className="upload-popover-heading">
             <Upload size={18} />
             <strong>
@@ -708,6 +812,25 @@ export function FileUploader({
               {jobs.filter((job) => job.status === "done").length}/{jobs.length}{" "}
               hoàn tất
             </small>
+            <button
+              type="button"
+              className="upload-popover-toggle"
+              title={
+                collapsed
+                  ? "Mở rộng tiến độ tải lên"
+                  : "Thu gọn tiến độ tải lên"
+              }
+              aria-label={
+                collapsed
+                  ? "Mở rộng tiến độ tải lên"
+                  : "Thu gọn tiến độ tải lên"
+              }
+              aria-expanded={!collapsed}
+              aria-controls="upload-popover-jobs"
+              onClick={() => setCollapsed((value) => !value)}
+            >
+              {collapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </button>
           </div>
           {jobs.filter((job) => job.status === "paused" && !job.needsFile)
             .length > 1 && (
@@ -729,7 +852,7 @@ export function FileUploader({
               </button>
             </div>
           )}
-          <div className="upload-popover-list">
+          <div className="upload-popover-list" id="upload-popover-jobs">
             {jobs.map((job) => {
               const runtime = runtimes.current.get(job.id);
               const terminal =

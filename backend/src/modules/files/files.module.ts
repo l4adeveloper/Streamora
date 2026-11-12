@@ -1,3 +1,4 @@
+import { FolderUploadCancellation } from "./folder-upload-cancellation";
 import { Module } from "@nestjs/common";
 import { MembershipsModule } from "../memberships/memberships.module";
 import { FilesController, GroupFilesController } from "./files.controller";
@@ -19,6 +20,7 @@ import {
     LocalFileDownloadController,
   ],
   providers: [
+    FolderUploadCancellation,
     FilesService,
     FileStorageService,
     FileCleanupService,
@@ -26,6 +28,6 @@ import {
     VideoPlaybackService,
     { provide: VideoRenditionCatalog, useClass: SourceOnlyVideoCatalog },
   ],
-  exports: [FilesService, FileStorageService],
+  exports: [FilesService, FileStorageService, FolderUploadCancellation],
 })
 export class FilesModule {}

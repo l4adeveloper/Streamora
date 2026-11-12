@@ -269,6 +269,12 @@ export async function uploadFile(
         sessionId: options.sessionId,
       },
     }));
+  const stopNewSession = async () => {
+    if (!options.signal.aborted) return;
+    if (!previous) await abortUpload(session.uploadId).catch(() => {});
+    checkCancelled();
+  };
+  await stopNewSession();
   try {
     await uploadStore.save(
       {
@@ -293,6 +299,7 @@ export async function uploadFile(
       "Không thể lưu file để tiếp tục sau reload. Hãy kiểm tra dung lượng trống hoặc quyền lưu trữ của trình duyệt.",
     );
   }
+  await stopNewSession();
   options.onSession(session);
   const controller = new AbortController();
   const cancel = () => controller.abort();

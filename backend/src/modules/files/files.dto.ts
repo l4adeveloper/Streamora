@@ -1,6 +1,7 @@
 import { Transform } from "class-transformer";
 import {
   IsIn,
+  IsBoolean,
   IsOptional,
   IsString,
   IsUUID,
@@ -53,7 +54,13 @@ export class FolderDto {
   )
   folderPath!: string;
 }
-export class RenameFolderDto extends FolderDto {
+export class ChangeFolderDto extends FolderDto {
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+}
+export class RenameFolderDto extends ChangeFolderDto {
   @ApiProperty()
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   @IsString()

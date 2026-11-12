@@ -873,3 +873,37 @@
 .file-uploader .upload-choice-menu button:focus-visible {
   background: var(--surface-container);
 }
+
+.library-dialog .folder-force-warning {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.library-dialog .folder-force-button {
+  background: var(--danger);
+  color: var(--on-danger, #fff);
+}
+.library-dialog .folder-force-button:hover:not(:disabled) {
+  background: var(--danger-hover);
+}
+
+.upload-popover.is-collapsed .upload-popover-list,
+.upload-popover.is-collapsed .upload-popover-actions {
+  display: none;
+}
+.upload-popover-toggle {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.upload-popover-toggle:hover {
+  background: var(--hover);
+}

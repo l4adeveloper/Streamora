@@ -3,6 +3,7 @@ import {
   Injectable,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
@@ -12,6 +13,7 @@ import { PrismaService } from "../../database/prisma.service";
 import type { Prisma, UploadSession } from "../../generated/prisma/client";
 import { GroupAccessService } from "../memberships/group-access.service";
 import { FileStorageService } from "../files/file-storage.service";
+import { FolderUploadCancellation } from "../files/folder-upload-cancellation";
 import { presentFile } from "../files/file-presenter";
 import { ApiError } from "../../common/api-error";
 import { safeErrorCode } from "../../common/safe-error-code";
@@ -55,6 +57,7 @@ function busy(): never {
 @Injectable()
 export class UploadsService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
+  private stopFolderCancellation?: () => void;
   private cleanup?: Promise<{
     scanned: number;
     aborted: number;
@@ -66,6 +69,7 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
     private readonly storage: MultipartStorageService,
     @Inject(APP_CONFIG) private readonly config: EnvironmentConfig,
     private readonly files: FileStorageService,
+    @Optional() private readonly folderCancellation?: FolderUploadCancellation,
   ) {}
 
   async create(userId: string, dto: CreateUploadDto) {
@@ -502,6 +506,19 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
           });
         });
       } catch (error) {
+        const canceled = await this.db.uploadSession
+          .findFirst({
+            where: { id, status: "ABORTING", operationToken: token },
+          })
+          .catch(() => null);
+        if (canceled) {
+          await this.finishAbort(canceled, token).catch(() => {});
+          fail(
+            409,
+            "UPLOAD_NOT_ACTIVE",
+            "Phiên tải lên đã bị hủy do thay đổi thư mục.",
+          );
+        }
         // HeadObject/local size recovers an object completed before a failed DB commit.
         await this.db.uploadSession
           .updateMany({
@@ -615,6 +632,9 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
     };
   }
   onModuleInit() {
+    this.stopFolderCancellation = this.folderCancellation?.subscribe(() => {
+      void this.cleanupExpired({ limit: 100 });
+    });
     this.timer = setInterval(() => {
       void this.cleanupExpired();
     }, 30000);
@@ -683,6 +703,7 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
   async onModuleDestroy() {
+    this.stopFolderCancellation?.();
     if (this.timer) clearInterval(this.timer);
     await this.cleanup;
   }

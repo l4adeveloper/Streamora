@@ -148,8 +148,8 @@ Authorization: Bearer <accessToken>
 | POST   | `/files/:fileId/download-url`             | Không cần body; trả `{url,expiresAt}`                                                |
 | POST   | `/files/:fileId/preview-url`              | PDF/ảnh/video tương thích; trả `{url,expiresAt}`                                     |
 | POST   | `/files/:fileId/playback`                 | Nguồn phát video có thật và trạng thái xử lý                                         |
-| PATCH  | `/groups/:groupId/files/folders`          | `{folderPath,name}`; đổi tên cây thư mục, trả 204                                    |
-| DELETE | `/groups/:groupId/files/folders`          | `{folderPath}`; xóa cây thư mục, trả 204                                             |
+| PATCH  | `/groups/:groupId/files/folders`          | `{folderPath,name,force?}`; đổi tên cây thư mục, trả 204                             |
+| DELETE | `/groups/:groupId/files/folders`          | `{folderPath,force?}`; xóa cây thư mục, trả 204                                      |
 | POST   | `/groups/:groupId/files/folders/download` | `{folderPath}`; trả binary `application/zip`, cần Bearer token                       |
 
 `q` tìm tên không phân biệt hoa/thường, vẫn phân biệt dấu; `type` là `document`
@@ -522,3 +522,25 @@ T11/T13 cần giữ/nhả `file_usages` và tuân thủ khóa hàng file khi tha
 Không nhận `createdBy`, `objectKey` hoặc trạng thái tùy ý từ trình duyệt để bỏ qua
 kiểm tra quyền. T16 đã có bàn giao riêng; các điểm này chưa chứng minh T11/T13/T17
 đã được triển khai đầy đủ.
+
+## Buộc thay đổi thư mục khi đang tải lên
+
+PATCH/DELETE thư mục nhận thêm `force?: boolean`, mặc định false. Khi nhận
+`FOLDER_BUSY`, giao diện hiển thị cảnh báo mất tiến độ và nút **Hủy tải lên và đổi tên/xóa thư mục**.
+Chỉ bấm xác nhận này mới gửi `force:true`.
+
+Trong cùng transaction có khóa nhóm, server kiểm tra quyền trên file và phiên upload
+của cả cây, chuyển INITIALIZING/ACTIVE/COMPLETING/ABORTING về ABORTING rồi đổi tên/xóa.
+Force không bỏ qua quyền, tên trùng, file đang được tham chiếu hoặc quy tắc recording.
+Nếu thay đổi không hợp lệ, transaction rollback cả việc yêu cầu hủy.
+
+ABORTING chặn ký part/complete mới. Worker đang khởi tạo/ghép giữ lease và token;
+khi storage I/O kết thúc phải hủy và dọn object thay vì xuất bản file. Các phiên rảnh
+được đánh thức cleanup ngay sau commit; timer cleanup là dự phòng bền vững nếu API restart.
+Storage lỗi có thể cần retry; quota chỉ giải phóng sau khi dọn xong.
+
+Uploader hủy PUT và cả draft đang chờ trong cây vừa thay đổi, bỏ nguồn IndexedDB,
+hiện trạng thái đã hủy. Các tab cùng origin nhận thông báo qua BroadcastChannel.
+Lượt khởi tạo nhận phản hồi muộn cũng tự abort để không để lại phiên mồ côi.
+Thư mục bên ngoài cây và file đã lưu không bị hủy upload ngoài ý muốn; file đã lưu
+được xử lý đúng thao tác đổi tên/xóa đã xác nhận. Không lưu thư mục rỗng sau khi hủy hết file.

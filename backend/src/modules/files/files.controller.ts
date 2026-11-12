@@ -28,6 +28,7 @@ import {
   LegacyFileListQueryDto,
   RenameFileDto,
   FolderDto,
+  ChangeFolderDto,
   RenameFolderDto,
 } from "./files.dto";
 import {
@@ -64,6 +65,7 @@ export class GroupFilesController {
       groupId,
       dto.folderPath,
       dto.name,
+      dto.force,
     );
   }
   @Delete("folders")
@@ -82,9 +84,15 @@ export class GroupFilesController {
   async removeFolder(
     @CurrentAuth() auth: AuthenticatedIdentity,
     @Param("groupId", UUIDParamPipe) groupId: string,
-    @Body() dto: FolderDto,
+    @Body() dto: ChangeFolderDto,
   ) {
-    await this.files.changeFolder(auth.user.id, groupId, dto.folderPath);
+    await this.files.changeFolder(
+      auth.user.id,
+      groupId,
+      dto.folderPath,
+      undefined,
+      dto.force,
+    );
   }
   @Post("folders/download")
   @HttpCode(200)

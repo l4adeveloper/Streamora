@@ -26,6 +26,7 @@ import {
   listFiles,
   renameFile,
 } from "@/lib/files/api";
+import { announceFolderChange } from "@/lib/files/folder-events";
 import { useToast } from "../common/toast-provider";
 import { LoadingState, RequestError } from "../common/feedback";
 import "./files.css";
@@ -83,6 +84,7 @@ export function FilesPanel({
   } | null>(null);
   const folderDialog = useRef<HTMLDialogElement>(null);
   const [folderName, setFolderName] = useState("");
+  const [folderBusy, setFolderBusy] = useState(false);
   const [selected, setSelected] = useState<LibraryFile | null>(null);
   const [action, setAction] = useState<
     "detail" | "rename" | "delete" | "preview"
@@ -197,18 +199,27 @@ export function FilesPanel({
       if (alive.current) setBusy(false);
     }
   }
-  async function submitFolder() {
+  async function submitFolder(force = false) {
     if (!folderAction || busy) return;
     setBusy(true);
     setActionError("");
     try {
       if (folderAction.action === "rename")
-        await renameFolder(groupId, folderAction.path, folderName.trim());
-      else await deleteFolder(groupId, folderAction.path);
+        await renameFolder(
+          groupId,
+          folderAction.path,
+          folderName.trim(),
+          force,
+        );
+      else await deleteFolder(groupId, folderAction.path, force);
+      if (force)
+        announceFolderChange({ groupId, folderPath: folderAction.path });
       setFolderAction(null);
+      setFolderBusy(false);
       notify("Đã cập nhật thư mục.", { tone: "success" });
       void load();
     } catch (cause) {
+      setFolderBusy(asApiError(cause).code === "FOLDER_BUSY");
       setActionError(asApiError(cause).message);
     } finally {
       if (alive.current) setBusy(false);
@@ -432,6 +443,7 @@ export function FilesPanel({
                       onClick={() => {
                         setActionError("");
                         setFolderName(folder);
+                        setFolderBusy(false);
                         setFolderAction({
                           path: [folderPath, folder].filter(Boolean).join("/"),
                           name: folder,
@@ -614,6 +626,13 @@ export function FilesPanel({
                 {actionError}
               </p>
             )}
+            {folderBusy && (
+              <p className="folder-force-warning">
+                Buộc thực hiện sẽ hủy mọi file đang tải lên hoặc đang chờ trong
+                thư mục này và các thư mục con. Tiến độ tải lên sẽ không được
+                giữ lại.
+              </p>
+            )}
             <div className="library-dialog-actions">
               <button
                 type="button"
@@ -624,8 +643,13 @@ export function FilesPanel({
                 Đóng
               </button>
               <button
-                type="submit"
-                className="button primary"
+                type={folderBusy ? "button" : "submit"}
+                onClick={folderBusy ? () => void submitFolder(true) : undefined}
+                className={
+                  folderBusy
+                    ? "button primary folder-force-button"
+                    : "button primary"
+                }
                 disabled={
                   busy ||
                   (folderAction.action === "rename" && !folderName.trim())
@@ -633,9 +657,11 @@ export function FilesPanel({
               >
                 {busy
                   ? "Đang xử lý…"
-                  : folderAction.action === "rename"
-                    ? "Lưu tên"
-                    : "Xóa vĩnh viễn"}
+                  : folderBusy
+                    ? `Hủy tải lên và ${folderAction.action === "rename" ? "đổi tên" : "xóa thư mục"}`
+                    : folderAction.action === "rename"
+                      ? "Lưu tên"
+                      : "Xóa vĩnh viễn"}
               </button>
             </div>
           </form>
