@@ -146,6 +146,7 @@ export function useClassRealtime(
       "access.changed",
       "moderation.mute",
       "moderation.changed",
+      "recording.changed",
     ]) {
       socket.on(kind, (event: ClassRealtimeInvalidation) => {
         if (

@@ -21,6 +21,13 @@ import { ApiError } from "../../common/api-error";
 import { safeErrorCode } from "../../common/safe-error-code";
 import { IvsService, mediaCapabilities } from "./ivs.service";
 import { openMediaToken, sealMediaToken } from "./media-token";
+import {
+  activeRecordingWhere,
+  expireStaleRecordings,
+  liveScreenWhere,
+  lockScreenShares,
+  recordingChanged,
+} from "../class-recordings/screen-share-policy";
 
 const unavailable = () =>
   new ApiError(
@@ -200,6 +207,27 @@ export class ClassMediaService {
           where: { participationId_clientId_source: identity },
         });
         const now = new Date();
+        if (source === "SCREEN") {
+          // A recording keeps exactly one published screen: whoever shared first.
+          await lockScreenShares(tx, sessionId);
+          await expireStaleRecordings(tx, sessionId, now);
+          if (
+            (await tx.classRecording.count({
+              where: activeRecordingWhere(sessionId, now),
+            })) &&
+            (await tx.classMediaConnection.count({
+              where: {
+                ...liveScreenWhere(sessionId, now),
+                ...(current ? { id: { not: current.id } } : {}),
+              },
+            }))
+          )
+            throw new ApiError(
+              409,
+              "SCREEN_SHARE_TAKEN",
+              "Buổi học đang được ghi hình nên chỉ một người được chia sẻ màn hình.",
+            );
+        }
         const seen = await tx.classMediaRequest.findUnique({
           where: { id: dto.requestId },
         });
@@ -342,6 +370,7 @@ export class ClassMediaService {
               leaseUntil: null,
               connected: false,
               lastSeenAt: new Date(),
+              activatedAt: new Date(),
             },
           });
           if (!saved.count)
@@ -350,6 +379,14 @@ export class ClassMediaService {
               "MEDIA_REVOKING",
               "Kết nối đã được thay thế.",
             );
+          // The recorder follows the new presenter without polling.
+          if (
+            source === "SCREEN" &&
+            (await tx.classRecording.count({
+              where: activeRecordingWhere(sessionId),
+            }))
+          )
+            await recordingChanged(tx, sessionId);
           return tx.classMediaConnection.findUniqueOrThrow({
             where: { id: claim.row.id },
           });
@@ -425,11 +462,20 @@ export class ClassMediaService {
     });
     if (!connection)
       throw new ApiError(404, "MEDIA_NOT_FOUND", "Kết nối không tồn tại.");
-    if (connection.state !== "REVOKED" && connection.requestId === requestId)
+    if (connection.state !== "REVOKED" && connection.requestId === requestId) {
       await this.db.classMediaConnection.updateMany({
         where: { id, requestId },
         data: { state: "REVOKING", tokenCiphertext: null, connected: false },
       });
+      // Tell the recorder the presenter slot is free; only a notification.
+      if (
+        connection.source === "SCREEN" &&
+        (await this.db.classRecording.count({
+          where: activeRecordingWhere(sessionId),
+        }))
+      )
+        await recordingChanged(this.db, sessionId);
+    }
     return { ok: true };
   }
   async revoke(connection: ClassMediaConnection, stageArn: string) {

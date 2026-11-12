@@ -20,6 +20,9 @@ import type {
   CreateMeetRequest,
   MeetPreviewResponse,
   UpdateClassSessionRequest,
+  ClassRecordingResponse,
+  ClassRecordingStateResponse,
+  UpdateClassRecordingLayoutRequest,
 } from "@streamora/contracts";
 
 const root = (id: string) => `/sessions/${encodeURIComponent(id)}`;
@@ -136,3 +139,41 @@ export const listClassParticipants = (id: string, cursor?: string) =>
   apiRequest<ClassParticipationListResponse>(
     `${root(id)}/participants?${new URLSearchParams({ limit: "20", ...(cursor ? { cursor } : {}) })}`,
   );
+const recordingPath = (id: string, recordingId: string, action: string) =>
+  `${root(id)}/recordings/${encodeURIComponent(recordingId)}/${action}`;
+export const getClassRecording = (id: string) =>
+  apiRequest<ClassRecordingStateResponse>(`${root(id)}/recording`);
+export const startClassRecording = (id: string, participationId: string) =>
+  apiRequest<ClassRecordingResponse>(`${root(id)}/recordings`, {
+    method: "POST",
+    body: { participationId },
+  });
+export const updateClassRecordingLayout = (
+  id: string,
+  recordingId: string,
+  body: UpdateClassRecordingLayoutRequest,
+) =>
+  apiRequest<ClassRecordingResponse>(recordingPath(id, recordingId, "layout"), {
+    method: "PATCH",
+    body,
+  });
+export const heartbeatClassRecording = (id: string, recordingId: string) =>
+  apiRequest<{ ok: true }>(recordingPath(id, recordingId, "heartbeat"), {
+    method: "POST",
+    body: {},
+  });
+export const stopClassRecording = (id: string, recordingId: string) =>
+  apiRequest<ClassRecordingResponse>(recordingPath(id, recordingId, "stop"), {
+    method: "POST",
+    body: {},
+  });
+export const completeClassRecording = (id: string, recordingId: string, fileId: string) =>
+  apiRequest<ClassRecordingResponse>(recordingPath(id, recordingId, "complete"), {
+    method: "POST",
+    body: { fileId },
+  });
+export const failClassRecording = (id: string, recordingId: string) =>
+  apiRequest<ClassRecordingResponse>(recordingPath(id, recordingId, "fail"), {
+    method: "POST",
+    body: {},
+  });
