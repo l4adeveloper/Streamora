@@ -30,7 +30,7 @@ import { VideoPreview } from "./video-preview";
 
 const sources = {
   DOCUMENT: "Tài liệu tải lên",
-  LOCAL_RECORDING: "Bản ghi cục bộ",
+  LOCAL_RECORDING: "Bản ghi buổi học",
   CLOUD_RECORDING: "Bản ghi cloud",
 };
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
