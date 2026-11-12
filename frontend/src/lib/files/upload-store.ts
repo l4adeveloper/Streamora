@@ -5,6 +5,7 @@ export type SavedUpload = {
   userId: string;
   groupId: string;
   filename: string;
+  folderPath?: string;
   size: number;
   fingerprint: string;
   expiresAt: string;

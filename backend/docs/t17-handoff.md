@@ -1,6 +1,6 @@
 # T17 — Bàn giao tiếp tục upload sau mất mạng và reload
 
-Ngày cập nhật: **09/11/2026**. Nhánh hiện tại: **`anhduc/T17`**.
+Ngày cập nhật: **13/11/2026**. Các kết quả trước đợt này là bằng chứng lịch sử.
 
 Tài liệu mô tả code trong working tree tại thời điểm bàn giao; các thay đổi T17 chưa
 được chốt thành commit/PR trong đợt bàn giao này. Local đã có triển khai và kiểm thử.
@@ -27,7 +27,8 @@ AWS dùng lại adapter/cấu hình mẫu của T16, **chưa triển khai hạ t
 
 Đối chiếu T17 và T17-01..03 trong `Streamora_files/Job.xlsx` (bản người dùng cung cấp).
 Giữ module uploads của T16, không thêm hệ thống upload hay scheduler thứ hai.
-Không đổi schema/migration hoặc tự chuyển driver sang AWS. Không sửa workbook công việc.
+Phần resume gốc không đổi schema. Bản mở rộng thư mục hiện cần migration
+`20261113000100_file_folders` theo T15/T16; không tự chuyển driver sang AWS và không sửa workbook công việc.
 
 | Yêu cầu | Triển khai                                                                                                                                |
 | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -110,7 +111,7 @@ nguồn đã lưu không tạo thêm uploadId. Trình tự trên chỉ lược b
 ## Cách dùng local
 
 Giữ cấu hình T16: `FILES_STORAGE_DRIVER=local`, thư mục file và cổng upload local hiện tại.
-Chạy API/frontend như trước; không cần migration mới hay dịch vụ phụ.
+Chạy API/frontend như trước; áp migration thư mục mới của T15/T16 trước khi chạy bản hiện tại.
 
 ### Khởi động từ thư mục gốc repository
 
@@ -135,7 +136,8 @@ UPLOAD_LOCAL_PORT=4002
 
 `frontend/.env.local` dùng `NEXT_PUBLIC_API_URL=http://127.0.0.1:4000/api/v1`.
 Thống nhất hostname `127.0.0.1` giữa frontend, WEB_ORIGIN và URL API để giữ đúng origin.
-Database mới phải có các migration nền của repository; riêng T17 không thêm migration.
+Database mới phải có toàn bộ migration repository, gồm `20261113000100_file_folders`.
+Phần resume gốc T17 không tự thêm migration.
 Chạy hai terminal ở thư mục gốc:
 
 ```powershell
@@ -200,8 +202,9 @@ chỉ dùng tính tiến độ/đối chiếu, không gửi lại vào DTO compl
    tạm dừng/rời trang ngắt truyền ngay và giữ phiên cùng các part đã lưu.
 
 IndexedDB `streamora-uploads-v1` nâng lên version 2, tự giữ metadata cũ và bổ sung store
-`sources`. Chrome/Edge dùng File System Access handle từ nút chọn file hoặc kéo thả khi có
-hỗ trợ: giữ quyền đọc nguồn gốc thay vì lưu chuỗi đường dẫn. Sau reload, resume có thể
+`sources`. Chrome/Edge dùng File System Access handle từ **Chọn tải lên → Chọn file** khi có
+hỗ trợ, giữ tham chiếu nguồn gốc thay vì chuỗi đường dẫn. Kéo thả/thư mục hiện lưu
+File/Blob trong IndexedDB. Sau reload, resume từ handle có thể
 hỏi lại quyền đọc, nhưng không bắt chọn lại file. Nếu quyền bị từ chối, hiển thị hướng dẫn;
 nếu file gốc bị di chuyển/xóa, cần chọn lại nguồn. Không thể đọc một path tùy ý trên máy.
 
@@ -249,6 +252,19 @@ nguồn và fingerprint được ghi cùng transaction; khi nạp lại đúng c
 khôi phục cache mà không đọc lại toàn bộ bytes. Bản ghi cũ chưa có cặp fingerprint vẫn
 hash đầy đủ. WeakMap không giữ file sống sau khi uploader bỏ tham chiếu, không lưu kết quả lỗi/hủy.
 Resume vẫn đối chiếu quyền, expiry và ListParts từ server; cache chỉ bỏ công việc hash lặp lại.
+
+## Giữ đường dẫn thư mục khi resume (13/11/2026)
+
+`Job.folderPath` và `SavedUpload.folderPath` giữ đích tải trong cả draft chờ lẫn phiên
+đã tạo. Đường dẫn được chốt lúc chọn/kéo thả, không đổi khi người dùng mở thư mục khác.
+Khi reload, nguồn File/Blob/handle và đường dẫn được khôi phục cùng hàng đợi; resume
+không tạo thư mục mới hay làm phẳng cây. Server giữ `UploadSession.folderPath` và dùng
+nó khi complete; status hiện không trả trường này, client giữ metadata local để hiển thị/khôi phục.
+Các bản ghi cũ không có đường dẫn mặc định ở gốc. Cơ chế fingerprint, quota, pause,
+5 PUT và 4 file vẫn dùng chung như trước. Xem T15 để quản lý/xóa/tải ZIP thư mục.
+
+Nút tải lên đã đổi thành menu hai lựa chọn; kiểm thử input file cần chọn rõ
+`input[type="file"]:not([webkitdirectory])`, không chọn nhầm input thư mục.
 
 ## Lập lịch và tăng tốc resume
 
@@ -349,9 +365,10 @@ Test service kiểm tra terminal/expiry, storage lỗi, completion recovery, con
 và cleanup không dừng batch khi một item lỗi.
 
 Các lượt T17 trước đã kiểm tra typecheck toàn monorepo, API/integration và test service.
-Lượt xác minh gần nhất sau ba tối ưu truyền dữ liệu có kết quả:
+Lượt xác minh lịch sử sau ba tối ưu truyền dữ liệu có kết quả (lượt ngày 13/11/2026
+xem [báo cáo kiểm thử T15–T17](t15-t17-verification.md)):
 
-| Kiểm tra                                           | Kết quả gần nhất                                   |
+| Kiểm tra                                           | Kết quả lịch sử                                    |
 | -------------------------------------------------- | -------------------------------------------------- |
 | `npm run typecheck --workspace=@streamora/web`     | Đạt                                                |
 | `npm run test:t17`                                 | 12/12 đạt, gồm 5 ca điều phối mới                  |
@@ -482,6 +499,6 @@ Các điểm cần bàn giao rõ:
   Mốc phần trăm giữ nguyên là mốc hiển thị, không phải byte-offset resume bên trong một part.
 - Presigned URL đã cấp có thể còn dùng được tới hết hạn; việc chặn quyền mới được kiểm
   tra ở API. Không có cơ chế thu hồi tức thì mọi URL S3 đã phát hành.
-- T17 không triển khai worker nền trong trình duyệt, CDN, chuyển mã video, replication
-  đa cloud hoặc thay đổi schema database. Các phần mở rộng tiếp tục dùng hợp đồng
+- T17 không triển khai worker nền trong trình duyệt, CDN, chuyển mã video hoặc replication
+  đa cloud. Migration thư mục thuộc bản mở rộng T15/T16. Các phần mở rộng tiếp tục dùng hợp đồng
   uploads/storage hiện có thay vì tạo luồng upload thứ hai.

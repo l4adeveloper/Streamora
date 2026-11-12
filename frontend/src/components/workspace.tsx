@@ -174,6 +174,7 @@ export function Workspace({
     if (!workspaceGroup.groupId) return;
     const hasLiveNow = rooms.items.some((r) => r.status === "LIVE");
     setLiveGroupIds((prev) => {
+      if (prev.has(workspaceGroup.groupId!) === hasLiveNow) return prev;
       const next = new Set(prev);
       if (hasLiveNow) next.add(workspaceGroup.groupId!);
       else next.delete(workspaceGroup.groupId!);

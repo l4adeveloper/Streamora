@@ -734,3 +734,89 @@ test("Viewer cannot create or resume uploads; demoted hosts can still abort thei
     204,
   );
 });
+
+test("T15/T16 folders: persist multipart paths, search nested files, ZIP, rename and delete with permissions", async () => {
+  const path = "Folder-" + randomUUID();
+  const created = await api("POST", "/uploads", {
+    ...input(7),
+    folderPath: path + "/Sub",
+    filename: "nested.txt",
+    mimeType: "text/plain",
+  });
+  assert.equal(created.status, 201);
+  const id = created.body.uploadId;
+  const part = await put(id, 1, Buffer.from("content"));
+  const completed = await api("POST", `/uploads/${id}/complete`, {
+    parts: [part],
+  });
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.file.folderPath, path + "/Sub");
+  const fileId = completed.body.file.id;
+  assert.equal(
+    (await db.uploadSession.findUnique({ where: { id } })).folderPath,
+    path + "/Sub",
+  );
+  const root = await api("GET", `/groups/${group.id}/files`);
+  assert.ok(root.body.folders.includes(path));
+  assert.ok(!root.body.items.some((f) => f.id === fileId));
+  assert.deepEqual(
+    (await api("GET", `/groups/${group.id}/files?type=video`)).body.folders,
+    [],
+  );
+  const found = await api("GET", `/groups/${group.id}/files?q=nested`);
+  assert.ok(found.body.items.some((f) => f.id === fileId));
+  assert.deepEqual(found.body.folders, []);
+  const zipResponse = await fetch(
+    `${base}/api/v1/groups/${group.id}/files/folders/download`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${owner.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ folderPath: path }),
+    },
+  );
+  assert.equal(zipResponse.status, 200);
+  assert.match(zipResponse.headers.get("content-type"), /application\/zip/);
+  const zip = Buffer.from(await zipResponse.arrayBuffer());
+  assert.ok(zip.includes(Buffer.from(path + "/Sub/nested.txt")));
+  assert.ok(zip.includes(Buffer.from("content")));
+  assert.equal(
+    (
+      await api(
+        "PATCH",
+        `/groups/${group.id}/files/folders`,
+        { folderPath: path, name: path + "New" },
+        other,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await api("PATCH", `/groups/${group.id}/files/folders`, {
+        folderPath: path,
+        name: path + "New",
+      })
+    ).status,
+    204,
+  );
+  const renamed = await db.libraryFile.findUnique({ where: { id: fileId } });
+  assert.equal(renamed.folderPath, path + "New/Sub");
+  assert.equal(
+    (
+      await api("DELETE", `/groups/${group.id}/files/folders`, {
+        folderPath: path + "New",
+      })
+    ).status,
+    204,
+  );
+  assert.equal(
+    (await db.libraryFile.findUnique({ where: { id: fileId } })).status,
+    "DELETED",
+  );
+  assert.ok(
+    (await db.fileObjectDeletion.findUnique({ where: { fileId } })).completedAt,
+  );
+});

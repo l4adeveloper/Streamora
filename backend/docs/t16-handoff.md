@@ -2,7 +2,7 @@
 
 Phần resume trong tài liệu này mô tả mốc T16. Triển khai tiếp theo xem [bàn giao T17](t17-handoff.md).
 
-Ngày cập nhật: **08/11/2026**. Nhánh: **`anhduc/T16`**.
+Ngày cập nhật: **13/11/2026**. Các kết quả ngày 08/11 bên dưới là bằng chứng lịch sử.
 
 Tài liệu mô tả code trong working tree tại thời điểm bàn giao. T16 đã tích hợp
 vào frontend **3000**, API NestJS **4000** và storage local **4002**. AWS có adapter
@@ -12,25 +12,29 @@ chưa được chốt thành commit/PR trong đợt viết tài liệu này.
 Yêu cầu gốc được đối chiếu với [Job.xlsx](../../docs/Job.xlsx), mục T16 và
 T16-01 đến T16-05. T16 dùng thư viện/quyền nhóm của [T15](t15-handoff.md).
 
+Cập nhật hiện tại: một nút **Chọn tải lên** cho file/thư mục, kéo thả cây thư mục,
+vùng nhận có hover, lưu đường dẫn qua multipart. Resume hiện đã có tại T17; các đoạn
+mô tả giới hạn của mốc T16 được đánh dấu bên dưới. Xem [kết quả chạy lại](t15-t17-verification.md).
+
 ## 1. Phạm vi và trạng thái bàn giao
 
-| Hạng mục                                                      | Trạng thái                                        |
-| ------------------------------------------------------------- | ------------------------------------------------- |
-| Chọn nhiều file, kéo thả, hàng đợi riêng từng file            | Đã triển khai                                     |
-| Tối đa 4 file xử lý đồng thời trong một uploader              | Đã triển khai                                     |
-| Tổng tối đa 5 PUT part cùng lúc trong hàng đợi đó             | Đã triển khai                                     |
-| Chia file, ký URL theo batch, thu ETag, kiểm tra rồi complete | Đã triển khai local; có adapter S3                |
-| Hủy phiên, dọn parts/final object còn sót, retry complete     | Đã triển khai                                     |
-| Popup tiến độ; trạng thái thành công tự ẩn sau 5 giây         | Đã triển khai                                     |
-| Quota server theo người dùng/nhóm, số phiên và dung lượng     | Đã triển khai                                     |
-| Lưu vị trí riêng cho file/phiên upload/job xóa                | Đã triển khai                                     |
-| Preview PDF và ảnh JPEG/PNG/WebP                              | Đã triển khai                                     |
-| Preview video thật, tốc độ phát, menu chất lượng, Range/HEAD  | Đã triển khai; mặc định chỉ có bản gốc            |
-| UI live preview kiểu YouTube trong workspace                  | Đã chỉnh UI; nội dung/DVR/chất lượng vẫn minh họa |
-| Resume sau mất mạng/reload, IndexedDB, API trạng thái         | Chưa triển khai; điểm nối T17                     |
-| Encode nhiều chất lượng bằng AWS, callback/job xử lý          | Chưa triển khai; điểm nối T13                     |
-| CDN/CloudFront, `CDN_BASE_URL`, phân phối HLS riêng tư        | Chưa tích hợp; điểm nối T14                       |
-| Replication GCS, failover hoặc kiểm thử tải đa cloud          | Chưa triển khai                                   |
+| Hạng mục                                                                  | Trạng thái                                        |
+| ------------------------------------------------------------------------- | ------------------------------------------------- |
+| Chọn nhiều file hoặc thư mục lồng nhau, kéo thả, hàng đợi riêng từng file | Đã triển khai                                     |
+| Tối đa 4 file xử lý đồng thời trong một uploader                          | Đã triển khai                                     |
+| Tổng tối đa 5 PUT part cùng lúc trong hàng đợi đó                         | Đã triển khai                                     |
+| Chia file, ký URL theo batch, thu ETag, kiểm tra rồi complete             | Đã triển khai local; có adapter S3                |
+| Hủy phiên, dọn parts/final object còn sót, retry complete                 | Đã triển khai                                     |
+| Popup tiến độ; trạng thái thành công tự ẩn sau 5 giây                     | Đã triển khai                                     |
+| Quota server theo người dùng/nhóm, số phiên và dung lượng                 | Đã triển khai                                     |
+| Lưu vị trí riêng cho file/phiên upload/job xóa                            | Đã triển khai                                     |
+| Preview PDF và ảnh JPEG/PNG/WebP                                          | Đã triển khai                                     |
+| Preview video thật, tốc độ phát, menu chất lượng, Range/HEAD              | Đã triển khai; mặc định chỉ có bản gốc            |
+| UI live preview kiểu YouTube trong workspace                              | Đã chỉnh UI; nội dung/DVR/chất lượng vẫn minh họa |
+| Resume sau mất mạng/reload, IndexedDB, API trạng thái                     | Đã có tại [T17](t17-handoff.md)                   |
+| Encode nhiều chất lượng bằng AWS, callback/job xử lý                      | Chưa triển khai; điểm nối T13                     |
+| CDN/CloudFront, `CDN_BASE_URL`, phân phối HLS riêng tư                    | Chưa tích hợp; điểm nối T14                       |
+| Replication GCS, failover hoặc kiểm thử tải đa cloud                      | Chưa triển khai                                   |
 
 T16-05 là thao tác PUT vào URL storage đã ký, **không phải endpoint nhận bytes
 trong NestJS**. API điều khiển có kiểm tra phiên đăng nhập và quyền nhóm; URL PUT
@@ -82,7 +86,8 @@ giới hạn ở 40 MiB. Giới hạn ứng dụng mặc định là **2 GiB/fil
 nhỏ hơn partSize. API ký tối đa 8 part/request, còn client hiện ký batch tối đa 5.
 
 Client ký lại URL khi part đang chờ lượt có URL sắp hết hạn (còn tối đa 3 giây).
-Chưa có retry/backoff hoặc lưu parts bền vững để resume sau lỗi PUT/reload.
+Tại mốc T16 ban đầu chưa có retry/backoff hay resume bền vững. Bản hiện tại
+đã bổ sung tại T17; đọc T17 để tích hợp luồng đang dùng.
 
 ### 2.2. Trạng thái và phục hồi
 
@@ -264,6 +269,7 @@ Ví dụ tạo phiên cho file 10 MiB, ứng dụng mặc định trả 2 part:
 {
   "groupId": "<uuid-cua-nhom>",
   "filename": "bai-giang.pdf",
+  "folderPath": "Tài liệu/Bài 1",
   "size": 10485760,
   "mimeType": "application/pdf",
   "fingerprint": "10485760:1760000000000:bai-giang.pdf",
@@ -271,9 +277,8 @@ Ví dụ tạo phiên cho file 10 MiB, ứng dụng mặc định trả 2 part:
 }
 ```
 
-Fingerprint hiện là chuỗi size:lastModified:name, giới hạn 200 ký tự; **không phải
-hash nội dung**. T17 cần thiết kế xác minh file khi resume, không mặc định coi
-fingerprint hiện tại là bằng chứng toàn vẹn.
+Ví dụ fingerprint trên thuộc mốc T16 ban đầu. Client hiện dùng `sha256-tree-v1:<hex>`
+đọc toàn bộ nội dung theo T17; không dùng fingerprint metadata cũ để resume.
 
 Giữ ETag đúng như header storage trả về, kể cả dấu nháy. Client gửi đủ parts khi
 complete; server đối chiếu storage. Idempotency-Key cần 1–128 ký tự
@@ -307,6 +312,16 @@ Response công khai không lộ objectKey, credentials hoặc storageLocationId.
 
 Lỗi PUT trực tiếp thuộc storage và không dùng chung JSON error envelope của API.
 
+### Upload thư mục (13/11/2026)
+
+`POST /uploads` nhận thêm `folderPath?` (tối đa 2048 ký tự), mặc định gốc `""`.
+Đường dẫn tương đối, dùng `/` giữa các thư mục; `filename` chỉ là tên file.
+Picker thư mục đọc `webkitRelativePath`; kéo thả dùng entry API và duyệt các batch
+`readEntries` đến hết, giữ thư mục lồng nhau. Mỗi file vẫn tạo phiên riêng và dùng
+chung giới hạn 4 file/5 PUT. Thư mục rỗng chưa lưu, giới hạn MIME/kích thước áp dụng từng file.
+Đường dẫn được ghép với thư mục đang mở khi thêm vào hàng đợi, lưu vào phiên và copy
+sang `LibraryFile` khi complete. Thao tác quản lý/tải ZIP xem T15.
+
 ## 6. Dữ liệu và migration
 
 | Thành phần                        | Nội dung                                                                                      |
@@ -322,6 +337,7 @@ Migration bổ sung:
 1. `20261108000200_multipart_uploads`: bảng upload_sessions.
 2. `20261108000300_upload_capacity_and_locations`: storage_locations, liên kết
    vị trí cho file/upload/job xóa, cột lease và chỉ mục quota.
+3. `20261113000100_file_folders`: `folder_path` trên files/upload_sessions; cần cho bản mới.
 
 Trong phiên triển khai local ngày 08/11/2026, cả hai migration đã được áp dụng
 vào database cấu hình của máy phát triển. Đây không phải xác nhận migration
@@ -501,6 +517,9 @@ Các kiểm thử sâu về schema/timeout và lỗi dùng chung có thể chạ
 ```powershell
 node --test --test-concurrency=1 backend/test/integration/database.test.cjs backend/test/integration/common.test.cjs
 ```
+
+Lượt chạy hiện tại ngày 13/11/2026: [báo cáo kiểm thử T15–T17](t15-t17-verification.md).
+Các số liệu ở mục kế tiếp là kết quả lịch sử, không phải lượt chạy mới.
 
 ### 10.2. Kết quả đã ghi nhận ngày 08/11/2026
 

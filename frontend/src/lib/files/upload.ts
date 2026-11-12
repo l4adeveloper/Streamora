@@ -181,6 +181,7 @@ export async function uploadFile(
   groupId: string,
   options: {
     signal: AbortSignal;
+    folderPath?: string;
     onSession: (session: UploadSession) => void;
     onProgress: (percent: number) => void;
     source?: "DOCUMENT" | "LOCAL_RECORDING";
@@ -260,6 +261,7 @@ export async function uploadFile(
       body: {
         groupId,
         filename: file.name,
+        folderPath: options.folderPath ?? "",
         size: file.size,
         mimeType: file.type.split(";")[0] || "application/octet-stream",
         fingerprint,
@@ -274,6 +276,7 @@ export async function uploadFile(
         userId,
         groupId,
         filename: file.name,
+        folderPath: options.folderPath ?? "",
         size: file.size,
         fingerprint,
         expiresAt: session.expiresAt,

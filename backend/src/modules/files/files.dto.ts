@@ -12,6 +12,12 @@ import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { PaginationQueryDto } from "../../common/dto/pagination-query.dto";
 
 export class FileListQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ maxLength: 2048 })
+  @IsOptional()
+  @IsString()
+  @Length(0, 2048)
+  @Matches(/^(?:[^\/\\\x00-\x1f\x7f]+(?:\/[^\/\\\x00-\x1f\x7f]+)*)?$/u)
+  folderPath?: string;
   @ApiPropertyOptional({ maxLength: 255 })
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   @IsOptional()
@@ -36,4 +42,22 @@ export class RenameFileDto {
 export class LegacyFileListQueryDto extends FileListQueryDto {
   @IsUUID()
   groupId!: string;
+}
+
+export class FolderDto {
+  @ApiProperty()
+  @IsString()
+  @Length(1, 2048)
+  @Matches(
+    /^(?!.*(?:^|\/)\.{1,2}(?:\/|$))[^\/\\\x00-\x1f\x7f]+(?:\/[^\/\\\x00-\x1f\x7f]+)*$/u,
+  )
+  folderPath!: string;
+}
+export class RenameFolderDto extends FolderDto {
+  @ApiProperty()
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  @IsString()
+  @Length(1, 255)
+  @Matches(/^(?!\.{1,2}$)[^\/\\\x00-\x1f\x7f]+$/u)
+  name!: string;
 }

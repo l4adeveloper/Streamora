@@ -574,6 +574,6 @@ test("T15 internal recording registration: group validation, concurrent dedup, n
       .filter(([path]) => !path.includes("/uploads"))
       .flatMap(([, p]) => Object.keys(p))
       .filter((m) => ["get", "post", "patch", "delete"].includes(m)).length,
-    7,
+    10,
   );
 });

@@ -4,6 +4,7 @@ import {
   Download,
   Eye,
   FileText,
+  Folder,
   ImageIcon,
   Pencil,
   RefreshCw,
@@ -16,6 +17,9 @@ import type { GroupPermissions, LibraryFile } from "@streamora/contracts";
 import { asApiError } from "@/lib/api";
 import {
   deleteFile,
+  deleteFolder,
+  renameFolder,
+  downloadFolder,
   getFile,
   getFileDownload,
   getFilePreview,
@@ -65,11 +69,20 @@ export function FilesPanel({
 }) {
   const { notify } = useToast();
   const [query, setQuery] = useState("");
+  const [folderPath, setFolderPath] = useState("");
+  const [folders, setFolders] = useState<string[]>([]);
   const [items, setItems] = useState<LibraryFile[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [folderAction, setFolderAction] = useState<{
+    path: string;
+    name: string;
+    action: "rename" | "delete";
+  } | null>(null);
+  const folderDialog = useRef<HTMLDialogElement>(null);
+  const [folderName, setFolderName] = useState("");
   const [selected, setSelected] = useState<LibraryFile | null>(null);
   const [action, setAction] = useState<
     "detail" | "rename" | "delete" | "preview"
@@ -106,12 +119,14 @@ export function FilesPanel({
     setMore(false);
     try {
       const response = await listFiles(groupId, {
+        folderPath,
         q: query.trim(),
         type,
         limit: 20,
       });
       if (version !== sequence.current) return;
       setItems(response.items);
+      setFolders(response.folders ?? []);
       setCursor(response.nextCursor);
     } catch (cause) {
       if (version === sequence.current) {
@@ -121,7 +136,7 @@ export function FilesPanel({
     } finally {
       if (version === sequence.current) setLoading(false);
     }
-  }, [groupId, query, type]);
+  }, [groupId, folderPath, query, type]);
   useEffect(() => {
     sequence.current++;
     setLoading(true);
@@ -158,6 +173,47 @@ export function FilesPanel({
       current = false;
     };
   }, [action, selected?.id, previewRevision]);
+  useEffect(() => {
+    if (folderAction && !folderDialog.current?.open)
+      folderDialog.current?.showModal();
+    if (!folderAction && folderDialog.current?.open)
+      folderDialog.current.close();
+  }, [folderAction]);
+  async function folderDownload(path: string, name: string) {
+    setBusy(true);
+    try {
+      const blob = await downloadFolder(groupId, path);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name + ".zip";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (cause) {
+      notify(asApiError(cause).message, { tone: "error" });
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+  async function submitFolder() {
+    if (!folderAction || busy) return;
+    setBusy(true);
+    setActionError("");
+    try {
+      if (folderAction.action === "rename")
+        await renameFolder(groupId, folderAction.path, folderName.trim());
+      else await deleteFolder(groupId, folderAction.path);
+      setFolderAction(null);
+      notify("Đã cập nhật thư mục.", { tone: "success" });
+      void load();
+    } catch (cause) {
+      setActionError(asApiError(cause).message);
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
   const canManage = (file: LibraryFile) =>
     file.createdBy === userId || permissions.canHost;
   async function loadMore() {
@@ -166,6 +222,7 @@ export function FilesPanel({
     setMore(true);
     try {
       const response = await listFiles(groupId, {
+        folderPath,
         q: query.trim(),
         type,
         limit: 20,
@@ -239,12 +296,15 @@ export function FilesPanel({
       if (alive.current) setBusy(false);
     }
   }
+  const visibleFolders = query.trim() || type === "video" ? [] : folders;
+  const hasRows = items.length > 0 || visibleFolders.length > 0;
   return (
     <div className="files-page">
       {permissions.canUpload && (
         <FileUploader
           key={`${groupId}:${userId}`}
           groupId={groupId}
+          folderPath={folderPath}
           onUploaded={() => void load()}
         />
       )}
@@ -258,6 +318,28 @@ export function FilesPanel({
           <RefreshCw size={16} /> Làm mới
         </button>
       </div>
+      <nav className="folder-breadcrumb" aria-label="Đường dẫn thư mục">
+        <button type="button" onClick={() => setFolderPath("")}>
+          Thư viện
+        </button>
+        {folderPath
+          .split("/")
+          .filter(Boolean)
+          .map((part, index, parts) => (
+            <span key={parts.slice(0, index + 1).join("/")}>
+              {" "}
+              /{" "}
+              <button
+                type="button"
+                onClick={() =>
+                  setFolderPath(parts.slice(0, index + 1).join("/"))
+                }
+              >
+                {part}
+              </button>
+            </span>
+          ))}
+      </nav>
       <div className="file-controls">
         <div className="file-filters">
           {["Tất cả", "Tài liệu", "Bản ghi"].map((item) => (
@@ -294,12 +376,79 @@ export function FilesPanel({
       ) : (
         <>
           <div className="file-table" aria-label="Tài liệu trong nhóm">
-            <div className="file-table-heading">
-              <span>Tên tài liệu</span>
-              <span>Dung lượng</span>
-              <span>Được thêm</span>
-              <span>Thao tác</span>
-            </div>
+            {hasRows && (
+              <div className="file-table-heading">
+                <span>Tên tài liệu</span>
+                <span>Dung lượng</span>
+                <span>Được thêm</span>
+                <span>Thao tác</span>
+              </div>
+            )}
+            {visibleFolders.map((folder) => (
+              <div className="file-row library-file-row" key={folder}>
+                <button
+                  type="button"
+                  className="library-file-name"
+                  onClick={() =>
+                    setFolderPath(
+                      [folderPath, folder].filter(Boolean).join("/"),
+                    )
+                  }
+                >
+                  <span className="file-symbol">
+                    <Folder size={22} />
+                  </span>
+                  <span>
+                    <b>{folder}</b>
+                    <small>Thư mục</small>
+                  </span>
+                </button>
+                <span>—</span>
+                <span>—</span>
+                <span className="library-actions">
+                  <button
+                    type="button"
+                    title="Tải thư mục (.zip)"
+                    aria-label={`Tải xuống thư mục ${folder}`}
+                    disabled={busy}
+                    onClick={() =>
+                      void folderDownload(
+                        [folderPath, folder].filter(Boolean).join("/"),
+                        folder,
+                      )
+                    }
+                  >
+                    <Download size={16} />
+                  </button>
+                  {(["rename", "delete"] as const).map((action) => (
+                    <button
+                      type="button"
+                      key={action}
+                      title={
+                        action === "rename" ? "Đổi tên thư mục" : "Xóa thư mục"
+                      }
+                      aria-label={`${action === "rename" ? "Đổi tên" : "Xóa"} thư mục ${folder}`}
+                      disabled={busy}
+                      onClick={() => {
+                        setActionError("");
+                        setFolderName(folder);
+                        setFolderAction({
+                          path: [folderPath, folder].filter(Boolean).join("/"),
+                          name: folder,
+                          action,
+                        });
+                      }}
+                    >
+                      {action === "rename" ? (
+                        <Pencil size={16} />
+                      ) : (
+                        <Trash2 size={16} />
+                      )}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            ))}
             {items.map((file) => (
               <div className="file-row library-file-row" key={file.id}>
                 <button
@@ -326,6 +475,9 @@ export function FilesPanel({
                       {file.status === "AVAILABLE"
                         ? "Sẵn sàng"
                         : "Đang chuẩn bị"}
+                      {query.trim() && file.folderPath
+                        ? ` · ${file.folderPath}`
+                        : ""}
                     </small>
                   </span>
                 </button>
@@ -379,7 +531,7 @@ export function FilesPanel({
                 </span>
               </div>
             ))}
-            {!items.length && (
+            {!hasRows && (
               <div className="empty-state">
                 <Search size={30} />
                 <h3>
@@ -408,6 +560,88 @@ export function FilesPanel({
         </>
       )}
       <dialog
+        ref={folderDialog}
+        className="library-dialog"
+        aria-labelledby="folder-dialog-title"
+        onCancel={(event) => {
+          if (busy) event.preventDefault();
+          else setFolderAction(null);
+        }}
+        onClose={() => setFolderAction(null)}
+      >
+        {folderAction && (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitFolder();
+            }}
+          >
+            <div className="library-dialog-heading">
+              <h3 id="folder-dialog-title">
+                {folderAction.action === "rename"
+                  ? "Đổi tên thư mục"
+                  : "Xóa vĩnh viễn thư mục?"}
+              </h3>
+              <button
+                type="button"
+                disabled={busy}
+                aria-label="Đóng"
+                onClick={() => setFolderAction(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {folderAction.action === "rename" ? (
+              <label>
+                Tên thư mục
+                <input
+                  autoFocus
+                  required
+                  maxLength={255}
+                  pattern="[^/\\\\]+"
+                  value={folderName}
+                  onChange={(event) => setFolderName(event.target.value)}
+                />
+              </label>
+            ) : (
+              <p>
+                Thư mục “{folderAction.name}” cùng toàn bộ file và thư mục con
+                sẽ bị xóa vĩnh viễn, không thể khôi phục.
+              </p>
+            )}
+            {actionError && (
+              <p role="alert" className="library-error">
+                {actionError}
+              </p>
+            )}
+            <div className="library-dialog-actions">
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy}
+                onClick={() => setFolderAction(null)}
+              >
+                Đóng
+              </button>
+              <button
+                type="submit"
+                className="button primary"
+                disabled={
+                  busy ||
+                  (folderAction.action === "rename" && !folderName.trim())
+                }
+              >
+                {busy
+                  ? "Đang xử lý…"
+                  : folderAction.action === "rename"
+                    ? "Lưu tên"
+                    : "Xóa vĩnh viễn"}
+              </button>
+            </div>
+          </form>
+        )}
+      </dialog>
+      <dialog
         ref={dialog}
         className={`library-dialog ${action === "preview" ? "library-preview-dialog" : ""}`}
         aria-labelledby="library-dialog-title"
@@ -425,23 +659,57 @@ export function FilesPanel({
             }}
           >
             <div className="library-dialog-heading">
-              <h3 id="library-dialog-title">
-                {action === "rename"
-                  ? "Đổi tên tài liệu"
-                  : action === "delete"
-                    ? "Xóa vĩnh viễn tài liệu?"
-                    : action === "preview"
-                      ? previewLabel(selected)
-                      : "Chi tiết tài liệu"}
-              </h3>
-              <button
-                type="button"
-                aria-label="Đóng"
-                disabled={busy}
-                onClick={() => setSelected(null)}
-              >
-                <X size={18} />
-              </button>
+              <div className="library-dialog-title-group">
+                <h3 id="library-dialog-title">
+                  {action === "rename"
+                    ? "Đổi tên tài liệu"
+                    : action === "delete"
+                      ? "Xóa vĩnh viễn tài liệu?"
+                      : action === "preview"
+                        ? previewLabel(selected)
+                        : "Chi tiết tài liệu"}
+                </h3>
+                {action === "preview" && (
+                  <p className="library-preview-filename" title={selected.name}>
+                    {selected.name}
+                  </p>
+                )}
+              </div>
+              <div className="library-preview-tools">
+                {action === "preview" && (
+                  <>
+                    <button
+                      type="button"
+                      title="Tải lại bản xem trước"
+                      aria-label="Tải lại bản xem trước"
+                      onClick={() => setPreviewRevision((value) => value + 1)}
+                    >
+                      <RefreshCw size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      className="preview-download"
+                      aria-label="Tải xuống"
+                      title="Tải xuống"
+                      disabled={busy || selected.status !== "AVAILABLE"}
+                      onClick={() => void download(selected)}
+                    >
+                      <Download size={18} />
+                      <span>Tải xuống</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="preview-close"
+                  title="Đóng"
+                  aria-label="Đóng"
+                  disabled={busy}
+                  onClick={() => setSelected(null)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
             {action === "rename" ? (
               <label>
@@ -455,9 +723,9 @@ export function FilesPanel({
                   onChange={(event) => setName(event.target.value)}
                 />
               </label>
-            ) : (
+            ) : action !== "preview" ? (
               <p className="library-detail-name">{selected.name}</p>
-            )}
+            ) : null}
             {action === "delete" && (
               <p>
                 Tài liệu sẽ bị xóa vĩnh viễn và không thể khôi phục. Bạn có chắc
@@ -555,57 +823,50 @@ export function FilesPanel({
                 {actionError}
               </p>
             )}
-            <div className="library-dialog-actions">
-              <button
-                type="button"
-                className="button secondary"
-                disabled={busy}
-                onClick={() => setSelected(null)}
-              >
-                Đóng
-              </button>
-              {action === "detail" && canPreview(selected) && (
+            {action !== "preview" && (
+              <div className="library-dialog-actions">
                 <button
                   type="button"
                   className="button secondary"
-                  disabled={busy || selected.status !== "AVAILABLE"}
-                  onClick={() => setAction("preview")}
+                  disabled={busy}
+                  onClick={() => setSelected(null)}
                 >
-                  <Eye size={16} /> {previewLabel(selected)}
+                  Đóng
                 </button>
-              )}
-              {action === "preview" && !videoTypes.has(selected.mimeType) && (
-                <button
-                  type="button"
-                  className="button secondary"
-                  onClick={() => setPreviewRevision((value) => value + 1)}
-                >
-                  Tải lại bản xem trước
-                </button>
-              )}
-              {action === "detail" || action === "preview" ? (
-                <button
-                  type="button"
-                  className="button primary"
-                  disabled={busy || selected.status !== "AVAILABLE"}
-                  onClick={() => void download(selected)}
-                >
-                  Tải xuống
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  className="button primary"
-                  disabled={busy || (action === "rename" && !name.trim())}
-                >
-                  {busy
-                    ? "Đang xử lý…"
-                    : action === "delete"
-                      ? "Xóa vĩnh viễn"
-                      : "Lưu tên"}
-                </button>
-              )}
-            </div>
+                {action === "detail" && canPreview(selected) && (
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={busy || selected.status !== "AVAILABLE"}
+                    onClick={() => setAction("preview")}
+                  >
+                    <Eye size={16} /> {previewLabel(selected)}
+                  </button>
+                )}
+                {action === "detail" ? (
+                  <button
+                    type="button"
+                    className="button primary"
+                    disabled={busy || selected.status !== "AVAILABLE"}
+                    onClick={() => void download(selected)}
+                  >
+                    Tải xuống
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    className="button primary"
+                    disabled={busy || (action === "rename" && !name.trim())}
+                  >
+                    {busy
+                      ? "Đang xử lý…"
+                      : action === "delete"
+                        ? "Xóa vĩnh viễn"
+                        : "Lưu tên"}
+                  </button>
+                )}
+              </div>
+            )}
           </form>
         )}
       </dialog>

@@ -78,11 +78,13 @@ test(
       await page.waitForURL("**/workspace");
       await page.goto(`${fixture.webOrigin}/files?groupId=${group.id}`);
       const buffer = Buffer.alloc(40 * 1024 ** 2 + 33, 42);
-      await page.locator('.file-uploader input[type="file"]').setInputFiles({
-        name: "Tai-lieu-T16.pdf",
-        mimeType: "application/pdf",
-        buffer,
-      });
+      await page
+        .locator('.file-uploader input[type="file"]:not([webkitdirectory])')
+        .setInputFiles({
+          name: "Tai-lieu-T16.pdf",
+          mimeType: "application/pdf",
+          buffer,
+        });
       await page
         .getByText("Đã lưu vào thư viện.", { exact: true })
         .waitFor({ timeout: 90000 });
@@ -127,11 +129,13 @@ test(
         await gate;
         await route.abort().catch(() => {});
       });
-      await page.locator('.file-uploader input[type="file"]').setInputFiles({
-        name: "Huy-T16.pdf",
-        mimeType: "application/pdf",
-        buffer: Buffer.alloc(1000),
-      });
+      await page
+        .locator('.file-uploader input[type="file"]:not([webkitdirectory])')
+        .setInputFiles({
+          name: "Huy-T16.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.alloc(1000),
+        });
       await page
         .getByRole("button", { name: "Hủy tải lên Huy-T16.pdf", exact: true })
         .waitFor();
@@ -157,24 +161,26 @@ test(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
         "base64",
       );
-      await page.locator('.file-uploader input[type="file"]').setInputFiles([
-        {
-          name: "Khong-ho-tro.html",
-          mimeType: "text/html",
-          buffer: Buffer.from("<p>unsupported</p>"),
-        },
-        { name: "Anh-T16.png", mimeType: "image/png", buffer: png },
-        {
-          name: "Van-ban-T16.txt",
-          mimeType: "text/plain",
-          buffer: Buffer.from("Nhiều file cùng lúc"),
-        },
-        {
-          name: "PDF-T16.pdf",
-          mimeType: "application/pdf",
-          buffer: require("../pdf-fixture.cjs").pdfFixture(),
-        },
-      ]);
+      await page
+        .locator('.file-uploader input[type="file"]:not([webkitdirectory])')
+        .setInputFiles([
+          {
+            name: "Khong-ho-tro.html",
+            mimeType: "text/html",
+            buffer: Buffer.from("<p>unsupported</p>"),
+          },
+          { name: "Anh-T16.png", mimeType: "image/png", buffer: png },
+          {
+            name: "Van-ban-T16.txt",
+            mimeType: "text/plain",
+            buffer: Buffer.from("Nhiều file cùng lúc"),
+          },
+          {
+            name: "PDF-T16.pdf",
+            mimeType: "application/pdf",
+            buffer: require("../pdf-fixture.cjs").pdfFixture(),
+          },
+        ]);
       await page.waitForFunction(() =>
         ["Anh-T16.png", "Van-ban-T16.txt", "PDF-T16.pdf"].every((name) =>
           [...document.querySelectorAll(".upload-job.done")].some((row) =>

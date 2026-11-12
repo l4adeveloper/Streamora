@@ -6,6 +6,7 @@ export interface LibraryFile {
   id: string;
   groupId: string;
   name: string;
+  folderPath: string;
   size: number;
   mimeType: string;
   source: FileSource;
@@ -16,10 +17,11 @@ export interface LibraryFile {
   createdAt: string;
 }
 export interface FileListQuery extends PaginationRequest {
+  folderPath?: string;
   q?: string;
   type?: "document" | "video";
 }
-export type FileListResponse = CursorPage<LibraryFile>;
+export type FileListResponse = CursorPage<LibraryFile> & { folders: string[] };
 export interface FileResponse {
   file: LibraryFile;
 }
