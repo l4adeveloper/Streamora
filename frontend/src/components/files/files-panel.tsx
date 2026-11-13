@@ -1,9 +1,14 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ChevronRight,
   Download,
   Eye,
   FileText,
+  Folder,
+  FolderInput,
+  FolderPlus,
+  Home,
   ImageIcon,
   Pencil,
   RefreshCw,
@@ -12,15 +17,25 @@ import {
   Video,
   X,
 } from "lucide-react";
-import type { GroupPermissions, LibraryFile } from "@streamora/contracts";
+import type {
+  FolderBreadcrumb,
+  FolderItem,
+  GroupPermissions,
+  LibraryFile,
+} from "@streamora/contracts";
 import { asApiError } from "@/lib/api";
 import {
+  createFolder,
   deleteFile,
+  deleteFolder,
   getFile,
   getFileDownload,
   getFilePreview,
   listFiles,
+  listFolders,
+  moveFile,
   renameFile,
+  renameFolder,
 } from "@/lib/files/api";
 import { useToast } from "../common/toast-provider";
 import { LoadingState, RequestError } from "../common/feedback";
@@ -86,6 +101,34 @@ export function FilesPanel({
   const sequence = useRef(0);
   const alive = useRef(true);
   const dialog = useRef<HTMLDialogElement>(null);
+
+  // Folder states
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [folders, setFolders] = useState<FolderItem[]>([]);
+  const [breadcrumbs, setBreadcrumbs] = useState<FolderBreadcrumb[]>([]);
+  const [currentFolder, setCurrentFolder] = useState<FolderItem | null>(null);
+  const [folderLoading, setFolderLoading] = useState(false);
+
+  // Folder modal state
+  const [folderAction, setFolderAction] = useState<
+    "create" | "rename" | "delete" | null
+  >(null);
+  const [targetFolder, setTargetFolder] = useState<FolderItem | null>(null);
+  const [folderInputName, setFolderInputName] = useState("");
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [folderError, setFolderError] = useState("");
+  const folderDialog = useRef<HTMLDialogElement>(null);
+
+  // Move file modal state
+  const [movingFile, setMovingFile] = useState<LibraryFile | null>(null);
+  const [allFolders, setAllFolders] = useState<FolderItem[]>([]);
+  const [targetDestFolderId, setTargetDestFolderId] = useState<string | null>(
+    null,
+  );
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [moveError, setMoveError] = useState("");
+  const moveDialog = useRef<HTMLDialogElement>(null);
+
   const type =
     filter === "Tài liệu"
       ? "document"
@@ -99,6 +142,26 @@ export function FilesPanel({
       sequence.current++;
     };
   }, []);
+
+  const loadFolders = useCallback(async () => {
+    setFolderLoading(true);
+    try {
+      const res = await listFolders(groupId, currentFolderId);
+      if (!alive.current) return;
+      setFolders(res.folders);
+      setBreadcrumbs(res.breadcrumbs ?? []);
+      setCurrentFolder(res.currentFolder ?? null);
+    } catch (cause) {
+      if (alive.current) console.error(cause);
+    } finally {
+      if (alive.current) setFolderLoading(false);
+    }
+  }, [groupId, currentFolderId]);
+
+  useEffect(() => {
+    void loadFolders();
+  }, [loadFolders]);
+
   const load = useCallback(async () => {
     const version = ++sequence.current;
     setLoading(true);
@@ -108,6 +171,7 @@ export function FilesPanel({
       const response = await listFiles(groupId, {
         q: query.trim(),
         type,
+        folderId: query.trim() ? undefined : (currentFolderId ?? "root"),
         limit: 20,
       });
       if (version !== sequence.current) return;
@@ -121,7 +185,7 @@ export function FilesPanel({
     } finally {
       if (version === sequence.current) setLoading(false);
     }
-  }, [groupId, query, type]);
+  }, [groupId, query, type, currentFolderId]);
   useEffect(() => {
     sequence.current++;
     setLoading(true);
@@ -135,6 +199,22 @@ export function FilesPanel({
     if (selected && !dialog.current?.open) dialog.current?.showModal();
     if (!selected && dialog.current?.open) dialog.current.close();
   }, [selected]);
+  useEffect(() => {
+    if (folderAction && !folderDialog.current?.open) {
+      folderDialog.current?.showModal();
+    }
+    if (!folderAction && folderDialog.current?.open) {
+      folderDialog.current.close();
+    }
+  }, [folderAction]);
+  useEffect(() => {
+    if (movingFile && !moveDialog.current?.open) {
+      moveDialog.current?.showModal();
+    }
+    if (!movingFile && moveDialog.current?.open) {
+      moveDialog.current.close();
+    }
+  }, [movingFile]);
   useEffect(() => {
     if (
       action !== "preview" ||
@@ -160,6 +240,66 @@ export function FilesPanel({
   }, [action, selected?.id, previewRevision]);
   const canManage = (file: LibraryFile) =>
     file.createdBy === userId || permissions.canHost;
+  const canManageFolder = (folder: FolderItem) =>
+    folder.createdBy === userId || permissions.canHost;
+
+  async function openMoveDialog(file: LibraryFile) {
+    setMovingFile(file);
+    setTargetDestFolderId(file.folderId ?? null);
+    setMoveError("");
+    setMoveBusy(false);
+    try {
+      const res = await listFolders(groupId, "all");
+      setAllFolders(res.folders);
+    } catch {
+      setAllFolders([]);
+    }
+  }
+
+  async function submitFolderAction() {
+    if (folderBusy) return;
+    setFolderBusy(true);
+    setFolderError("");
+    try {
+      if (folderAction === "create") {
+        await createFolder(groupId, folderInputName.trim(), currentFolderId);
+        notify("Đã tạo thư mục mới.", { tone: "success" });
+      } else if (folderAction === "rename" && targetFolder) {
+        await renameFolder(targetFolder.id, folderInputName.trim());
+        notify("Đã đổi tên thư mục.", { tone: "success" });
+      } else if (folderAction === "delete" && targetFolder) {
+        await deleteFolder(targetFolder.id);
+        notify("Đã xóa thư mục.", { tone: "success" });
+      }
+      setFolderAction(null);
+      setTargetFolder(null);
+      setFolderInputName("");
+      void loadFolders();
+      void load();
+    } catch (cause) {
+      setFolderError(asApiError(cause).message);
+    } finally {
+      setFolderBusy(false);
+    }
+  }
+
+  async function submitMoveFile() {
+    if (!movingFile || moveBusy) return;
+    setMoveBusy(true);
+    setMoveError("");
+    try {
+      await moveFile(movingFile.id, targetDestFolderId);
+      notify("Đã di chuyển tài liệu.", { tone: "success" });
+      setMovingFile(null);
+      void load();
+      void loadFolders();
+    } catch (cause) {
+      setMoveError(asApiError(cause).message);
+    } finally {
+      setMoveBusy(false);
+    }
+  }
+
   async function loadMore() {
     if (!cursor || more || loading) return;
     const version = sequence.current;
@@ -168,6 +308,7 @@ export function FilesPanel({
       const response = await listFiles(groupId, {
         q: query.trim(),
         type,
+        folderId: query.trim() ? undefined : (currentFolderId ?? "root"),
         limit: 20,
         cursor,
       });
@@ -243,17 +384,59 @@ export function FilesPanel({
     <div className="files-page">
       {permissions.canUpload && (
         <FileUploader
-          key={`${groupId}:${userId}`}
+          key={`${groupId}:${userId}:${currentFolderId ?? "root"}`}
           groupId={groupId}
-          onUploaded={() => void load()}
+          folderId={currentFolderId}
+          onUploaded={() => {
+            void load();
+            void loadFolders();
+          }}
         />
       )}
+      <nav className="library-breadcrumbs" aria-label="Đường dẫn thư mục">
+        <button
+          type="button"
+          className={`breadcrumb-item ${!currentFolderId ? "active" : ""}`}
+          onClick={() => setCurrentFolderId(null)}
+        >
+          <Home size={15} />
+          <span>Tài liệu chung</span>
+        </button>
+        {breadcrumbs.map((crumb, idx) => (
+          <span key={crumb.id} className="breadcrumb-segment">
+            <ChevronRight size={14} className="breadcrumb-separator" />
+            <button
+              type="button"
+              className={`breadcrumb-item ${idx === breadcrumbs.length - 1 ? "active" : ""}`}
+              onClick={() => setCurrentFolderId(crumb.id)}
+            >
+              <span>{crumb.name}</span>
+            </button>
+          </span>
+        ))}
+      </nav>
       <div className="library-toolbar">
+        {permissions.canUpload && (
+          <button
+            type="button"
+            className="button primary compact"
+            onClick={() => {
+              setFolderInputName("");
+              setFolderError("");
+              setFolderAction("create");
+            }}
+          >
+            <FolderPlus size={16} /> Thư mục mới
+          </button>
+        )}
         <button
           type="button"
           className="button secondary compact"
-          onClick={() => void load()}
-          disabled={loading}
+          onClick={() => {
+            void load();
+            void loadFolders();
+          }}
+          disabled={loading || folderLoading}
         >
           <RefreshCw size={16} /> Làm mới
         </button>
@@ -293,6 +476,63 @@ export function FilesPanel({
         <LoadingState message="Đang tải thư viện…" />
       ) : (
         <>
+          {folders.length > 0 && !query && (
+            <div className="folder-grid" aria-label="Danh sách thư mục">
+              {folders.map((folder) => (
+                <div className="folder-card" key={folder.id}>
+                  <button
+                    type="button"
+                    className="folder-card-main"
+                    onClick={() => setCurrentFolderId(folder.id)}
+                    title={`Mở thư mục ${folder.name}`}
+                  >
+                    <span className="folder-icon-wrapper">
+                      <Folder size={24} />
+                    </span>
+                    <div className="folder-card-info">
+                      <span className="folder-name">{folder.name}</span>
+                      <span className="folder-meta">
+                        {folder.fileCount ?? 0} tài liệu
+                        {(folder.folderCount ?? 0) > 0 &&
+                          ` · ${folder.folderCount} thư mục con`}
+                      </span>
+                    </div>
+                  </button>
+                  {canManageFolder(folder) && (
+                    <div className="folder-actions">
+                      <button
+                        type="button"
+                        title="Đổi tên"
+                        aria-label={`Đổi tên ${folder.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTargetFolder(folder);
+                          setFolderInputName(folder.name);
+                          setFolderError("");
+                          setFolderAction("rename");
+                        }}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Xóa thư mục"
+                        aria-label={`Xóa ${folder.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTargetFolder(folder);
+                          setFolderError("");
+                          setFolderAction("delete");
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           <div className="file-table" aria-label="Tài liệu trong nhóm">
             <div className="file-table-heading">
               <span>Tên tài liệu</span>
@@ -358,6 +598,15 @@ export function FilesPanel({
                     <>
                       <button
                         type="button"
+                        title="Di chuyển vào thư mục"
+                        aria-label={`Di chuyển ${file.name}`}
+                        disabled={busy}
+                        onClick={() => void openMoveDialog(file)}
+                      >
+                        <FolderInput size={16} />
+                      </button>
+                      <button
+                        type="button"
                         title="Đổi tên"
                         aria-label={`Đổi tên ${file.name}`}
                         disabled={busy}
@@ -379,18 +628,22 @@ export function FilesPanel({
                 </span>
               </div>
             ))}
-            {!items.length && (
+            {!items.length && (!folders.length || !!query) && (
               <div className="empty-state">
                 <Search size={30} />
                 <h3>
                   {query || type
                     ? "Chưa tìm thấy tài liệu"
-                    : "Thư viện chưa có tài liệu"}
+                    : currentFolder
+                      ? "Thư mục này đang trống"
+                      : "Thư viện chưa có tài liệu"}
                 </h3>
                 <p>
                   {query || type
                     ? "Thử tên hoặc bộ lọc khác."
-                    : "Tài liệu và bản ghi được thêm vào nhóm sẽ xuất hiện tại đây."}
+                    : currentFolder
+                      ? "Tải lên hoặc di chuyển tài liệu vào thư mục này."
+                      : "Tài liệu và bản ghi được thêm vào nhóm sẽ xuất hiện tại đây."}
                 </p>
               </div>
             )}
@@ -605,6 +858,171 @@ export function FilesPanel({
                       : "Lưu tên"}
                 </button>
               )}
+            </div>
+          </form>
+        )}
+      </dialog>
+      <dialog
+        ref={folderDialog}
+        className="library-dialog"
+        aria-labelledby="folder-dialog-title"
+        onCancel={(e) => {
+          if (folderBusy) e.preventDefault();
+          else setFolderAction(null);
+        }}
+        onClose={() => setFolderAction(null)}
+      >
+        {folderAction && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitFolderAction();
+            }}
+          >
+            <div className="library-dialog-heading">
+              <h3 id="folder-dialog-title">
+                {folderAction === "create"
+                  ? "Tạo thư mục mới"
+                  : folderAction === "rename"
+                    ? "Đổi tên thư mục"
+                    : "Xóa thư mục?"}
+              </h3>
+              <button
+                type="button"
+                aria-label="Đóng"
+                disabled={folderBusy}
+                onClick={() => setFolderAction(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {folderAction === "delete" ? (
+              <p>
+                Bạn có chắc chắn muốn xóa thư mục <b>{targetFolder?.name}</b>?
+                Các tài liệu bên trong sẽ được chuyển về thư mục cha để đảm bảo
+                không bị mất dữ liệu.
+              </p>
+            ) : (
+              <label>
+                Tên thư mục
+                <input
+                  autoFocus
+                  required
+                  minLength={1}
+                  maxLength={255}
+                  value={folderInputName}
+                  onChange={(e) => setFolderInputName(e.target.value)}
+                  placeholder="Nhập tên thư mục…"
+                />
+              </label>
+            )}
+            {folderError && (
+              <p role="alert" className="library-error">
+                {folderError}
+              </p>
+            )}
+            <div className="library-dialog-actions">
+              <button
+                type="button"
+                className="button secondary"
+                disabled={folderBusy}
+                onClick={() => setFolderAction(null)}
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className={`button ${folderAction === "delete" ? "danger" : "primary"}`}
+                disabled={
+                  folderBusy ||
+                  (folderAction !== "delete" && !folderInputName.trim())
+                }
+              >
+                {folderBusy
+                  ? "Đang xử lý…"
+                  : folderAction === "create"
+                    ? "Tạo thư mục"
+                    : folderAction === "rename"
+                      ? "Đổi tên"
+                      : "Xóa thư mục"}
+              </button>
+            </div>
+          </form>
+        )}
+      </dialog>
+      <dialog
+        ref={moveDialog}
+        className="library-dialog"
+        aria-labelledby="move-dialog-title"
+        onCancel={(e) => {
+          if (moveBusy) e.preventDefault();
+          else setMovingFile(null);
+        }}
+        onClose={() => setMovingFile(null)}
+      >
+        {movingFile && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitMoveFile();
+            }}
+          >
+            <div className="library-dialog-heading">
+              <h3 id="move-dialog-title">Di chuyển tài liệu</h3>
+              <button
+                type="button"
+                aria-label="Đóng"
+                disabled={moveBusy}
+                onClick={() => setMovingFile(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="library-detail-name">
+              Chọn vị trí đích cho: <b>{movingFile.name}</b>
+            </p>
+            <div className="folder-select-list">
+              <button
+                type="button"
+                className={`folder-select-item ${targetDestFolderId === null ? "selected" : ""}`}
+                onClick={() => setTargetDestFolderId(null)}
+              >
+                <Home size={18} />
+                <span>Tài liệu chung (Thư mục gốc)</span>
+              </button>
+              {allFolders.map((f) => (
+                <button
+                  type="button"
+                  key={f.id}
+                  className={`folder-select-item ${targetDestFolderId === f.id ? "selected" : ""}`}
+                  onClick={() => setTargetDestFolderId(f.id)}
+                >
+                  <Folder size={18} />
+                  <span>{f.name}</span>
+                </button>
+              ))}
+            </div>
+            {moveError && (
+              <p role="alert" className="library-error">
+                {moveError}
+              </p>
+            )}
+            <div className="library-dialog-actions">
+              <button
+                type="button"
+                className="button secondary"
+                disabled={moveBusy}
+                onClick={() => setMovingFile(null)}
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="button primary"
+                disabled={moveBusy}
+              >
+                {moveBusy ? "Đang di chuyển…" : "Di chuyển tới đây"}
+              </button>
             </div>
           </form>
         )}

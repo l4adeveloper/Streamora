@@ -32,6 +32,13 @@ export class CreateUploadDto {
   @IsIn(["DOCUMENT", "LOCAL_RECORDING"])
   source!: "DOCUMENT" | "LOCAL_RECORDING";
   @ApiPropertyOptional() @IsOptional() @IsUUID() sessionId?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ value }) =>
+    !value || value === "root" || value === "null" ? null : value,
+  )
+  @IsUUID()
+  folderId?: string;
 }
 export class SignPartsDto {
   @ApiProperty({ type: [Number] })

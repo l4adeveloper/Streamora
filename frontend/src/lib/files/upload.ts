@@ -185,6 +185,7 @@ export async function uploadFile(
     onProgress: (percent: number) => void;
     source?: "DOCUMENT" | "LOCAL_RECORDING";
     sessionId?: string;
+    folderId?: string;
     runPart?: PartRunner;
     resumeId?: string;
     fileHandle?: UploadFileHandle;
@@ -265,6 +266,7 @@ export async function uploadFile(
         fingerprint,
         source: options.source ?? "DOCUMENT",
         sessionId: options.sessionId,
+        folderId: options.folderId,
       },
     }));
   try {

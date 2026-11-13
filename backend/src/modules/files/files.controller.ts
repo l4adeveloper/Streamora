@@ -21,9 +21,13 @@ import type { AuthenticatedIdentity } from "../../common";
 import { ApiErrors, ApiSuccess } from "../../documentation/api-decorators";
 import { FilesService } from "./files.service";
 import {
+  CreateFolderDto,
   FileListQueryDto,
   LegacyFileListQueryDto,
+  ListFoldersQueryDto,
+  MoveFileDto,
   RenameFileDto,
+  RenameFolderDto,
 } from "./files.dto";
 import {
   FileDownloadResponseDto,
@@ -124,6 +128,26 @@ export class FilesController {
   ) {
     return this.files.rename(auth.user.id, fileId, dto.name);
   }
+  @Patch(":fileId/move")
+  @ApiOperation({ summary: "Di chuyển tài liệu vào thư mục hoặc root" })
+  @ApiSuccess(200, FileResponseDto)
+  @ApiErrors(
+    [400, "VALIDATION_ERROR"],
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FILE_NOT_FOUND", "DESTINATION_FOLDER_NOT_FOUND"],
+  )
+  move(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("fileId", UUIDParamPipe) fileId: string,
+    @Body() dto: MoveFileDto,
+  ) {
+    return this.files.moveFile(
+      auth.user.id,
+      fileId,
+      dto.destinationFolderId ?? null,
+    );
+  }
   @Delete(":fileId")
   @HttpCode(204)
   @ApiOperation({
@@ -181,5 +205,94 @@ export class FilesController {
     @Param("fileId", UUIDParamPipe) fileId: string,
   ) {
     return this.files.download(auth.user.id, fileId, true);
+  }
+}
+
+@Controller("groups/:groupId/folders")
+@ApiTags("Folders")
+@ApiBearerAuth("accessToken")
+@RequireAuth()
+export class GroupFoldersController {
+  constructor(private readonly files: FilesService) {}
+
+  @Get()
+  @ApiOperation({ summary: "Danh sách thư mục và breadcrumb trong nhóm" })
+  @ApiParam({ name: "groupId", format: "uuid" })
+  @ApiErrors(
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "GROUP_NOT_FOUND"],
+  )
+  list(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("groupId", UUIDParamPipe) groupId: string,
+    @Query() query: ListFoldersQueryDto,
+  ) {
+    return this.files.listFolders(auth.user.id, groupId, query.parentId);
+  }
+
+  @Post()
+  @ApiOperation({ summary: "Tạo thư mục mới trong nhóm" })
+  @ApiParam({ name: "groupId", format: "uuid" })
+  @ApiErrors(
+    [400, "VALIDATION_ERROR"],
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "GROUP_NOT_FOUND", "PARENT_FOLDER_NOT_FOUND"],
+    [409, "FOLDER_EXISTS"],
+  )
+  create(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("groupId", UUIDParamPipe) groupId: string,
+    @Body() dto: CreateFolderDto,
+  ) {
+    return this.files.createFolder(
+      auth.user.id,
+      groupId,
+      dto.name,
+      dto.parentId,
+    );
+  }
+}
+
+@Controller("folders")
+@ApiTags("Folders")
+@ApiBearerAuth("accessToken")
+@RequireAuth()
+@ApiParam({ name: "folderId", format: "uuid" })
+export class FoldersController {
+  constructor(private readonly files: FilesService) {}
+
+  @Patch(":folderId")
+  @ApiOperation({ summary: "Đổi tên thư mục" })
+  @ApiErrors(
+    [400, "VALIDATION_ERROR"],
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FOLDER_NOT_FOUND"],
+    [409, "FOLDER_EXISTS"],
+  )
+  rename(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("folderId", UUIDParamPipe) folderId: string,
+    @Body() dto: RenameFolderDto,
+  ) {
+    return this.files.renameFolder(auth.user.id, folderId, dto.name);
+  }
+
+  @Delete(":folderId")
+  @HttpCode(204)
+  @ApiOperation({ summary: "Xóa thư mục (chuyển file bên trong về thư mục cha)" })
+  @ApiSuccess(204)
+  @ApiErrors(
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FOLDER_NOT_FOUND"],
+  )
+  remove(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("folderId", UUIDParamPipe) folderId: string,
+  ) {
+    return this.files.removeFolder(auth.user.id, folderId);
   }
 }

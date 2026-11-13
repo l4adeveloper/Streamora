@@ -139,6 +139,7 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
           data: {
             id,
             groupId: dto.groupId,
+            folderId: dto.folderId ?? null,
             userId,
             filename: dto.filename.trim(),
             size: BigInt(dto.size),
@@ -478,6 +479,7 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
           const file = await tx.libraryFile.create({
             data: {
               groupId: current.groupId,
+              folderId: current.folderId ?? null,
               createdBy: current.userId,
               name: current.filename,
               size: current.size,

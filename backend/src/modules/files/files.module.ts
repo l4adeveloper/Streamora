@@ -1,6 +1,11 @@
 import { Module } from "@nestjs/common";
 import { MembershipsModule } from "../memberships/memberships.module";
-import { FilesController, GroupFilesController } from "./files.controller";
+import {
+  FilesController,
+  FoldersController,
+  GroupFilesController,
+  GroupFoldersController,
+} from "./files.controller";
 import { FilesService } from "./files.service";
 import { FileStorageService } from "./file-storage.service";
 import { FileCleanupService } from "./file-cleanup.service";
@@ -15,7 +20,9 @@ import {
   imports: [MembershipsModule],
   controllers: [
     FilesController,
+    FoldersController,
     GroupFilesController,
+    GroupFoldersController,
     LocalFileDownloadController,
   ],
   providers: [

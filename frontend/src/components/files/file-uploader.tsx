@@ -67,9 +67,11 @@ function pendingEntry(job: Job, userId: string, groupId: string) {
 
 export function FileUploader({
   groupId,
+  folderId,
   onUploaded,
 }: {
   groupId: string;
+  folderId?: string | null;
   onUploaded: () => void;
 }) {
   const { user } = useAuth();
@@ -234,6 +236,7 @@ export function FileUploader({
     try {
       const result = await uploadFile(job.file, groupId, {
         signal: runtime.controller.signal,
+        folderId: folderId ?? undefined,
         runPart: limit.current,
         resumeId: job.resumeId,
         fileHandle: job.fileHandle,

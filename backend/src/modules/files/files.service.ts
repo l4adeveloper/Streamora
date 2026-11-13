@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { isUUID } from "class-validator";
-import type { FileResponse, FileStatus } from "@streamora/contracts";
+import type { FileResponse, FileStatus, FolderBreadcrumb, FolderListResponse, FolderResponse } from "@streamora/contracts";
 import type {
+  Folder as DbFolder,
   LibraryFile as DbFile,
   Prisma,
 } from "../../generated/prisma/client";
@@ -13,7 +14,7 @@ import { FileStorageService } from "./file-storage.service";
 import { PREVIEW_TYPES } from "./file-preview";
 import { VideoPlaybackService } from "./video-playback.service";
 import type { FileListQueryDto } from "./files.dto";
-import { presentFile as present } from "./file-presenter";
+import { presentFile as present, presentFolder } from "./file-presenter";
 
 function cursorFor(file: DbFile, groupId: string, query: FileListQueryDto) {
   return Buffer.from(
@@ -23,6 +24,7 @@ function cursorFor(file: DbFile, groupId: string, query: FileListQueryDto) {
       groupId,
       q: query.q ?? "",
       type: query.type ?? "",
+      folderId: query.folderId ?? "",
     }),
   ).toString("base64url");
 }
@@ -38,7 +40,8 @@ function readCursor(groupId: string, query: FileListQueryDto) {
       new Date(c.at).toISOString() !== c.at ||
       c.groupId !== groupId ||
       c.q !== (query.q ?? "") ||
-      c.type !== (query.type ?? "")
+      c.type !== (query.type ?? "") ||
+      (c.folderId !== undefined && c.folderId !== (query.folderId ?? ""))
     )
       throw new Error();
     return { id: c.id as string, at: new Date(c.at) };
@@ -65,9 +68,18 @@ export class FilesService {
     const cursor = readCursor(groupId, query);
     // Escape LIKE metacharacters: searching for '%' must not match every file.
     const name = (query.q ?? "").replace(/[\\%_]/g, "\\$&");
+    const folderFilter =
+      query.folderId !== undefined
+        ? !query.folderId ||
+          query.folderId === "root" ||
+          query.folderId === "null"
+          ? null
+          : query.folderId
+        : undefined;
     const where: Prisma.LibraryFileWhereInput = {
       groupId,
       status: { not: "DELETED" },
+      ...(folderFilter !== undefined ? { folderId: folderFilter } : {}),
       ...(name ? { name: { contains: name, mode: "insensitive" } } : {}),
       ...(query.type === "video"
         ? { mimeType: { startsWith: "video/" } }
@@ -372,6 +384,271 @@ export class FilesService {
         },
       });
       return { fileId: file.id };
+    });
+  }
+
+  async listFolders(
+    userId: string,
+    groupId: string,
+    parentId?: string | null,
+  ): Promise<FolderListResponse> {
+    await this.access.require(userId, groupId);
+    if (parentId === "all") {
+      const all = await this.prisma.folder.findMany({
+        where: { groupId, deletedAt: null },
+        include: {
+          _count: {
+            select: {
+              files: { where: { status: { not: "DELETED" } } },
+              children: { where: { deletedAt: null } },
+            },
+          },
+        },
+        orderBy: { name: "asc" },
+      });
+      return {
+        folders: all.map(presentFolder),
+        breadcrumbs: [],
+        currentFolder: null,
+      };
+    }
+    const normalizedParentId =
+      !parentId || parentId === "root" || parentId === "null"
+        ? null
+        : parentId;
+
+    const folders = await this.prisma.folder.findMany({
+      where: {
+        groupId,
+        parentId: normalizedParentId,
+        deletedAt: null,
+      },
+      include: {
+        _count: {
+          select: {
+            files: { where: { status: { not: "DELETED" } } },
+            children: { where: { deletedAt: null } },
+          },
+        },
+      },
+      orderBy: { name: "asc" },
+    });
+
+    const breadcrumbs: FolderBreadcrumb[] = [];
+    let currentFolder:
+      | (DbFolder & { _count?: { files?: number; children?: number } })
+      | null = null;
+    let currId = normalizedParentId;
+    while (currId) {
+      const f = await this.prisma.folder.findFirst({
+        where: { id: currId, groupId, deletedAt: null },
+        include: {
+          _count: {
+            select: {
+              files: { where: { status: { not: "DELETED" } } },
+              children: { where: { deletedAt: null } },
+            },
+          },
+        },
+      });
+      if (!f) break;
+      if (!currentFolder) currentFolder = f;
+      breadcrumbs.unshift({ id: f.id, name: f.name, parentId: f.parentId });
+      currId = f.parentId;
+    }
+
+    return {
+      folders: folders.map(presentFolder),
+      breadcrumbs,
+      currentFolder: currentFolder ? presentFolder(currentFolder) : null,
+    };
+  }
+
+  async createFolder(
+    userId: string,
+    groupId: string,
+    name: string,
+    parentId?: string | null,
+  ): Promise<FolderResponse> {
+    const permissions = await this.access.require(userId, groupId);
+    if (!permissions.canUpload && !permissions.canHost) {
+      throw new ApiError(
+        403,
+        "FORBIDDEN",
+        "Bạn không có quyền tạo thư mục trong nhóm này.",
+      );
+    }
+    const normalizedParentId =
+      !parentId || parentId === "root" || parentId === "null"
+        ? null
+        : parentId;
+
+    if (normalizedParentId) {
+      const parent = await this.prisma.folder.findFirst({
+        where: { id: normalizedParentId, groupId, deletedAt: null },
+      });
+      if (!parent) {
+        throw new ApiError(
+          404,
+          "PARENT_FOLDER_NOT_FOUND",
+          "Thư mục cha không tồn tại hoặc đã bị xóa.",
+        );
+      }
+    }
+
+    const trimmedName = name.trim();
+    const existing = await this.prisma.folder.findFirst({
+      where: {
+        groupId,
+        parentId: normalizedParentId,
+        name: trimmedName,
+        deletedAt: null,
+      },
+    });
+    if (existing) {
+      throw new ApiError(
+        409,
+        "FOLDER_EXISTS",
+        "Thư mục với tên này đã tồn tại ở vị trí hiện tại.",
+      );
+    }
+
+    const created = await this.prisma.folder.create({
+      data: {
+        groupId,
+        parentId: normalizedParentId,
+        name: trimmedName,
+        createdBy: userId,
+      },
+    });
+
+    return { folder: presentFolder(created) };
+  }
+
+  async renameFolder(
+    userId: string,
+    folderId: string,
+    name: string,
+  ): Promise<FolderResponse> {
+    const folder = await this.prisma.folder.findFirst({
+      where: { id: folderId, deletedAt: null },
+    });
+    if (!folder) {
+      throw new ApiError(404, "FOLDER_NOT_FOUND", "Thư mục không tồn tại.");
+    }
+    const permissions = await this.access.require(userId, folder.groupId);
+    if (folder.createdBy !== userId && !permissions.canHost) {
+      throw new ApiError(
+        403,
+        "FORBIDDEN",
+        "Bạn chỉ được đổi tên thư mục do mình tạo.",
+      );
+    }
+
+    const trimmedName = name.trim();
+    const existing = await this.prisma.folder.findFirst({
+      where: {
+        groupId: folder.groupId,
+        parentId: folder.parentId,
+        name: trimmedName,
+        deletedAt: null,
+        id: { not: folderId },
+      },
+    });
+    if (existing) {
+      throw new ApiError(
+        409,
+        "FOLDER_EXISTS",
+        "Thư mục với tên này đã tồn tại ở vị trí hiện tại.",
+      );
+    }
+
+    const updated = await this.prisma.folder.update({
+      where: { id: folderId },
+      data: { name: trimmedName },
+    });
+
+    return { folder: presentFolder(updated) };
+  }
+
+  async removeFolder(userId: string, folderId: string): Promise<void> {
+    const folder = await this.prisma.folder.findFirst({
+      where: { id: folderId, deletedAt: null },
+    });
+    if (!folder) {
+      throw new ApiError(404, "FOLDER_NOT_FOUND", "Thư mục không tồn tại.");
+    }
+    const permissions = await this.access.require(userId, folder.groupId);
+    if (folder.createdBy !== userId && !permissions.canHost) {
+      throw new ApiError(
+        403,
+        "FORBIDDEN",
+        "Bạn chỉ được xóa thư mục do mình tạo.",
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Find all descendant folders
+      const toDelete: string[] = [folderId];
+      const queue: string[] = [folderId];
+      while (queue.length > 0) {
+        const curr = queue.shift()!;
+        const children = await tx.folder.findMany({
+          where: { parentId: curr, deletedAt: null },
+          select: { id: true },
+        });
+        for (const child of children) {
+          toDelete.push(child.id);
+          queue.push(child.id);
+        }
+      }
+
+      const now = new Date();
+      // Soft-delete the folders
+      await tx.folder.updateMany({
+        where: { id: { in: toDelete } },
+        data: { deletedAt: now },
+      });
+
+      // Move files inside to parent folder (or root if parentId is null)
+      await tx.libraryFile.updateMany({
+        where: { folderId: { in: toDelete } },
+        data: { folderId: folder.parentId },
+      });
+    });
+  }
+
+  async moveFile(
+    userId: string,
+    fileId: string,
+    destinationFolderId: string | null,
+  ): Promise<FileResponse> {
+    return this.prisma.$transaction(async (tx) => {
+      const file = await this.mutationAccess(tx, userId, fileId);
+
+      if (destinationFolderId) {
+        const dest = await tx.folder.findFirst({
+          where: {
+            id: destinationFolderId,
+            groupId: file.groupId,
+            deletedAt: null,
+          },
+        });
+        if (!dest) {
+          throw new ApiError(
+            404,
+            "DESTINATION_FOLDER_NOT_FOUND",
+            "Thư mục đích không tồn tại hoặc đã bị xóa.",
+          );
+        }
+      }
+
+      const updated = await tx.libraryFile.update({
+        where: { id: fileId },
+        data: { folderId: destinationFolderId },
+      });
+
+      return { file: present(updated) };
     });
   }
 }
