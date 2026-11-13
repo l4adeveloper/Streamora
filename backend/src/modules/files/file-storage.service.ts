@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { Inject, Injectable, OnModuleDestroy, Optional } from "@nestjs/common";
 import {
   DeleteObjectCommand,
@@ -128,6 +129,24 @@ export class FileStorageService implements OnModuleDestroy {
         "Chưa thể cấp liên kết tải. Vui lòng thử lại.",
       );
     }
+  }
+  async read(objectKey: string, locationId?: string | null): Promise<Readable> {
+    const backend = await this.backend(locationId);
+    if (backend.local) {
+      const grant = await backend.local.download(objectKey, "download");
+      return (
+        await backend.local.openDownload(
+          new URL(grant.url).searchParams.get("token") ?? "",
+        )
+      ).stream;
+    }
+    const result = await backend.client!.send(
+      new GetObjectCommand({
+        Bucket: this.bucket(backend.target),
+        Key: objectKey,
+      }),
+    );
+    return result.Body as Readable;
   }
   async delete(objectKey: string, locationId?: string | null) {
     const backend = await this.backend(locationId);

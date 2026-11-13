@@ -32,12 +32,34 @@ test(
       const group = await fixture.prisma.group.create({
         data: { name: "T17", ownerId: user.id },
       });
+      await fixture.prisma.libraryFile.create({
+        data: {
+          groupId: group.id,
+          createdBy: user.id,
+          name: "placeholder.txt",
+          folderPath: "Resume/Sub",
+          size: 1n,
+          mimeType: "text/plain",
+          source: "DOCUMENT",
+          status: "AVAILABLE",
+          objectKey: "test/" + randomUUID(),
+        },
+      });
       await page.goto(`${fixture.webOrigin}/login`);
       await page.getByLabel("Email", { exact: true }).fill(email);
       await page.getByLabel("Mật khẩu", { exact: true }).fill(password);
       await page.locator('button[type="submit"]').click();
       await page.waitForURL("**/workspace");
       await page.goto(`${fixture.webOrigin}/files?groupId=${group.id}`);
+      await page
+        .locator(".library-file-name")
+        .filter({ hasText: "Resume" })
+        .click();
+      await page
+        .locator(".library-file-name")
+        .filter({ hasText: "Sub" })
+        .click();
+      await page.getByText("placeholder.txt", { exact: true }).waitFor();
       let interrupted = true,
         resumed = false,
         holdResumedParts = false;
@@ -86,7 +108,7 @@ test(
         uploadThroughput: 2 * 1024 ** 2,
       });
       await page
-        .locator('.file-uploader input[type="file"]')
+        .locator('.file-uploader input[type="file"]:not([webkitdirectory])')
         .setInputFiles(file);
       await page.waitForFunction(
         () =>
@@ -265,12 +287,24 @@ test(
         where: { id: before.id },
       });
       assert.equal(session.status, "COMPLETED");
+      assert.equal(session.folderPath, "Resume/Sub");
+      assert.equal(
+        (
+          await fixture.prisma.libraryFile.findUnique({
+            where: { id: session.fileId },
+          })
+        ).folderPath,
+        "Resume/Sub",
+      );
       assert.equal(
         await fixture.prisma.uploadSession.count({
           where: { userId: user.id },
         }),
         1,
       );
+      await page
+        .getByRole("textbox", { name: "Tìm tên tài liệu" })
+        .fill("resume.pdf");
       const downloadEvent = page.waitForEvent("download");
       await page
         .getByRole("button", { name: "Tải xuống resume.pdf", exact: true })
@@ -288,6 +322,7 @@ test(
         exact: true,
       });
       if (await closePrevious.count()) await closePrevious.click();
+      await page.getByRole("textbox", { name: "Tìm tên tài liệu" }).fill("");
       // Exercise the native-handle picker path as well as the input/Blob fallback above.
       await page.evaluate(async () => {
         const dir = await navigator.storage.getDirectory();
@@ -305,8 +340,9 @@ test(
         downloadThroughput: 100 * 1024 ** 2,
         uploadThroughput: 2 * 1024 ** 2,
       });
+      await page.locator(".upload-choice summary").click();
       await page
-        .getByRole("button", { name: "Chọn file tải lên", exact: true })
+        .getByRole("button", { name: "Chọn file", exact: true })
         .click();
       const handleJob = page
         .locator(".upload-job")
@@ -480,7 +516,7 @@ test(
         buffer: Buffer.alloc(2 * 1024 ** 2, i + 1),
       }));
       await page
-        .locator('.file-uploader input[type="file"]')
+        .locator('.file-uploader input[type="file"]:not([webkitdirectory])')
         .setInputFiles(files);
       await page.waitForFunction(() => window.initialHeld === 4);
       await page
@@ -655,13 +691,15 @@ test(
         await new Promise((resolve) => setTimeout(resolve, 100));
         await route.fulfill({ response });
       });
-      await page.locator('.file-uploader input[type="file"]').setInputFiles(
-        [0, 1].map((i) => ({
-          name: `previous-${i}.pdf`,
-          mimeType: "application/pdf",
-          buffer: Buffer.alloc(512 * 1024, i + 1),
-        })),
-      );
+      await page
+        .locator('.file-uploader input[type="file"]:not([webkitdirectory])')
+        .setInputFiles(
+          [0, 1].map((i) => ({
+            name: `previous-${i}.pdf`,
+            mimeType: "application/pdf",
+            buffer: Buffer.alloc(512 * 1024, i + 1),
+          })),
+        );
       await page.waitForFunction(() => window.held === 2);
       for (const i of [0, 1])
         await page

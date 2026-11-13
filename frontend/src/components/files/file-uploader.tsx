@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   CircleAlert,
   LoaderCircle,
   Pause,
@@ -10,8 +12,18 @@ import {
   X,
 } from "lucide-react";
 import { asApiError } from "@/lib/api";
-import { abortUpload, createPartLimiter, uploadFile } from "@/lib/files/upload";
+import {
+  abortUpload,
+  createPartLimiter,
+  getUpload,
+  uploadFile,
+} from "@/lib/files/upload";
 import { uploadStore, type UploadFileHandle } from "@/lib/files/upload-store";
+import {
+  folderChangeEvent,
+  folderChangeChannel,
+  type FolderChange,
+} from "@/lib/files/folder-events";
 import { useAuth } from "@/components/auth/auth-provider";
 
 type Status =
@@ -34,6 +46,7 @@ type Job = {
   fileHandle?: UploadFileHandle;
   pendingId?: string;
   queuedAt?: number;
+  folderPath?: string;
 };
 type Runtime = {
   controller: AbortController;
@@ -41,6 +54,7 @@ type Runtime = {
   complete?: () => Promise<unknown>;
   cancelling?: boolean;
   paused?: boolean;
+  forced?: boolean;
   percent: number;
   checkpointAt: number;
   running: boolean;
@@ -56,6 +70,7 @@ function pendingEntry(job: Job, userId: string, groupId: string) {
       userId,
       groupId,
       filename: job.file.name,
+      folderPath: job.folderPath,
       size: job.file.size,
       fingerprint: "",
       percent: job.percent,
@@ -68,15 +83,24 @@ function pendingEntry(job: Job, userId: string, groupId: string) {
 export function FileUploader({
   groupId,
   folderId,
+  folderPath,
   onUploaded,
 }: {
   groupId: string;
   folderId?: string | null;
+  folderPath?: string;
   onUploaded: () => void;
 }) {
   const { user } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [collapsed, setCollapsed] = useState(false);
+  const currentJobs = useRef(jobs);
+  currentJobs.current = jobs;
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const uploadMenu = useRef<HTMLDetailsElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const folderPicker = useRef<HTMLInputElement>(null);
   const alive = useRef(true);
   const queue = useRef<Job[]>([]);
   const active = useRef(0);
@@ -125,6 +149,7 @@ export function FileUploader({
                 resumeId: row.pending ? undefined : row.uploadId,
                 pendingId: row.pending ? row.uploadId : undefined,
                 queuedAt: row.queuedAt,
+                folderPath: row.folderPath,
                 file: source?.file ?? new File([], row.filename),
                 fileHandle: source?.handle,
                 needsFile: !source?.file && !source?.handle,
@@ -196,10 +221,28 @@ export function FileUploader({
       setTimeout(() => dismiss(id), 5000),
     );
   }
+  async function reconcileCancellation(job: Job, runtime: Runtime) {
+    if (runtime.forced) return true;
+    if (!runtime.uploadId) return false;
+    const state = await getUpload(runtime.uploadId).catch(() => undefined);
+    if (runtime.forced) return true;
+    if (!state || !["ABORTING", "ABORTED"].includes(state.status)) return false;
+    reserved.current.delete(runtime.uploadId);
+    await uploadStore.remove(runtime.uploadId).catch(() => {});
+    runtime.complete = undefined;
+    update(job.id, {
+      status: "cancelled",
+      message: "Phiên tải lên đã bị hủy trên máy chủ.",
+    });
+    quotaFreed();
+    autoDismiss(job.id);
+    return true;
+  }
   async function complete(job: Job, runtime: Runtime) {
     update(job.id, { status: "finishing", percent: 99, message: undefined });
     try {
       await runtime.complete!();
+      if (runtime.forced) return;
       if (runtime.uploadId) reserved.current.delete(runtime.uploadId);
       quotaFreed();
       runtime.uploadId = undefined;
@@ -212,6 +255,7 @@ export function FileUploader({
       if (alive.current) uploaded.current();
       autoDismiss(job.id);
     } catch (cause) {
+      if (await reconcileCancellation(job, runtime)) return;
       update(job.id, {
         status: "error",
         message: `${asApiError(cause).message} Có thể thử hoàn tất lại.`,
@@ -237,6 +281,7 @@ export function FileUploader({
       const result = await uploadFile(job.file, groupId, {
         signal: runtime.controller.signal,
         folderId: folderId ?? undefined,
+        folderPath: job.folderPath ?? folderPath,
         runPart: limit.current,
         resumeId: job.resumeId,
         fileHandle: job.fileHandle,
@@ -288,6 +333,13 @@ export function FileUploader({
     } catch (cause) {
       // A rapid resume may already have installed a new runtime for this file.
       if (runtimes.current.get(job.id) !== runtime) return;
+      if (runtime.forced) return;
+      if (
+        !runtime.controller.signal.aborted &&
+        (await reconcileCancellation(job, runtime))
+      )
+        return;
+      if (runtime.forced) return;
       if (runtime.paused) {
         update(job.id, {
           status: "paused",
@@ -379,6 +431,7 @@ export function FileUploader({
   async function enqueue(
     files: FileList | File[] | null,
     handles?: (UploadFileHandle | undefined)[],
+    paths?: string[],
   ) {
     if (!files?.length || !user) return;
     const added: Job[] = Array.from(files).map((file, index) => {
@@ -388,6 +441,13 @@ export function FileUploader({
         pendingId: id,
         queuedAt: Date.now() + index,
         file,
+        folderPath: [
+          folderPath,
+          paths?.[index] ??
+            file.webkitRelativePath.split("/").slice(0, -1).join("/"),
+        ]
+          .filter(Boolean)
+          .join("/"),
         fileHandle: handles?.[index],
         status: "saving",
         percent: 0,
@@ -560,38 +620,136 @@ export function FileUploader({
       }
     }
   }
+  useEffect(() => {
+    const stop = (change: FolderChange) => {
+      if (
+        change?.groupId !== groupId ||
+        typeof change.folderPath !== "string" ||
+        !change.folderPath
+      )
+        return;
+      const affected = currentJobs.current.filter(
+        (job) =>
+          !["done", "cancelled"].includes(job.status) &&
+          (job.folderPath === change.folderPath ||
+            job.folderPath?.startsWith(change.folderPath + "/")),
+      );
+      const ids = new Set(affected.map((job) => job.id));
+      queue.current = queue.current.filter((job) => !ids.has(job.id));
+      for (const job of affected) {
+        cancelled.current.add(job.id);
+        preparing.current.delete(job.id);
+        const runtime = runtimes.current.get(job.id);
+        if (runtime) {
+          runtime.forced = true;
+          runtime.paused = false;
+          runtime.complete = undefined;
+          runtime.controller.abort();
+        }
+        for (const id of new Set(
+          [job.pendingId, job.resumeId, runtime?.uploadId].filter(
+            (id): id is string => !!id,
+          ),
+        )) {
+          reserved.current.delete(id);
+          void uploadStore.remove(id).catch(() => {});
+        }
+        update(job.id, {
+          status: "cancelled",
+          message: "Đã hủy do thay đổi thư mục.",
+        });
+      }
+      for (const job of affected) {
+        runtimes.current.get(job.id)?.release();
+        autoDismiss(job.id);
+      }
+      quotaFreed();
+      pump();
+    };
+    const local = (event: Event) =>
+      stop((event as CustomEvent<FolderChange>).detail);
+    window.addEventListener(folderChangeEvent, local);
+    const channel =
+      typeof BroadcastChannel !== "undefined"
+        ? new BroadcastChannel(folderChangeChannel)
+        : undefined;
+    if (channel) channel.onmessage = (event) => stop(event.data);
+    return () => {
+      window.removeEventListener(folderChangeEvent, local);
+      channel?.close();
+    };
+  }, [groupId]);
   const working = jobs.filter((job) =>
     ["saving", "queued", "uploading", "finishing"].includes(job.status),
   ).length;
   return (
     <>
       <section
-        className="file-uploader"
+        className={`file-uploader ${dragging ? "is-dragging" : ""}`}
         aria-label="Tải tài liệu lên"
-        onDragOver={(event) => event.preventDefault()}
+        onDragEnter={(event) => {
+          if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+          event.preventDefault();
+          dragDepth.current++;
+          setDragging(true);
+        }}
+        onDragLeave={(event) => {
+          event.preventDefault();
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (!dragDepth.current) setDragging(false);
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }}
         onDrop={async (event) => {
           event.preventDefault();
-          const files = Array.from(event.dataTransfer.files);
-          const items = Array.from(event.dataTransfer.items).filter(
-            (item) => item.kind === "file",
-          );
-          const handles = await Promise.all(
-            items.map(async (item) => {
-              try {
-                const handle = await (
-                  item as DataTransferItem & {
-                    getAsFileSystemHandle?: () => Promise<FileSystemHandle>;
-                  }
-                ).getAsFileSystemHandle?.();
-                return handle?.kind === "file"
-                  ? (handle as UploadFileHandle)
-                  : undefined;
-              } catch {
-                return undefined;
+          dragDepth.current = 0;
+          setDragging(false);
+          const entries = Array.from(event.dataTransfer.items)
+            .map((item) => item.webkitGetAsEntry())
+            .filter((entry): entry is FileSystemEntry => !!entry);
+          try {
+            const found: { file: File; path: string }[] = [];
+            async function visit(
+              entry: FileSystemEntry,
+              path: string,
+            ): Promise<void> {
+              if (entry.isFile) {
+                const file = await new Promise<File>((resolve, reject) =>
+                  (entry as FileSystemFileEntry).file(resolve, reject),
+                );
+                found.push({ file, path });
+              } else if (entry.isDirectory) {
+                const reader = (
+                  entry as FileSystemDirectoryEntry
+                ).createReader();
+                for (;;) {
+                  const batch = await new Promise<FileSystemEntry[]>(
+                    (resolve, reject) => reader.readEntries(resolve, reject),
+                  );
+                  if (!batch.length) break;
+                  for (const child of batch)
+                    await visit(
+                      child,
+                      [path, entry.name].filter(Boolean).join("/"),
+                    );
+                }
               }
-            }),
-          );
-          enqueue(files, handles);
+            }
+            if (entries.length) {
+              for (const entry of entries) await visit(entry, "");
+              await enqueue(
+                found.map((item) => item.file),
+                undefined,
+                found.map((item) => item.path),
+              );
+              if (!found.length)
+                setStorageError("Thư mục không có file để tải lên.");
+            } else await enqueue(Array.from(event.dataTransfer.files));
+          } catch {
+            setStorageError("Không đọc được thư mục. Hãy thử chọn lại.");
+          }
         }}
       >
         <input
@@ -604,18 +762,50 @@ export function FileUploader({
             event.target.value = "";
           }}
         />
-        <button
-          type="button"
-          className="button secondary compact"
-          onClick={() => void pickFiles()}
-        >
-          <Upload size={16} /> Chọn file tải lên
-        </button>
-        <span> hoặc kéo thả nhiều file vào đây (tối đa 2 GB mỗi file).</span>
+        <input
+          ref={folderPicker}
+          type="file"
+          multiple
+          hidden
+          {...({ webkitdirectory: "" } as object)}
+          onChange={(event) => {
+            void enqueue(event.target.files);
+            event.target.value = "";
+          }}
+        />
+        <details className="upload-choice" ref={uploadMenu}>
+          <summary className="button secondary compact">
+            <Upload size={16} /> Chọn tải lên
+          </summary>
+          <div className="upload-choice-menu">
+            <button
+              type="button"
+              onClick={() => {
+                if (uploadMenu.current) uploadMenu.current.open = false;
+                void pickFiles();
+              }}
+            >
+              Chọn file
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (uploadMenu.current) uploadMenu.current.open = false;
+                folderPicker.current?.click();
+              }}
+            >
+              Chọn thư mục
+            </button>
+          </div>
+        </details>
+        <span>hoặc kéo thả file, thư mục vào đây (tối đa 2 GB mỗi file).</span>
       </section>
       {storageError && <p role="alert">{storageError}</p>}
       {jobs.length > 0 && (
-        <aside className="upload-popover" aria-label="Trạng thái tải lên">
+        <aside
+          className={`upload-popover ${collapsed ? "is-collapsed" : ""}`}
+          aria-label="Trạng thái tải lên"
+        >
           <div className="upload-popover-heading">
             <Upload size={18} />
             <strong>
@@ -625,6 +815,25 @@ export function FileUploader({
               {jobs.filter((job) => job.status === "done").length}/{jobs.length}{" "}
               hoàn tất
             </small>
+            <button
+              type="button"
+              className="upload-popover-toggle"
+              title={
+                collapsed
+                  ? "Mở rộng tiến độ tải lên"
+                  : "Thu gọn tiến độ tải lên"
+              }
+              aria-label={
+                collapsed
+                  ? "Mở rộng tiến độ tải lên"
+                  : "Thu gọn tiến độ tải lên"
+              }
+              aria-expanded={!collapsed}
+              aria-controls="upload-popover-jobs"
+              onClick={() => setCollapsed((value) => !value)}
+            >
+              {collapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </button>
           </div>
           {jobs.filter((job) => job.status === "paused" && !job.needsFile)
             .length > 1 && (
@@ -646,7 +855,7 @@ export function FileUploader({
               </button>
             </div>
           )}
-          <div className="upload-popover-list">
+          <div className="upload-popover-list" id="upload-popover-jobs">
             {jobs.map((job) => {
               const runtime = runtimes.current.get(job.id);
               const terminal =

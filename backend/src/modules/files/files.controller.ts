@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
 } from "@nestjs/common";
 import {
   ApiBearerAuth,
@@ -15,6 +16,8 @@ import {
   ApiExcludeEndpoint,
   ApiParam,
   ApiTags,
+  ApiProduces,
+  ApiResponse,
 } from "@nestjs/swagger";
 import { CurrentAuth, RequireAuth, UUIDParamPipe } from "../../common";
 import type { AuthenticatedIdentity } from "../../common";
@@ -27,6 +30,8 @@ import {
   ListFoldersQueryDto,
   MoveFileDto,
   RenameFileDto,
+  FolderDto,
+  ChangeFolderDto,
   RenameFolderDto,
 } from "./files.dto";
 import {
@@ -42,6 +47,80 @@ import {
 @RequireAuth()
 export class GroupFilesController {
   constructor(private readonly files: FilesService) {}
+  @Patch("folders")
+  @HttpCode(204)
+  @ApiOperation({ summary: "Đổi tên thư mục và toàn bộ đường dẫn con" })
+  @ApiSuccess(204)
+  @ApiErrors(
+    [400, "VALIDATION_ERROR"],
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FOLDER_NOT_FOUND"],
+    [409, "FOLDER_EXISTS", "FOLDER_BUSY"],
+  )
+  async renameFolder(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("groupId", UUIDParamPipe) groupId: string,
+    @Body() dto: RenameFolderDto,
+  ) {
+    await this.files.changeFolder(
+      auth.user.id,
+      groupId,
+      dto.folderPath!,
+      dto.name,
+      dto.force,
+    );
+  }
+  @Delete("folders")
+  @HttpCode(204)
+  @ApiOperation({
+    summary: "Xóa thư mục và các file bên trong; tạo job dọn storage",
+  })
+  @ApiSuccess(204)
+  @ApiErrors(
+    [400, "VALIDATION_ERROR"],
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FOLDER_NOT_FOUND"],
+    [409, "FILE_IN_USE", "FOLDER_BUSY"],
+  )
+  async removeFolder(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("groupId", UUIDParamPipe) groupId: string,
+    @Body() dto: ChangeFolderDto,
+  ) {
+    await this.files.changeFolder(
+      auth.user.id,
+      groupId,
+      dto.folderPath,
+      undefined,
+      dto.force,
+    );
+  }
+  @Post("folders/download")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Tải thư mục dưới dạng ZIP, giữ cấu trúc thư mục con",
+  })
+  @ApiProduces("application/zip")
+  @ApiResponse({ status: 200, schema: { type: "string", format: "binary" } })
+  @ApiErrors(
+    [400, "VALIDATION_ERROR"],
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FOLDER_NOT_FOUND"],
+    [409, "FILE_NOT_READY"],
+  )
+  async downloadFolder(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("groupId", UUIDParamPipe) groupId: string,
+    @Body() dto: FolderDto,
+  ) {
+    return new StreamableFile(
+      await this.files.downloadFolder(auth.user.id, groupId, dto.folderPath),
+      { type: "application/zip", disposition: "attachment" },
+    );
+  }
   @Get()
   @ApiOperation({
     summary: "T15-01 — Danh sách và tìm tên tài liệu trong nhóm",

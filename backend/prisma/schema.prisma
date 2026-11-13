@@ -532,6 +532,7 @@ model LibraryFile {
   groupId     String     @map("group_id") @db.Uuid
   folderId    String?    @map("folder_id") @db.Uuid
   name        String     @db.VarChar(255)
+  folderPath  String     @default("") @map("folder_path") @db.VarChar(2048)
   size        BigInt
   mimeType    String     @map("mime_type") @db.VarChar(255)
   source      FileSource
@@ -565,6 +566,7 @@ model UploadSession {
   folderId      String? @map("folder_id") @db.Uuid
   userId        String @map("user_id") @db.Uuid
   filename      String @db.VarChar(255)
+  folderPath    String @default("") @map("folder_path") @db.VarChar(2048)
   size          BigInt
   mimeType      String @map("mime_type") @db.VarChar(255)
   fingerprint   String @db.VarChar(200)

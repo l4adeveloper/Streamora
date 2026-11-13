@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { test, before, after } = require("node:test");
 const { randomUUID } = require("node:crypto");
-const { mkdir } = require("node:fs/promises");
+const { mkdir, writeFile, rm } = require("node:fs/promises");
 const { resolve } = require("node:path");
 const { chromium } = require("playwright");
 const { createFrontendFixture } = require("./frontend-fixture.cjs");
@@ -12,7 +12,7 @@ before(
       headless: true,
       channel: process.platform === "win32" ? "msedge" : undefined,
     });
-    fixture = await createFrontendFixture();
+    fixture = await createFrontendFixture({ localUploads: true });
   },
   { timeout: 240000 },
 );
@@ -103,9 +103,7 @@ test(
       );
       assert.equal(await page.locator(".library-file-row").count(), 24);
       assert.equal(
-        await page
-          .getByRole("button", { name: "Chọn file tải lên", exact: true })
-          .count(),
+        await page.locator(".upload-choice").count(),
         0,
         "Viewer must not see upload controls",
       );
@@ -205,7 +203,9 @@ test(
         .getByLabel("Tên tài liệu", { exact: true })
         .fill("Bài giảng mới.pdf");
       await page.getByRole("button", { name: "Lưu tên", exact: true }).click();
-      await page.locator("dialog").waitFor({ state: "hidden" });
+      await page
+        .locator('dialog[aria-labelledby="library-dialog-title"]')
+        .waitFor({ state: "hidden" });
       for (const button of await page
         .getByRole("button", { name: "Đóng thông báo", exact: true })
         .all())
@@ -270,6 +270,269 @@ test(
       assert.equal(await page.locator(".library-file-row").count(), 0);
     } finally {
       await context.close();
+    }
+  },
+);
+
+test(
+  "T15 folders UI: directory upload, hover, nested file search, ZIP, rename, delete and empty layout",
+  { timeout: 120000 },
+  async () => {
+    const context = await browser.newContext({
+      viewport: { width: 1000, height: 850 },
+      acceptDownloads: true,
+    });
+    const root = resolve(".preview", `folder-ui-${randomUUID()}`);
+    const materials = resolve(root, "Materials");
+    let releaseForceGate;
+    try {
+      await mkdir(resolve(materials, "Sub"), { recursive: true });
+      await writeFile(
+        resolve(materials, "Sub", "nested.txt"),
+        "folder fixture",
+      );
+      const page = await context.newPage();
+      page.setDefaultTimeout(20000);
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("console", (message) => {
+        if (
+          message.type() === "error" &&
+          message.text().includes("Maximum update depth")
+        )
+          errors.push(message.text());
+      });
+      const email = `folder-${randomUUID()}@example.test`,
+        password = "Folders-test-password-123!";
+      const registered = await fetch(`${fixture.apiUrl}/auth/register`, {
+        method: "POST",
+        headers: {
+          Origin: fixture.webOrigin,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password, fullName: "Folder tester" }),
+      });
+      assert.equal(registered.status, 201);
+      const user = (await registered.json()).user;
+      const group = await fixture.prisma.group.create({
+        data: { name: "Folder UI", ownerId: user.id },
+      });
+      await page.goto(`${fixture.webOrigin}/login`);
+      await page.getByLabel("Email", { exact: true }).fill(email);
+      await page.getByLabel("Mật khẩu", { exact: true }).fill(password);
+      await page.locator('button[type="submit"]').click();
+      await page.waitForURL("**/workspace");
+      await page.goto(`${fixture.webOrigin}/files?groupId=${group.id}`);
+      await page
+        .getByText("Thư viện chưa có tài liệu", { exact: true })
+        .waitFor();
+      assert.equal(await page.locator(".file-table-heading").count(), 0);
+      await page.locator(".upload-choice summary").click();
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Chọn thư mục", exact: true })
+          .isVisible(),
+        true,
+      );
+      await page.locator(".upload-choice summary").click();
+      const transfer = await page.evaluateHandle(() => {
+        const d = new DataTransfer();
+        d.items.add(new File(["test"], "test.txt", { type: "text/plain" }));
+        return d;
+      });
+      await page
+        .locator(".file-uploader")
+        .dispatchEvent("dragenter", { dataTransfer: transfer });
+      assert.match(
+        await page.locator(".file-uploader").getAttribute("class"),
+        /is-dragging/,
+      );
+      await page
+        .locator(".file-uploader")
+        .dispatchEvent("dragleave", { dataTransfer: transfer });
+      assert.doesNotMatch(
+        await page.locator(".file-uploader").getAttribute("class"),
+        /is-dragging/,
+      );
+      await page
+        .locator(".file-uploader input[webkitdirectory]")
+        .setInputFiles(materials);
+      await page
+        .locator(".library-file-name")
+        .filter({ hasText: "Materials" })
+        .waitFor();
+      const saved = await fixture.prisma.libraryFile.findFirst({
+        where: { groupId: group.id },
+      });
+      assert.equal(saved.folderPath, "Materials/Sub");
+      await page
+        .getByRole("button", { name: "Video và bản ghi", exact: true })
+        .click();
+      await page.getByText("Chưa tìm thấy tài liệu", { exact: true }).waitFor();
+      assert.equal(await page.locator(".library-file-row").count(), 0);
+      await page.getByRole("button", { name: "Tài liệu", exact: true }).click();
+      await page
+        .locator(".library-file-name")
+        .filter({ hasText: "Materials" })
+        .waitFor();
+      const search = page.getByRole("textbox", { name: "Tìm tên tài liệu" });
+      await search.fill("nested");
+      await page
+        .getByRole("button", { name: "Tải xuống nested.txt", exact: true })
+        .waitFor();
+      assert.equal(await page.locator(".library-file-row").count(), 1);
+      assert.equal(
+        await page
+          .getByRole("button", {
+            name: "Tải xuống thư mục Materials",
+            exact: true,
+          })
+          .count(),
+        0,
+      );
+      await search.fill("missing-file");
+      await page.getByText("Chưa tìm thấy tài liệu", { exact: true }).waitFor();
+      assert.equal(await page.locator(".file-table-heading").count(), 0);
+      await page.setViewportSize({ width: 375, height: 850 });
+      assert.equal(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        true,
+      );
+      await page.setViewportSize({ width: 1000, height: 850 });
+      await search.fill("");
+      await page
+        .getByRole("button", {
+          name: "Tải xuống thư mục Materials",
+          exact: true,
+        })
+        .waitFor();
+      const downloadPromise = page.waitForEvent("download");
+      await page
+        .getByRole("button", {
+          name: "Tải xuống thư mục Materials",
+          exact: true,
+        })
+        .click();
+      const download = await downloadPromise;
+      assert.equal(download.suggestedFilename(), "Materials.zip");
+      assert.equal(await download.failure(), null);
+      const gate = new Promise((resolve) => {
+        releaseForceGate = resolve;
+      });
+      await page.route("**/parts?token=*", async (route) => {
+        if (route.request().method() !== "PUT") return route.continue();
+        await gate;
+        await route.abort("aborted").catch(() => {});
+      });
+      await page
+        .locator(".library-file-name")
+        .filter({ hasText: "Materials" })
+        .click();
+      await page
+        .locator('.file-uploader input[type="file"]:not([webkitdirectory])')
+        .setInputFiles(
+          Array.from({ length: 6 }, (_, i) => ({
+            name: "force-" + i + ".txt",
+            mimeType: "text/plain",
+            buffer: Buffer.alloc(64, i + 1),
+          })),
+        );
+      for (let attempt = 0; attempt < 200; attempt++) {
+        if (
+          (await fixture.prisma.uploadSession.count({
+            where: { groupId: group.id, status: "ACTIVE" },
+          })) === 4
+        )
+          break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      assert.equal(
+        await fixture.prisma.uploadSession.count({
+          where: { groupId: group.id, status: "ACTIVE" },
+        }),
+        4,
+      );
+      const otherTab = await context.newPage();
+      await otherTab.goto(`${fixture.webOrigin}/files?groupId=${group.id}`);
+      await otherTab.waitForFunction(
+        () =>
+          [...document.querySelectorAll(".upload-job.paused")].filter((e) =>
+            e.textContent.includes("force-"),
+          ).length === 6,
+      );
+      await page.getByRole("button", { name: "Thư viện", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Thu gọn tiến độ tải lên", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Đổi tên thư mục Materials", exact: true })
+        .click();
+      const rename = page.getByRole("dialog", {
+        name: "Đổi tên thư mục",
+        exact: true,
+      });
+      await rename.getByLabel("Tên thư mục").fill("Renamed");
+      await rename
+        .getByRole("button", { name: "Lưu tên", exact: true })
+        .click();
+      await rename
+        .getByText("Buộc thực hiện sẽ hủy mọi file", { exact: false })
+        .waitFor();
+      assert.equal(
+        await page
+          .locator(".upload-job.cancelled")
+          .filter({ hasText: "force-" })
+          .count(),
+        0,
+      );
+      await rename
+        .getByRole("button", { name: "Hủy tải lên và đổi tên", exact: true })
+        .click();
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll(".upload-job.cancelled")].filter((e) =>
+            e.textContent.includes("force-"),
+          ).length === 6,
+      );
+      await otherTab.waitForFunction(
+        () =>
+          [...document.querySelectorAll(".upload-job.cancelled")].filter((e) =>
+            e.textContent.includes("force-"),
+          ).length === 6,
+      );
+      releaseForceGate();
+      await otherTab.close();
+
+      await rename.waitFor({ state: "hidden" });
+      await page
+        .getByRole("button", { name: "Xóa thư mục Renamed", exact: true })
+        .click();
+      const deletion = page.getByRole("dialog", {
+        name: "Xóa vĩnh viễn thư mục?",
+        exact: true,
+      });
+      await deletion
+        .getByRole("button", { name: "Xóa vĩnh viễn", exact: true })
+        .click();
+      await deletion.waitFor({ state: "hidden" });
+      await page.getByText("Chưa tìm thấy tài liệu", { exact: true }).waitFor();
+      assert.equal(
+        (
+          await fixture.prisma.libraryFile.findUnique({
+            where: { id: saved.id },
+          })
+        ).status,
+        "DELETED",
+      );
+      assert.deepEqual(errors, []);
+    } finally {
+      releaseForceGate?.();
+      await context.close();
+      if (!root.startsWith(resolve(".preview") + require("node:path").sep))
+        throw Error("Unsafe cleanup path");
+      await rm(root, { recursive: true, force: true });
     }
   },
 );

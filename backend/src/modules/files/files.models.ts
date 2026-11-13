@@ -3,6 +3,7 @@ export class LibraryFileDto {
   @ApiProperty({ format: "uuid" }) id!: string;
   @ApiProperty({ format: "uuid" }) groupId!: string;
   @ApiProperty() name!: string;
+  @ApiProperty() folderPath!: string;
   @ApiProperty({ type: Number, minimum: 0 }) size!: number;
   @ApiProperty() mimeType!: string;
   @ApiProperty({ enum: ["DOCUMENT", "LOCAL_RECORDING", "CLOUD_RECORDING"] })
@@ -20,6 +21,7 @@ export class FileResponseDto {
 }
 export class FileListResponseDto {
   @ApiProperty({ type: [LibraryFileDto] }) items!: LibraryFileDto[];
+  @ApiProperty({ type: [String] }) folders!: string[];
   @ApiProperty({ type: String, nullable: true }) nextCursor!: string | null;
 }
 export class FileDownloadResponseDto {

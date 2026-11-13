@@ -4,6 +4,7 @@ import type { ClassSession, ClassSessionStatus } from "@streamora/contracts";
 import { useAuth } from "@/components/auth/auth-provider";
 import { listClassSessions } from "./api";
 
+const emptySessions: ClassSession[] = [];
 const visible = (session: ClassSession) =>
   ["LIVE", "SCHEDULED"].includes(session.status);
 const ordered = (items: ClassSession[]) =>
@@ -123,7 +124,7 @@ export function useWorkspaceMeetings(
     [scope, groupId],
   );
   return {
-    items: state.scope === scope && enabled ? state.items : [],
+    items: state.scope === scope && enabled ? state.items : emptySessions,
     loading: enabled && (state.scope !== scope || state.loading),
     error: state.scope === scope && enabled ? state.error : null,
     refresh,
