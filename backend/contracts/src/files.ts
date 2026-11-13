@@ -6,6 +6,7 @@ export interface LibraryFile {
   id: string;
   groupId: string;
   folderId?: string | null;
+  folderName?: string | null;
   name: string;
   folderPath: string;
   size: number;
