@@ -32,16 +32,27 @@
   50% { opacity: 0.6; transform: scale(1.15); }
 }
 
-/* ── Active meeting banner when minimized to chat ─────────────────────────── */
+/* Float the ongoing meeting above the workspace without shrinking its columns. */
+.app-shell .workspace-body {
+  position: relative;
+}
 .active-meeting-banner {
+  position: absolute;
+  inset-inline-end: 16px;
+  bottom: 96px;
+  width: 420px;
+  max-width: calc(100% - 32px);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3, 12px);
-  padding: 8px 16px;
-  background: color-mix(in srgb, var(--accent) 15%, var(--surface-container));
-  border-bottom: 1px solid var(--border);
-  z-index: 20;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 16px;
+  background: var(--elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow-dialog);
+  z-index: 45;
 }
 .active-meeting-banner-left {
   display: flex;
@@ -49,11 +60,29 @@
   gap: 10px;
   font-size: 13px;
   min-width: 0;
+  min-height: 36px;
+  padding: 0;
+  text-align: start;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.active-meeting-banner-left[data-dragging] {
+  cursor: grabbing;
+}
+.active-meeting-banner-left:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+.active-meeting-banner-left > svg {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  color: var(--muted);
 }
 .active-meeting-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .live-meeting-indicator {
   width: 8px;
@@ -66,15 +95,17 @@
 }
 .active-meeting-banner-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
 }
 .active-meeting-banner-actions .button.compact {
-  padding: 4px 10px;
+  flex: 1 1 auto;
+  padding: 8px 12px;
   font-size: 12px;
-  height: 28px;
+  min-height: 36px;
   display: inline-flex;
+  justify-content: center;
   align-items: center;
   gap: 6px;
 }

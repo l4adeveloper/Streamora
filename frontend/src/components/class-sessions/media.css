@@ -374,6 +374,38 @@
   background: var(--bg);
   padding: 16px !important;
 }
+/* Keep the live capture mounted, but avoid showing it inside its own capture. */
+.class-media-self-screen-notice {
+  display: none;
+}
+.workspace-media-room:fullscreen .class-media-self-screen > video {
+  visibility: hidden;
+}
+.workspace-media-room:fullscreen .class-media-self-screen-notice {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+  color: #e3e6ec;
+}
+.class-media-self-screen-notice > svg {
+  color: #9cabc0;
+}
+.class-media-self-screen-notice > strong {
+  font-size: clamp(18px, 2vw, 26px);
+  font-weight: 500;
+}
+.class-media-self-screen-notice > p {
+  max-width: 440px;
+  margin: 0;
+  color: #b7c1d0;
+  font-size: 14px;
+}
 .workspace-call-controls button:focus-visible,
 .workspace-call-summary button:focus-visible {
   outline: 2px solid var(--accent);
