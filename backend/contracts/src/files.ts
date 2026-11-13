@@ -5,6 +5,7 @@ export type FileSource = "DOCUMENT" | "LOCAL_RECORDING" | "CLOUD_RECORDING";
 export interface LibraryFile {
   id: string;
   groupId: string;
+  folderId?: string | null;
   name: string;
   size: number;
   mimeType: string;
@@ -18,6 +19,7 @@ export interface LibraryFile {
 export interface FileListQuery extends PaginationRequest {
   q?: string;
   type?: "document" | "video";
+  folderId?: string | null;
 }
 export type FileListResponse = CursorPage<LibraryFile>;
 export interface FileResponse {
@@ -26,6 +28,47 @@ export interface FileResponse {
 export interface FileDownloadResponse {
   url: string;
   expiresAt: string;
+}
+
+export interface FolderItem {
+  id: string;
+  groupId: string;
+  parentId: string | null;
+  name: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  fileCount?: number;
+  folderCount?: number;
+}
+
+export interface FolderBreadcrumb {
+  id: string;
+  name: string;
+  parentId: string | null;
+}
+
+export interface CreateFolderRequest {
+  name: string;
+  parentId?: string | null;
+}
+
+export interface RenameFolderRequest {
+  name: string;
+}
+
+export interface MoveFileRequest {
+  destinationFolderId: string | null;
+}
+
+export interface FolderListResponse {
+  folders: FolderItem[];
+  breadcrumbs: FolderBreadcrumb[];
+  currentFolder: FolderItem | null;
+}
+
+export interface FolderResponse {
+  folder: FolderItem;
 }
 
 export type VideoProcessingStatus =
