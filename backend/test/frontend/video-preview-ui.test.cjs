@@ -111,7 +111,7 @@ test(
         data: { name: "Video preview group", ownerId: owner.id },
       });
       await fixture.prisma.groupMember.create({
-        data: { groupId: group.id, userId: user.id, role: "VIEWER" },
+        data: { groupId: group.id, userId: user.id, role: "HOST" },
       });
       await page.getByLabel("Email", { exact: true }).fill(email);
       await page.getByLabel("Mật khẩu", { exact: true }).fill(password);
@@ -123,12 +123,19 @@ test(
       const token = (await (await login).json()).accessToken;
       await page.waitForURL("**/workspace");
       await page.goto(`${fixture.webOrigin}/files?groupId=${group.id}`);
-      await page.locator('.file-uploader input[type="file"]').setInputFiles({
-        name: "Video.webm",
-        mimeType: "video/webm",
-        buffer: original,
-      });
+      await page
+        .locator('.file-uploader input[type="file"]:not([webkitdirectory])')
+        .setInputFiles({
+          name: "Video.webm",
+          mimeType: "video/webm",
+          buffer: original,
+        });
       await page.getByText("Đã lưu vào thư viện.", { exact: true }).waitFor();
+      // Upload needs HOST; playback must also work after demotion to VIEWER.
+      await fixture.prisma.groupMember.update({
+        where: { userId_groupId: { userId: user.id, groupId: group.id } },
+        data: { role: "VIEWER" },
+      });
       await page
         .getByRole("button", { name: "Xem trước Video.webm", exact: true })
         .click();

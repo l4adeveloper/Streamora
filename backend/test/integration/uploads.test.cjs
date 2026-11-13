@@ -734,3 +734,274 @@ test("Viewer cannot create or resume uploads; demoted hosts can still abort thei
     204,
   );
 });
+
+test("T15/T16 folders: persist multipart paths, search nested files, ZIP, rename and delete with permissions", async () => {
+  const path = "Folder-" + randomUUID();
+  const created = await api("POST", "/uploads", {
+    ...input(7),
+    folderPath: path + "/Sub",
+    filename: "nested.txt",
+    mimeType: "text/plain",
+  });
+  assert.equal(created.status, 201);
+  const id = created.body.uploadId;
+  const part = await put(id, 1, Buffer.from("content"));
+  const completed = await api("POST", `/uploads/${id}/complete`, {
+    parts: [part],
+  });
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.file.folderPath, path + "/Sub");
+  const fileId = completed.body.file.id;
+  assert.equal(
+    (await db.uploadSession.findUnique({ where: { id } })).folderPath,
+    path + "/Sub",
+  );
+  const root = await api("GET", `/groups/${group.id}/files`);
+  assert.ok(root.body.folders.includes(path));
+  assert.ok(!root.body.items.some((f) => f.id === fileId));
+  assert.deepEqual(
+    (await api("GET", `/groups/${group.id}/files?type=video`)).body.folders,
+    [],
+  );
+  const found = await api("GET", `/groups/${group.id}/files?q=nested`);
+  assert.ok(found.body.items.some((f) => f.id === fileId));
+  assert.deepEqual(found.body.folders, []);
+  const zipResponse = await fetch(
+    `${base}/api/v1/groups/${group.id}/files/folders/download`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${owner.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ folderPath: path }),
+    },
+  );
+  assert.equal(zipResponse.status, 200);
+  assert.match(zipResponse.headers.get("content-type"), /application\/zip/);
+  const zip = Buffer.from(await zipResponse.arrayBuffer());
+  assert.ok(zip.includes(Buffer.from(path + "/Sub/nested.txt")));
+  assert.ok(zip.includes(Buffer.from("content")));
+  assert.equal(
+    (
+      await api(
+        "PATCH",
+        `/groups/${group.id}/files/folders`,
+        { folderPath: path, name: path + "New" },
+        other,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await api("PATCH", `/groups/${group.id}/files/folders`, {
+        folderPath: path,
+        name: path + "New",
+      })
+    ).status,
+    204,
+  );
+  const renamed = await db.libraryFile.findUnique({ where: { id: fileId } });
+  assert.equal(renamed.folderPath, path + "New/Sub");
+  assert.equal(
+    (
+      await api("DELETE", `/groups/${group.id}/files/folders`, {
+        folderPath: path + "New",
+      })
+    ).status,
+    204,
+  );
+  assert.equal(
+    (await db.libraryFile.findUnique({ where: { id: fileId } })).status,
+    "DELETED",
+  );
+  assert.ok(
+    (await db.fileObjectDeletion.findUnique({ where: { fileId } })).completedAt,
+  );
+});
+
+test("Force folder changes cancel active uploads, preserve siblings and reject invalid force without side effects", async () => {
+  const root = "Force-" + randomUUID();
+  const one = await api("POST", "/uploads", {
+    ...input(8),
+    folderPath: root + "/Sub",
+  });
+  const two = await api("POST", "/uploads", {
+    ...input(8),
+    folderPath: root + "-sibling",
+  });
+  const endpoint = `/groups/${group.id}/files/folders`;
+  assert.equal(
+    (
+      await api("PATCH", endpoint, {
+        folderPath: root,
+        name: root + "New",
+        force: "true",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await api(
+        "PATCH",
+        endpoint,
+        { folderPath: root, name: root + "New" },
+        other,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await api("PATCH", endpoint, { folderPath: root, name: root + "New" }))
+      .body.error.code,
+    "FOLDER_BUSY",
+  );
+  assert.equal(
+    (await db.uploadSession.findUnique({ where: { id: one.body.uploadId } }))
+      .status,
+    "ACTIVE",
+  );
+  assert.equal(
+    (
+      await api("PATCH", endpoint, {
+        folderPath: root,
+        name: root + "New",
+        force: true,
+      })
+    ).status,
+    204,
+  );
+  assert.ok(
+    ["ABORTING", "ABORTED"].includes(
+      (await db.uploadSession.findUnique({ where: { id: one.body.uploadId } }))
+        .status,
+    ),
+  );
+  assert.equal((await sign(one.body.uploadId, [1])).status, 409);
+  assert.equal(
+    (await db.uploadSession.findUnique({ where: { id: two.body.uploadId } }))
+      .status,
+    "ACTIVE",
+  );
+  const uploads = app.get(
+    require("../../dist/modules/uploads/uploads.service").UploadsService,
+  );
+  await uploads.cleanupExpired();
+  assert.equal(
+    (await db.uploadSession.findUnique({ where: { id: one.body.uploadId } }))
+      .status,
+    "ABORTED",
+  );
+  assert.equal(
+    (
+      await api("DELETE", endpoint, {
+        folderPath: root + "-sibling",
+        force: true,
+      })
+    ).status,
+    204,
+  );
+  await uploads.cleanupExpired();
+  assert.equal(
+    (await db.uploadSession.findUnique({ where: { id: two.body.uploadId } }))
+      .status,
+    "ABORTED",
+  );
+});
+
+test("Force folder rename during storage initialization prevents the late upload from becoming active", async () => {
+  const root = "Init-" + randomUUID();
+  const storage = app.get(
+    require("../../dist/modules/uploads/multipart-storage.service")
+      .MultipartStorageService,
+  );
+  const original = storage.create;
+  let entered, release;
+  const ready = new Promise((r) => (entered = r)),
+    gate = new Promise((r) => (release = r));
+  storage.create = async (...args) => {
+    const id = await original.apply(storage, args);
+    entered();
+    await gate;
+    return id;
+  };
+  const pending = api("POST", "/uploads", { ...input(8), folderPath: root });
+  try {
+    await ready;
+    assert.equal(
+      (
+        await api("PATCH", `/groups/${group.id}/files/folders`, {
+          folderPath: root,
+          name: root + "New",
+          force: true,
+        })
+      ).status,
+      204,
+    );
+  } finally {
+    release();
+    storage.create = original;
+  }
+  assert.equal((await pending).status, 409);
+  const session = await db.uploadSession.findFirst({
+    where: { groupId: group.id, folderPath: root },
+  });
+  assert.equal(session.status, "ABORTED");
+  assert.equal(session.fileId, null);
+});
+
+test("Force folder deletion during storage complete prevents late publication and removes the completed object", async () => {
+  const root = "Complete-" + randomUUID();
+  const created = await api("POST", "/uploads", {
+    ...input(8),
+    folderPath: root,
+  });
+  const id = created.body.uploadId;
+  const part = await put(id, 1, Buffer.alloc(8, 4));
+  const storage = app.get(
+    require("../../dist/modules/uploads/multipart-storage.service")
+      .MultipartStorageService,
+  );
+  const original = storage.complete;
+  let entered, release;
+  const ready = new Promise((r) => (entered = r)),
+    gate = new Promise((r) => (release = r));
+  storage.complete = async (...args) => {
+    const value = await original.apply(storage, args);
+    entered();
+    await gate;
+    return value;
+  };
+  const pending = api("POST", `/uploads/${id}/complete`, { parts: [part] });
+  try {
+    await ready;
+    assert.equal(
+      (
+        await api("DELETE", `/groups/${group.id}/files/folders`, {
+          folderPath: root,
+          force: true,
+        })
+      ).status,
+      204,
+    );
+  } finally {
+    release();
+    storage.complete = original;
+  }
+  assert.equal((await pending).status, 409);
+  const session = await db.uploadSession.findUnique({ where: { id } });
+  assert.equal(session.status, "ABORTED");
+  assert.equal(session.fileId, null);
+  assert.equal(
+    await storage.size(session.objectKey, session.storageLocationId),
+    null,
+  );
+  assert.equal(
+    await db.libraryFile.count({
+      where: { groupId: group.id, folderPath: root },
+    }),
+    0,
+  );
+});

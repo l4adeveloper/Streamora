@@ -1,0 +1,2 @@
+ALTER TABLE "files" ADD COLUMN "folder_path" VARCHAR(2048) NOT NULL DEFAULT '';
+ALTER TABLE "upload_sessions" ADD COLUMN "folder_path" VARCHAR(2048) NOT NULL DEFAULT '';

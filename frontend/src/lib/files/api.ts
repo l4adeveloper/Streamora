@@ -11,6 +11,7 @@ import type {
 import { apiRequest } from "@/lib/api";
 export function listFiles(groupId: string, query: FileListQuery = {}) {
   const params = new URLSearchParams();
+  if (query.folderPath) params.set("folderPath", query.folderPath);
   if (query.q) params.set("q", query.q);
   if (query.type) params.set("type", query.type);
   if (query.folderId !== undefined && query.folderId !== null) {
@@ -73,16 +74,45 @@ export function createFolder(
   });
 }
 
-export function renameFolder(folderId: string, name: string) {
-  return apiRequest<FolderResponse>(`/folders/${folderId}`, {
+export function renameFolder(
+  folderIdOrGroupId: string,
+  nameOrFolderPath: string,
+  maybeName?: string,
+  force = false,
+) {
+  if (maybeName !== undefined) {
+    return apiRequest<void>(`/groups/${folderIdOrGroupId}/files/folders`, {
+      method: "PATCH",
+      body: { folderPath: nameOrFolderPath, name: maybeName, force },
+    });
+  }
+  return apiRequest<FolderResponse>(`/folders/${folderIdOrGroupId}`, {
     method: "PATCH",
-    body: { name },
+    body: { name: nameOrFolderPath },
   });
 }
 
-export function deleteFolder(folderId: string) {
-  return apiRequest<void>(`/folders/${folderId}`, {
+export function deleteFolder(
+  folderIdOrGroupId: string,
+  maybeFolderPath?: string,
+  force = false,
+) {
+  if (maybeFolderPath !== undefined) {
+    return apiRequest<void>(`/groups/${folderIdOrGroupId}/files/folders`, {
+      method: "DELETE",
+      body: { folderPath: maybeFolderPath, force },
+    });
+  }
+  return apiRequest<void>(`/folders/${folderIdOrGroupId}`, {
     method: "DELETE",
+  });
+}
+
+export function downloadFolder(groupId: string, folderPath: string) {
+  return apiRequest<Blob>(`/groups/${groupId}/files/folders/download`, {
+    method: "POST",
+    body: { folderPath },
+    responseType: "blob",
   });
 }
 

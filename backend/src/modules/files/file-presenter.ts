@@ -10,6 +10,7 @@ export function presentFile(file: DbFile): LibraryFile {
     groupId: file.groupId,
     folderId: file.folderId ?? null,
     name: file.name,
+    folderPath: file.folderPath,
     size: Number(file.size),
     mimeType: file.mimeType,
     source: file.source,

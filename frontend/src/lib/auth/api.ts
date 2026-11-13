@@ -14,6 +14,10 @@ export class AuthApiError extends Error {
 }
 
 const messages: Record<string, string> = {
+  FOLDER_NOT_FOUND: "Thư mục không còn tồn tại. Hãy làm mới danh sách.",
+  FOLDER_EXISTS: "Tên thư mục đã tồn tại. Hãy chọn tên khác.",
+  FOLDER_BUSY:
+    "Thư mục còn file đang tải lên. Hãy chờ hoàn tất hoặc hủy các lượt tải trước.",
   MEDIA_UNAVAILABLE: "Phòng video chưa sẵn sàng. Vui lòng thử lại sau.",
   MEDIA_STARTING:
     "Phòng video đang được chuẩn bị. Vui lòng thử lại sau vài giây.",
@@ -100,6 +104,7 @@ export interface AuthRequestOptions {
   body?: unknown;
   token?: string;
   idempotencyKey?: string;
+  responseType?: "blob";
 }
 
 export async function authRequest<T>(
@@ -110,7 +115,10 @@ export async function authRequest<T>(
     process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4000/api/v1"
   ).replace(/\/$/, "");
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  const timer = setTimeout(
+    () => controller.abort(),
+    options.responseType === "blob" ? 600000 : 15000,
+  );
   try {
     const response = await fetch(`${base}${path}`, {
       method: options.method ?? "POST",
@@ -129,6 +137,8 @@ export async function authRequest<T>(
       body:
         options.body === undefined ? undefined : JSON.stringify(options.body),
     });
+    if (response.ok && options.responseType === "blob")
+      return (await response.blob()) as T;
     const payload =
       response.status === 204
         ? undefined

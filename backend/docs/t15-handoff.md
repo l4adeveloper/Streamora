@@ -1,24 +1,30 @@
 # T15 — Bàn giao thư viện nhóm và triển khai S3
 
-Ngày cập nhật: 08/11/2026. Tài liệu mô tả code hiện có trong repository và các bước
+Ngày cập nhật: 13/11/2026. Tài liệu mô tả code hiện có trong repository và các bước
 triển khai tiếp theo. S3 chưa được tạo hay kiểm thử trên tài khoản AWS trong lần
 bàn giao này; môi trường phát triển hiện dùng local. Không có mật khẩu hoặc khóa AWS
 thật trong tài liệu.
 
+Lượt cập nhật local ngày 13/11/2026 bổ sung thư mục, tải ZIP và tìm kiếm file trong
+thư mục con. Kết quả chạy lại được ghi tại [báo cáo kiểm thử T15–T17](t15-t17-verification.md).
+Không suy ra trạng thái triển khai EC2/S3 từ kết quả local.
+
 ## 1. Phạm vi bàn giao
 
-| Hạng mục | Trạng thái |
-| --- | --- |
-| Danh sách, tìm tên, lọc tài liệu/video, phân trang | Đã dùng PostgreSQL/API thật |
-| Xem chi tiết, đổi tên, xóa theo quyền nhóm | Đã triển khai |
-| Tải file qua liên kết ngắn hạn | Đã triển khai cho local và có adapter S3 |
-| Xem trước PDF | Đã triển khai; dùng trình đọc PDF của trình duyệt |
-| Nhập file hoặc toàn bộ thư mục để thử local | Đã có lệnh nội bộ |
-| Xóa mềm và dọn nội dung nền, retry khi lỗi | Đã triển khai |
-| Giao diện thư viện tinh gọn | Đã bỏ banner giới thiệu và ô tìm kiếm không gian ở thanh bên |
-| Upload S3 trực tiếp, multipart | Đã bổ sung tại [T16](t16-handoff.md); resume sau reload thuộc T17 |
-| Chuyển dữ liệu local lên S3 tự động | Chưa có công cụ tự động |
-| Pipeline ghi hình T11 và xử lý video | Chỉ có điểm tích hợp nội bộ; chưa phải pipeline hoàn chỉnh |
+| Hạng mục                                            | Trạng thái                                                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------ |
+| Danh sách, tìm tên, lọc tài liệu/video, phân trang  | Đã dùng PostgreSQL/API thật                                              |
+| Xem chi tiết, đổi tên, xóa theo quyền nhóm          | Đã triển khai                                                            |
+| Tải file qua liên kết ngắn hạn                      | Đã triển khai cho local và có adapter S3                                 |
+| Thư mục lồng nhau, tải ZIP, đổi tên/xóa toàn bộ cây | Đã triển khai; thư mục thuộc bộ lọc Tài liệu                             |
+| Tìm kiếm file trong thư mục và thư mục con          | Trả file cụ thể, không trả dòng thư mục                                  |
+| Xem trước PDF, JPEG/PNG/WebP, video tương thích     | Đã triển khai; PDF dùng viewer trình duyệt, ảnh/video có giao diện riêng |
+| Nhập file hoặc toàn bộ thư mục để thử local         | Đã có lệnh nội bộ                                                        |
+| Xóa mềm và dọn nội dung nền, retry khi lỗi          | Đã triển khai                                                            |
+| Giao diện thư viện tinh gọn                         | Đã bỏ banner giới thiệu và ô tìm kiếm không gian ở thanh bên             |
+| Upload S3 trực tiếp, multipart                      | Đã bổ sung tại [T16](t16-handoff.md); resume sau reload thuộc T17        |
+| Chuyển dữ liệu local lên S3 tự động                 | Chưa có công cụ tự động                                                  |
+| Pipeline ghi hình T11 và xử lý video                | Chỉ có điểm tích hợp nội bộ; chưa phải pipeline hoàn chỉnh               |
 
 T15 không phụ thuộc T19. Hướng dẫn dưới đây chỉ cần S3 cho phần lưu nội dung;
 không yêu cầu tạo thêm CDN, hàng đợi hoặc dịch vụ xử lý video.
@@ -27,12 +33,12 @@ không yêu cầu tạo thêm CDN, hàng đợi hoặc dịch vụ xử lý vide
 
 PostgreSQL lưu metadata; nội dung file nằm tại ổ đĩa backend hoặc S3.
 
-| Thành phần | Vai trò |
-| --- | --- |
-| `files` | Tên hiển thị, kích thước, MIME, nhóm, người tạo, trạng thái, object key |
-| `recording_assets` | Registry tối thiểu để xác minh recording thuộc buổi học |
-| `file_usages` | Giữ tham chiếu để chặn xóa file đang được sử dụng |
-| `file_object_deletions` | Hàng đợi bền vững để xóa nội dung sau khi xóa mềm |
+| Thành phần              | Vai trò                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| `files`                 | Tên hiển thị, folder_path, kích thước, MIME, nhóm, người tạo, trạng thái, object key |
+| `recording_assets`      | Registry tối thiểu để xác minh recording thuộc buổi học                              |
+| `file_usages`           | Giữ tham chiếu để chặn xóa file đang được sử dụng                                    |
+| `file_object_deletions` | Hàng đợi bền vững để xóa nội dung sau khi xóa mềm                                    |
 
 Trạng thái file: `PENDING` → `AVAILABLE` → `DELETED`. Chỉ `AVAILABLE` được cấp link
 tải/xem trước. Danh sách không trả file `DELETED`.
@@ -133,19 +139,23 @@ Tất cả API thư viện trong bảng yêu cầu:
 Authorization: Bearer <accessToken>
 ```
 
-| Method | Path sau `/api/v1` | Đầu vào/kết quả |
-| --- | --- | --- |
-| GET | `/groups/:groupId/files` | Query `q`, `type`, `limit`, `cursor`; trả `{items,nextCursor}` |
-| GET | `/files/:fileId` | Trả `{file}` |
-| PATCH | `/files/:fileId` | JSON `{"name":"Tên mới.pdf"}`; trả `{file}` |
-| DELETE | `/files/:fileId` | Xóa mềm và tạo job dọn nội dung; trả 204, không có body |
-| POST | `/files/:fileId/download-url` | Không cần body; trả `{url,expiresAt}` |
-| POST | `/files/:fileId/preview-url` | Không cần body; chỉ PDF; trả `{url,expiresAt}` |
+| Method | Path sau `/api/v1`                        | Đầu vào/kết quả                                                                      |
+| ------ | ----------------------------------------- | ------------------------------------------------------------------------------------ |
+| GET    | `/groups/:groupId/files`                  | Query `folderPath`, `q`, `type`, `limit`, `cursor`; trả `{items,folders,nextCursor}` |
+| GET    | `/files/:fileId`                          | Trả `{file}`                                                                         |
+| PATCH  | `/files/:fileId`                          | JSON `{"name":"Tên mới.pdf"}`; trả `{file}`                                          |
+| DELETE | `/files/:fileId`                          | Xóa mềm và tạo job dọn nội dung; trả 204, không có body                              |
+| POST   | `/files/:fileId/download-url`             | Không cần body; trả `{url,expiresAt}`                                                |
+| POST   | `/files/:fileId/preview-url`              | PDF/ảnh/video tương thích; trả `{url,expiresAt}`                                     |
+| POST   | `/files/:fileId/playback`                 | Nguồn phát video có thật và trạng thái xử lý                                         |
+| PATCH  | `/groups/:groupId/files/folders`          | `{folderPath,name,force?}`; đổi tên cây thư mục, trả 204                             |
+| DELETE | `/groups/:groupId/files/folders`          | `{folderPath,force?}`; xóa cây thư mục, trả 204                                      |
+| POST   | `/groups/:groupId/files/folders/download` | `{folderPath}`; trả binary `application/zip`, cần Bearer token                       |
 
 `q` tìm tên không phân biệt hoa/thường, vẫn phân biệt dấu; `type` là `document`
 hoặc `video`. Hiện `document` bao gồm MIME không bắt đầu bằng `video/`.
 `limit` mặc định 20, từ 1 đến 100. Thứ tự là `createdAt DESC, id DESC`.
-Khi dùng `nextCursor`, giữ nguyên nhóm, `q` và `type`; đổi bộ lọc phải bỏ cursor cũ.
+Khi dùng `nextCursor`, giữ nguyên nhóm, `folderPath`, `q` và `type`; đổi bộ lọc phải bỏ cursor cũ.
 Alias `GET /files?groupId=...` được giữ để tương thích, không phải đường dẫn khuyến nghị.
 
 Thử bằng PowerShell với token lấy từ phiên đăng nhập:
@@ -179,21 +189,50 @@ preview vào iframe. Không cần sửa frontend khi đổi driver.
 
 PDF phải có metadata `mimeType=application/pdf`. Local còn kiểm tra đầu nội dung
 `%PDF-`; adapter S3 hiện không đọc nội dung để kiểm tra chữ ký PDF trước khi ký URL.
-Nút preview chỉ xuất hiện cho PDF; file khác dùng tải xuống.
+Giao diện hỗ trợ preview PDF, JPEG/PNG/WebP và video tương thích; video dùng route
+playback. Không suy ra định dạng chỉ từ tên file.
 
-| HTTP/code | Ý nghĩa |
-| --- | --- |
-| 400 `VALIDATION_ERROR` / `INVALID_CURSOR` | Đầu vào hoặc cursor không hợp lệ |
-| 401 `UNAUTHENTICATED` | Chưa đăng nhập/token không hợp lệ |
-| 403 `FORBIDDEN` | Không đủ quyền |
-| 404 `GROUP_NOT_FOUND` / `FILE_NOT_FOUND` | Nhóm/file không tồn tại hoặc đã bị xóa |
-| 409 `FILE_NOT_READY` | File chưa AVAILABLE |
-| 409 `FILE_IN_USE` | Chưa thể xóa do upload/tham chiếu/recording |
-| 415 `PDF_PREVIEW_UNSUPPORTED` | File không thuộc loại PDF được hỗ trợ |
-| 503 `STORAGE_UNAVAILABLE` | Thiếu cấu hình bucket hoặc không cấp được link |
+| HTTP/code                                                   | Ý nghĩa                                        |
+| ----------------------------------------------------------- | ---------------------------------------------- |
+| 400 `VALIDATION_ERROR` / `INVALID_CURSOR`                   | Đầu vào hoặc cursor không hợp lệ               |
+| 401 `UNAUTHENTICATED`                                       | Chưa đăng nhập/token không hợp lệ              |
+| 403 `FORBIDDEN`                                             | Không đủ quyền                                 |
+| 404 `GROUP_NOT_FOUND` / `FILE_NOT_FOUND`                    | Nhóm/file không tồn tại hoặc đã bị xóa         |
+| 409 `FILE_NOT_READY`                                        | File chưa AVAILABLE                            |
+| 409 `FILE_IN_USE`                                           | Chưa thể xóa do upload/tham chiếu/recording    |
+| 415 `PDF_PREVIEW_UNSUPPORTED` / `VIDEO_PREVIEW_UNSUPPORTED` | Định dạng preview không được hỗ trợ            |
+| 503 `STORAGE_UNAVAILABLE`                                   | Thiếu cấu hình bucket hoặc không cấp được link |
 
 Swagger: `/api/v1/docs-files`; OpenAPI JSON: `/api/v1/docs-files-json`.
 Đặt `API_DOCS_ENABLED=true` để mở tài liệu; production mặc định tắt.
+
+### Thư mục và tìm kiếm (13/11/2026)
+
+- Migration `20261113000100_file_folders` thêm `folder_path` vào `files` và
+  `upload_sessions`; mặc định chuỗi rỗng cho file ở gốc. Chạy migration trước API mới.
+- Thư mục được suy ra từ đường dẫn các file còn tồn tại. Chưa lưu thư mục rỗng,
+  chưa có thao tác tạo thư mục rỗng hoặc di chuyển file trên giao diện.
+- Không nhập `q`: liệt kê file trực tiếp trong `folderPath` cùng thư mục con trực tiếp.
+  Thư mục chỉ xuất hiện ở **Tất cả/Tài liệu**, không thuộc **Video và bản ghi**.
+- Có `q`: tìm theo tên file trong thư mục hiện tại và toàn bộ cây con. Ở gốc,
+  tìm toàn nhóm; kết quả chỉ có file và kèm đường dẫn, `folders=[]`. Bộ lọc MIME vẫn áp dụng.
+- Nút **Chọn tải lên** mở **Chọn file/Chọn thư mục**; kéo thả làm nổi bật vùng nhận.
+  Bảng không có dòng dữ liệu chỉ hiển thị thông báo trống, không hiện tiêu đề lệch cột.
+- Đổi tên sửa `folder_path` của mọi file con, giữ objectKey. Chặn trùng tên/đường dẫn
+  quá dài; không trộn hai cây thư mục.
+- Đổi tên/xóa yêu cầu quyền quản lý toàn bộ file bên trong: chủ file hoặc canHost.
+  Xóa có xác nhận, chặn file PENDING/recording/tham chiếu và phiên upload đang hoạt động.
+  Toàn bộ thay đổi metadata và job xóa được commit cùng transaction; bytes dọn ngoài transaction.
+- Tải thư mục trả ZIP qua API có xác thực (thư viện `archiver`), giữ đường dẫn con,
+  xử lý tên trùng. Backend stream từng file từ vị trí lưu; frontend nhận Blob rồi lưu
+  `<tên thư mục>.zip`. ZIP rất lớn vẫn chịu giới hạn bộ nhớ/đĩa và thời gian chờ trình duyệt
+  (request hiện tối đa 10 phút); chưa nghiệm thu ZIP lớn qua EC2/S3.
+- Lỗi bổ sung: 404 `FOLDER_NOT_FOUND`, 409 `FOLDER_EXISTS`/`FOLDER_BUSY`;
+  file chưa sẵn sàng/đang dùng và lỗi quyền dùng mã lỗi file/nhóm hiện có.
+
+Khi chạy local, xác nhận `DATABASE_URL` thực sự trỏ database phát triển. Chạy web/API
+trên máy không đồng nghĩa database local. Không reset database đang dùng khi gặp lỗi thiếu
+cột; kiểm tra migration và đúng môi trường trước. Không tự áp migration vào EC2 từ lượt kiểm thử.
 
 ## 5. Tạo bucket S3 bằng AWS Management Console
 
@@ -348,11 +387,11 @@ Lưu danh sách trên làm manifest đối chiếu. Đường dẫn nội dung l
 
 Ví dụ DB lưu `object_key=local/abc-123`, tên hiển thị `Bài giảng.pdf`:
 
-| Nơi | Định danh phải có |
-| --- | --- |
-| Local | `backend/.local-storage/files/local/abc-123` |
-| S3 | `s3://streamora-storage/local/abc-123` |
-| PostgreSQL | Giữ nguyên `object_key=local/abc-123` |
+| Nơi        | Định danh phải có                            |
+| ---------- | -------------------------------------------- |
+| Local      | `backend/.local-storage/files/local/abc-123` |
+| S3         | `s3://streamora-storage/local/abc-123`       |
+| PostgreSQL | Giữ nguyên `object_key=local/abc-123`        |
 
 Với số lượng nhỏ, vào bucket → tạo folder `local` → mở folder → **Upload → Add
 files**, chọn các file UUID tương ứng trong thư mục local. File tải lên phải giữ
@@ -410,17 +449,17 @@ vẫn đầy đủ. Chưa có công cụ rollback tự động.
 
 ## 9. Nghiệm thu và vận hành
 
-| Kiểm tra | Kết quả cần đạt |
-| --- | --- |
-| Danh sách nhóm | File đúng nhóm; tìm/lọc/phân trang hoạt động |
-| Tải file | API trả link và GET link thực sự tải được nội dung đúng |
-| PDF | Preview hiển thị được trang PDF, tải xuống vẫn hoạt động |
-| File không phải PDF | Không có preview; API preview trả 415 |
-| Quyền | Người ngoài nhóm thông thường bị 403; thành viên khác không quản lý file của nhau |
-| Trạng thái | PENDING không được cấp link; DELETED không còn trong danh sách |
-| Hết hạn | Gửi GET mới bằng link cũ sau TTL bị từ chối; xin link mới hoạt động |
-| Xóa | Dùng một file thử riêng; API 204, biến mất ngay, worker dọn object sau đó |
-| Bucket private | Truy cập object không có chữ ký bị từ chối |
+| Kiểm tra          | Kết quả cần đạt                                                                   |
+| ----------------- | --------------------------------------------------------------------------------- |
+| Danh sách nhóm    | File đúng nhóm; tìm/lọc/phân trang hoạt động                                      |
+| Tải file          | API trả link và GET link thực sự tải được nội dung đúng                           |
+| PDF               | Preview hiển thị được trang PDF, tải xuống vẫn hoạt động                          |
+| Preview ảnh/video | JPEG/PNG/WebP và MP4/WebM/MOV phù hợp; định dạng không hỗ trợ trả 415             |
+| Quyền             | Người ngoài nhóm thông thường bị 403; thành viên khác không quản lý file của nhau |
+| Trạng thái        | PENDING không được cấp link; DELETED không còn trong danh sách                    |
+| Hết hạn           | Gửi GET mới bằng link cũ sau TTL bị từ chối; xin link mới hoạt động               |
+| Xóa               | Dùng một file thử riêng; API 204, biến mất ngay, worker dọn object sau đó         |
+| Bucket private    | Truy cập object không có chữ ký bị từ chối                                        |
 
 Kiểm tra xóa bằng dữ liệu thử riêng sau khi đã xác nhận chuyển đổi; không dùng tài
 liệu cần giữ làm mẫu. Khi kiểm tra hết hạn, dùng request mới, tránh kết quả từ cache
@@ -442,19 +481,19 @@ npm run test:t15:frontend
 Test integration/UI tạo database `streamora_test_*` tạm và xóa sau khi chạy;
 cần PostgreSQL test có quyền CREATEDB và pg_trgm. Không reset database ứng dụng
 để chạy test. Unit test adapter S3 dùng mô phỏng, không thay thế nghiệm thu AWS.
-Lần cập nhật tài liệu này không chạy lại bộ kiểm thử ứng dụng và chưa chạy nghiệm
-thu S3 thật.
+Lượt chạy lại ngày 13/11/2026 xem [báo cáo kiểm thử](t15-t17-verification.md).
+Chưa chạy nghiệm thu S3 thật.
 
-| Triệu chứng | Kiểm tra |
-| --- | --- |
-| Import xong không thấy file | Đúng database, API đang chạy bản mới, groupId và tài khoản; bấm Làm mới |
-| 503 STORAGE_UNAVAILABLE | Bucket/credentials/profile; API đã khởi động lại sau sửa cấu hình chưa |
-| Link S3 trả AccessDenied | IAM/bucket policy, credentials hết hạn, explicit deny, key và cấu hình mã hóa |
-| Link báo sai region/chữ ký | Region bucket, thời gian máy, credentials; không sửa chuỗi URL đã ký |
-| Object không tồn tại | Đối chiếu `object_key` với key S3, đặc biệt prefix `local/` |
-| PDF không hiện | MIME metadata, nội dung thật, trình đọc PDF, GET link và thời hạn link |
-| File đã xóa vẫn còn object | Worker có bật không, chờ lượt xử lý, quyền DeleteObject, retry hoặc Versioning |
-| Lỗi CORS khi dùng fetch/upload | Origin đầy đủ có scheme/port; CORS S3 khác CORS API backend |
+| Triệu chứng                    | Kiểm tra                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| Import xong không thấy file    | Đúng database, API đang chạy bản mới, groupId và tài khoản; bấm Làm mới        |
+| 503 STORAGE_UNAVAILABLE        | Bucket/credentials/profile; API đã khởi động lại sau sửa cấu hình chưa         |
+| Link S3 trả AccessDenied       | IAM/bucket policy, credentials hết hạn, explicit deny, key và cấu hình mã hóa  |
+| Link báo sai region/chữ ký     | Region bucket, thời gian máy, credentials; không sửa chuỗi URL đã ký           |
+| Object không tồn tại           | Đối chiếu `object_key` với key S3, đặc biệt prefix `local/`                    |
+| PDF không hiện                 | MIME metadata, nội dung thật, trình đọc PDF, GET link và thời hạn link         |
+| File đã xóa vẫn còn object     | Worker có bật không, chờ lượt xử lý, quyền DeleteObject, retry hoặc Versioning |
+| Lỗi CORS khi dùng fetch/upload | Origin đầy đủ có scheme/port; CORS S3 khác CORS API backend                    |
 
 Log liên quan: `file_download_issued`, `file_preview_issued`,
 `file_cleanup_retry`, `file_cleanup_unavailable`. Theo dõi job chưa hoàn tất trong
@@ -462,19 +501,19 @@ Log liên quan: `file_download_issued`, `file_preview_issued`,
 
 ## 10. Điểm tiếp nhận cho người phát triển tiếp
 
-| Đường dẫn trong repository | Nội dung |
-| --- | --- |
-| `backend/src/modules/files/files.controller.ts` | Các route HTTP |
-| `backend/src/modules/files/files.service.ts` | Metadata, phân quyền, trạng thái, đăng ký recording |
-| `backend/src/modules/files/file-storage.service.ts` | Chọn local/S3, ký URL, xóa object |
-| `backend/src/modules/files/local-file-storage.ts` | Nội dung local và chữ ký URL |
-| `backend/src/modules/files/file-cleanup.service.ts` | Worker dọn nội dung |
-| `backend/src/config/environment.ts` | Nạp và kiểm tra cấu hình |
-| `backend/contracts/src/files.ts` | Kiểu API dùng chung FE/BE |
-| `backend/prisma/schema.prisma` | Schema metadata và hàng đợi |
-| `backend/scripts/import-local-file.cjs` | Công cụ nhập file/folder local |
-| `frontend/src/components/files/` | Giao diện thư viện và preview PDF |
-| `frontend/src/lib/files/api.ts` | Client gọi API T15 |
+| Đường dẫn trong repository                          | Nội dung                                            |
+| --------------------------------------------------- | --------------------------------------------------- |
+| `backend/src/modules/files/files.controller.ts`     | Các route HTTP                                      |
+| `backend/src/modules/files/files.service.ts`        | Metadata, phân quyền, trạng thái, đăng ký recording |
+| `backend/src/modules/files/file-storage.service.ts` | Chọn local/S3, ký URL, xóa object                   |
+| `backend/src/modules/files/local-file-storage.ts`   | Nội dung local và chữ ký URL                        |
+| `backend/src/modules/files/file-cleanup.service.ts` | Worker dọn nội dung                                 |
+| `backend/src/config/environment.ts`                 | Nạp và kiểm tra cấu hình                            |
+| `backend/contracts/src/files.ts`                    | Kiểu API dùng chung FE/BE                           |
+| `backend/prisma/schema.prisma`                      | Schema metadata và hàng đợi                         |
+| `backend/scripts/import-local-file.cjs`             | Công cụ nhập file/folder local                      |
+| `frontend/src/components/files/`                    | Giao diện thư viện và preview PDF                   |
+| `frontend/src/lib/files/api.ts`                     | Client gọi API T15                                  |
 
 T11 gọi `FilesService.registerRecording` ở ranh giới nội bộ tin cậy, sau khi có
 `recording_assets` thuộc đúng session/group. Đây không phải API HTTP công khai.
@@ -483,3 +522,25 @@ T11/T13 cần giữ/nhả `file_usages` và tuân thủ khóa hàng file khi tha
 Không nhận `createdBy`, `objectKey` hoặc trạng thái tùy ý từ trình duyệt để bỏ qua
 kiểm tra quyền. T16 đã có bàn giao riêng; các điểm này chưa chứng minh T11/T13/T17
 đã được triển khai đầy đủ.
+
+## Buộc thay đổi thư mục khi đang tải lên
+
+PATCH/DELETE thư mục nhận thêm `force?: boolean`, mặc định false. Khi nhận
+`FOLDER_BUSY`, giao diện hiển thị cảnh báo mất tiến độ và nút **Hủy tải lên và đổi tên/xóa thư mục**.
+Chỉ bấm xác nhận này mới gửi `force:true`.
+
+Trong cùng transaction có khóa nhóm, server kiểm tra quyền trên file và phiên upload
+của cả cây, chuyển INITIALIZING/ACTIVE/COMPLETING/ABORTING về ABORTING rồi đổi tên/xóa.
+Force không bỏ qua quyền, tên trùng, file đang được tham chiếu hoặc quy tắc recording.
+Nếu thay đổi không hợp lệ, transaction rollback cả việc yêu cầu hủy.
+
+ABORTING chặn ký part/complete mới. Worker đang khởi tạo/ghép giữ lease và token;
+khi storage I/O kết thúc phải hủy và dọn object thay vì xuất bản file. Các phiên rảnh
+được đánh thức cleanup ngay sau commit; timer cleanup là dự phòng bền vững nếu API restart.
+Storage lỗi có thể cần retry; quota chỉ giải phóng sau khi dọn xong.
+
+Uploader hủy PUT và cả draft đang chờ trong cây vừa thay đổi, bỏ nguồn IndexedDB,
+hiện trạng thái đã hủy. Các tab cùng origin nhận thông báo qua BroadcastChannel.
+Lượt khởi tạo nhận phản hồi muộn cũng tự abort để không để lại phiên mồ côi.
+Thư mục bên ngoài cây và file đã lưu không bị hủy upload ngoài ý muốn; file đã lưu
+được xử lý đúng thao tác đổi tên/xóa đã xác nhận. Không lưu thư mục rỗng sau khi hủy hết file.

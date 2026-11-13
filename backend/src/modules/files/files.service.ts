@@ -1,4 +1,6 @@
-import { Injectable } from "@nestjs/common";
+import { ZipArchive } from "archiver";
+import { Readable } from "node:stream";
+import { Injectable, Optional } from "@nestjs/common";
 import { isUUID } from "class-validator";
 import type { FileResponse, FileStatus, FolderBreadcrumb, FolderListResponse, FolderResponse } from "@streamora/contracts";
 import type {
@@ -14,6 +16,7 @@ import { FileStorageService } from "./file-storage.service";
 import { PREVIEW_TYPES } from "./file-preview";
 import { VideoPlaybackService } from "./video-playback.service";
 import type { FileListQueryDto } from "./files.dto";
+import { FolderUploadCancellation } from "./folder-upload-cancellation";
 import { presentFile as present, presentFolder } from "./file-presenter";
 
 function cursorFor(file: DbFile, groupId: string, query: FileListQueryDto) {
@@ -25,6 +28,7 @@ function cursorFor(file: DbFile, groupId: string, query: FileListQueryDto) {
       q: query.q ?? "",
       type: query.type ?? "",
       folderId: query.folderId ?? "",
+      folderPath: query.folderPath ?? "",
     }),
   ).toString("base64url");
 }
@@ -41,7 +45,9 @@ function readCursor(groupId: string, query: FileListQueryDto) {
       c.groupId !== groupId ||
       c.q !== (query.q ?? "") ||
       c.type !== (query.type ?? "") ||
-      (c.folderId !== undefined && c.folderId !== (query.folderId ?? ""))
+      (c.folderId !== undefined && c.folderId !== (query.folderId ?? "")) ||
+      (c.folderPath !== undefined &&
+        (c.folderPath ?? "") !== (query.folderPath ?? ""))
     )
       throw new Error();
     return { id: c.id as string, at: new Date(c.at) };
@@ -61,6 +67,7 @@ export class FilesService {
     private readonly access: GroupAccessService,
     private readonly storage: FileStorageService,
     private readonly video: VideoPlaybackService,
+    @Optional() private readonly cancellation?: FolderUploadCancellation,
   ) {}
 
   async list(userId: string, groupId: string, query: FileListQueryDto) {
@@ -80,6 +87,20 @@ export class FilesService {
       groupId,
       status: { not: "DELETED" },
       ...(folderFilter !== undefined ? { folderId: folderFilter } : {}),
+      ...(query.folderPath !== undefined
+        ? name
+          ? {
+              AND: [
+                {
+                  OR: [
+                    { folderPath: query.folderPath },
+                    { folderPath: { startsWith: query.folderPath + "/" } },
+                  ],
+                },
+              ],
+            }
+          : { folderPath: query.folderPath ?? "" }
+        : {}),
       ...(name ? { name: { contains: name, mode: "insensitive" } } : {}),
       ...(query.type === "video"
         ? { mimeType: { startsWith: "video/" } }
@@ -100,14 +121,276 @@ export class FilesService {
       take: query.limit + 1,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
+    const prefix = query.folderPath ? query.folderPath + "/" : "";
+    const paths =
+      name || query.type === "video"
+        ? []
+        : await this.prisma.libraryFile.findMany({
+            where: {
+              groupId,
+              status: { not: "DELETED" },
+              folderPath: { startsWith: prefix },
+            },
+            select: { folderPath: true },
+            distinct: ["folderPath"],
+          });
+    const folders =
+      name || query.type === "video"
+        ? []
+        : [
+            ...new Set(
+              paths
+                .map(
+                  ({ folderPath }) =>
+                    folderPath.slice(prefix.length).split("/")[0],
+                )
+                .filter(Boolean),
+            ),
+          ].sort((a, b) => a.localeCompare(b, "vi"));
     const page = rows.slice(0, query.limit);
     return {
       items: page.map(present),
+      folders,
       nextCursor:
         rows.length > query.limit
           ? cursorFor(page[page.length - 1], groupId, query)
           : null,
     };
+  }
+
+  private folderWhere(groupId: string, folderPath: string) {
+    return {
+      groupId,
+      status: { not: "DELETED" as const },
+      OR: [{ folderPath }, { folderPath: { startsWith: folderPath + "/" } }],
+    };
+  }
+  async changeFolder(
+    userId: string,
+    groupId: string,
+    folderPath: string,
+    name?: string,
+    force = false,
+  ) {
+    const deleted = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM groups WHERE id = ${groupId}::uuid FOR UPDATE`;
+        const permissions = await this.access.require(
+          userId,
+          groupId,
+          undefined,
+          tx,
+        );
+        const rows = await tx.libraryFile.findMany({
+          where: this.folderWhere(groupId, folderPath),
+        });
+        const pendingWhere = {
+          groupId,
+          status: { in: ["INITIALIZING", "ACTIVE", "COMPLETING", "ABORTING"] },
+          OR: [
+            { folderPath },
+            { folderPath: { startsWith: folderPath + "/" } },
+          ],
+        };
+        const pending = await tx.uploadSession.findMany({
+          where: pendingWhere,
+        });
+        if (!rows.length && !pending.length)
+          throw new ApiError(
+            404,
+            "FOLDER_NOT_FOUND",
+            "Không tìm thấy thư mục.",
+          );
+        if (
+          !permissions.canHost &&
+          (rows.some((file) => file.createdBy !== userId) ||
+            pending.some((upload) => upload.userId !== userId))
+        )
+          throw new ApiError(
+            403,
+            "FORBIDDEN",
+            "Bạn không có quyền quản lý toàn bộ thư mục.",
+          );
+        if (pending.length && !force)
+          throw new ApiError(
+            409,
+            "FOLDER_BUSY",
+            "Thư mục còn file đang tải lên.",
+          );
+        const cancelPending = async () => {
+          if (!force || !pending.length) return;
+          // Retain in-flight leases so storage I/O finishes before its worker cleans up.
+          // ABORTING prevents publication; idle sessions are handled by upload cleanup.
+          await tx.uploadSession.updateMany({
+            where: pendingWhere,
+            data: { status: "ABORTING" },
+          });
+        };
+        if (name !== undefined) {
+          const parent = folderPath.split("/").slice(0, -1).join("/");
+          const target = [parent, name].filter(Boolean).join("/");
+          if (target === folderPath) return [];
+          if (
+            await tx.libraryFile.count({
+              where: {
+                groupId,
+                status: { not: "DELETED" },
+                OR: [
+                  { folderPath: target },
+                  { folderPath: { startsWith: target + "/" } },
+                  { folderPath: parent, name },
+                ],
+              },
+            })
+          )
+            throw new ApiError(409, "FOLDER_EXISTS", "Tên thư mục đã tồn tại.");
+          await cancelPending();
+          for (const file of rows) {
+            const path = target + file.folderPath.slice(folderPath.length);
+            if (path.length > 2048)
+              throw new ApiError(
+                400,
+                "VALIDATION_ERROR",
+                "Đường dẫn thư mục quá dài.",
+              );
+            await tx.libraryFile.update({
+              where: { id: file.id },
+              data: { folderPath: path },
+            });
+          }
+          return [];
+        }
+        if (
+          rows.some((file) => file.status === "PENDING" || file.recordingId) ||
+          (await tx.fileUsage.count({
+            where: { fileId: { in: rows.map((f) => f.id) } },
+          }))
+        )
+          throw new ApiError(
+            409,
+            "FILE_IN_USE",
+            "Thư mục chứa file đang được sử dụng.",
+          );
+        await cancelPending();
+        for (const file of rows) {
+          await tx.$queryRaw`SELECT id FROM files WHERE id = ${file.id}::uuid FOR UPDATE`;
+          // Recheck after locking against recording/pinning races.
+          if (await tx.fileUsage.count({ where: { fileId: file.id } }))
+            throw new ApiError(409, "FILE_IN_USE", "File đang được sử dụng.");
+          await tx.libraryFile.update({
+            where: { id: file.id },
+            data: { status: "DELETED", deletedAt: new Date() },
+          });
+          await tx.fileObjectDeletion.create({
+            data: {
+              fileId: file.id,
+              objectKey: file.objectKey,
+              storageLocationId: file.storageLocationId,
+            },
+          });
+        }
+        return rows;
+      },
+      { timeout: 30000 },
+    );
+    if (force) this.cancellation?.requestCleanup();
+    for (const file of deleted) {
+      try {
+        await this.storage.delete(file.objectKey, file.storageLocationId);
+        await this.prisma.fileObjectDeletion.update({
+          where: { fileId: file.id },
+          data: { completedAt: new Date() },
+        });
+      } catch {
+        /* Durable cleanup retries failed object deletions. */
+      }
+    }
+  }
+  async downloadFolder(userId: string, groupId: string, folderPath: string) {
+    await this.access.require(userId, groupId);
+    const files = await this.prisma.libraryFile.findMany({
+      where: this.folderWhere(groupId, folderPath),
+      orderBy: { id: "asc" },
+    });
+    if (!files.length)
+      throw new ApiError(404, "FOLDER_NOT_FOUND", "Không tìm thấy thư mục.");
+    if (files.some((file) => file.status !== "AVAILABLE"))
+      throw new ApiError(
+        409,
+        "FILE_NOT_READY",
+        "Thư mục còn file chưa sẵn sàng.",
+      );
+    const archive = new ZipArchive({ store: true, forceZip64: true });
+    archive.on("error", () => {});
+    const parentLength = folderPath.lastIndexOf("/") + 1;
+    const used = new Set<string>();
+    async function* contents(service: FilesService) {
+      for (const file of files) {
+        await service.access.require(userId, groupId);
+        const input = await service.storage.read(
+          file.objectKey,
+          file.storageLocationId,
+        );
+        // Sanitize legacy names and keep duplicate filenames distinct in the ZIP.
+        const clean = (value: string) =>
+          value
+            .split("/")
+            .map((p) =>
+              p === "." || p === ".." ? "_" : p.replace(/[\\\x00-\x1f]/g, "_"),
+            )
+            .join("/");
+        let entry = clean(
+          file.folderPath.slice(parentLength) +
+            "/" +
+            file.name.replace(/[/\\]/g, "_"),
+        );
+        if (used.has(entry)) entry += " (" + file.id + ")";
+        used.add(entry);
+        yield { input, entry };
+      }
+    }
+    const sources = new Set<Readable>();
+    archive.once("close", () => {
+      for (const source of sources) source.destroy();
+    });
+    void (async () => {
+      try {
+        for await (const { input, entry } of contents(this)) {
+          if (archive.destroyed) {
+            input.destroy();
+            break;
+          }
+          sources.add(input);
+          input.once("close", () => sources.delete(input));
+          input.once("error", (error) => archive.destroy(error));
+          await new Promise<void>((resolve, reject) => {
+            const done = () => {
+              cleanup();
+              resolve();
+            };
+            const fail = (error: Error) => {
+              cleanup();
+              reject(error);
+            };
+            const cleanup = () => {
+              input.off("end", done);
+              input.off("error", fail);
+              archive.off("error", fail);
+              archive.off("close", done);
+            };
+            input.once("end", done);
+            input.once("error", fail);
+            archive.once("error", fail);
+            archive.once("close", done);
+            archive.append(input, { name: entry });
+          });
+        }
+        await archive.finalize();
+      } catch (error) {
+        archive.destroy(error as Error);
+      }
+    })();
+    return archive;
   }
   private async authorized(
     userId: string,

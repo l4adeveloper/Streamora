@@ -18,6 +18,12 @@ import {
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 
 export class CreateUploadDto {
+  @ApiPropertyOptional({ maxLength: 2048 })
+  @IsOptional()
+  @IsString()
+  @Length(0, 2048)
+  @Matches(/^(?:[^\/\\\x00-\x1f\x7f]+(?:\/[^\/\\\x00-\x1f\x7f]+)*)?$/u)
+  folderPath?: string;
   @ApiProperty() @IsUUID() groupId!: string;
   @ApiProperty()
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))

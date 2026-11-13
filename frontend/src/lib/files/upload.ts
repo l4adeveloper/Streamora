@@ -181,6 +181,7 @@ export async function uploadFile(
   groupId: string,
   options: {
     signal: AbortSignal;
+    folderPath?: string;
     onSession: (session: UploadSession) => void;
     onProgress: (percent: number) => void;
     source?: "DOCUMENT" | "LOCAL_RECORDING";
@@ -261,6 +262,7 @@ export async function uploadFile(
       body: {
         groupId,
         filename: file.name,
+        folderPath: options.folderPath ?? "",
         size: file.size,
         mimeType: file.type.split(";")[0] || "application/octet-stream",
         fingerprint,
@@ -269,6 +271,12 @@ export async function uploadFile(
         folderId: options.folderId,
       },
     }));
+  const stopNewSession = async () => {
+    if (!options.signal.aborted) return;
+    if (!previous) await abortUpload(session.uploadId).catch(() => {});
+    checkCancelled();
+  };
+  await stopNewSession();
   try {
     await uploadStore.save(
       {
@@ -276,6 +284,7 @@ export async function uploadFile(
         userId,
         groupId,
         filename: file.name,
+        folderPath: options.folderPath ?? "",
         size: file.size,
         fingerprint,
         expiresAt: session.expiresAt,
@@ -292,6 +301,7 @@ export async function uploadFile(
       "Không thể lưu file để tiếp tục sau reload. Hãy kiểm tra dung lượng trống hoặc quyền lưu trữ của trình duyệt.",
     );
   }
+  await stopNewSession();
   options.onSession(session);
   const controller = new AbortController();
   const cancel = () => controller.abort();
