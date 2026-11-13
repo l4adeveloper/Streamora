@@ -4,11 +4,18 @@ import type {
   LibraryFile as DbFile,
 } from "../../generated/prisma/client";
 
-export function presentFile(file: DbFile): LibraryFile {
+export function presentFile(
+  file: DbFile & { folder?: { name: string } | null },
+): LibraryFile {
   return {
     id: file.id,
     groupId: file.groupId,
     folderId: file.folderId ?? null,
+    folderName:
+      file.folder?.name ??
+      (file.folderPath && file.folderPath !== "/"
+        ? file.folderPath.split("/").filter(Boolean).pop() ?? null
+        : null),
     name: file.name,
     folderPath: file.folderPath,
     size: Number(file.size),
