@@ -1,8 +1,6 @@
 .library-toolbar {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  align-items: center;
 }
 .library-toolbar + .file-controls {
   margin-top: 16px;
@@ -12,10 +10,7 @@
 }
 .files-page .file-table-heading,
 .file-row.library-file-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.8fr) minmax(120px, 1.1fr) 90px 105px minmax(215px, max-content);
-  align-items: center;
-  gap: 12px;
+  grid-template-columns: minmax(140px, 1fr) 90px 95px 160px;
 }
 .library-file-row .library-file-name {
   display: flex;
@@ -39,60 +34,10 @@
 .library-file-name small {
   display: block;
 }
-.library-file-folder {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-.file-folder-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: var(--surface-container, rgba(255, 255, 255, 0.05));
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
-  color: var(--text, #f4f4fc);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.file-folder-badge:hover {
-  background: var(--hover, rgba(255, 255, 255, 0.12));
-  border-color: var(--primary, #6366f1);
-  color: #fff;
-}
-.file-folder-badge span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.file-folder-empty {
-  color: var(--text-muted, #71717a);
-  font-size: 13px;
-  padding-left: 6px;
-}
-.library-file-size {
-  white-space: nowrap;
-  font-size: 13px;
-  color: var(--text-muted, #a1a1aa);
-}
-.library-file-date {
-  white-space: nowrap;
-  font-size: 13px;
-  color: var(--text-muted, #a1a1aa);
-}
 .library-actions {
   display: flex !important;
   gap: 8px;
   justify-content: flex-end;
-  align-items: center;
-  min-width: 205px;
-  flex-shrink: 0;
 }
 .library-actions button,
 .library-dialog-heading button {
@@ -351,8 +296,7 @@
     grid-template-columns: minmax(0, 1fr) auto;
   }
   .files-page .file-table-heading > span:nth-child(2),
-  .files-page .file-table-heading > span:nth-child(3),
-  .files-page .file-table-heading > span:nth-child(4) {
+  .files-page .file-table-heading > span:nth-child(3) {
     display: none;
   }
   .file-row.library-file-row {
@@ -360,13 +304,11 @@
     gap: 10px;
   }
   .library-file-row > span:nth-child(2),
-  .library-file-row > span:nth-child(3),
-  .library-file-row > span:nth-child(4) {
+  .library-file-row > span:nth-child(3) {
     display: none;
   }
   .library-file-row .library-actions {
     display: flex !important;
-    min-width: auto;
   }
 }
 .file-uploader {
@@ -1134,191 +1076,4 @@
 }
 .upload-popover-toggle:hover {
   background: var(--hover);
-}
-
-/* ==========================================================================
-   Windows File Explorer Tree View
-   ========================================================================== */
-.files-explorer-layout {
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-  margin-top: 14px;
-}
-.files-tree-sidebar {
-  width: 280px;
-  flex-shrink: 0;
-  background: var(--elevated, #181824);
-  border: 1px solid var(--border, #282838);
-  border-radius: 14px;
-  padding: 14px 12px;
-  max-height: calc(100vh - 180px);
-  overflow-y: auto;
-  position: sticky;
-  top: 80px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-}
-.files-tree-sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 10px;
-  margin-bottom: 10px;
-  border-bottom: 1px solid var(--border, #282838);
-}
-.files-tree-sidebar-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted, #94a3b8);
-}
-.files-tree-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: 1px solid var(--border, #282838);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted, #94a3b8);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.files-tree-toggle-btn:hover {
-  background: var(--hover, #232334);
-  color: var(--text, #f4f4fc);
-}
-.files-main-content {
-  flex: 1;
-  min-width: 0;
-}
-
-/* Tree Component */
-.explorer-tree-view {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 13.5px;
-  user-select: none;
-}
-.tree-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.tree-branch {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.tree-children {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  position: relative;
-}
-.tree-node-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--text, #f4f4fc);
-  transition: background 0.15s ease, color 0.15s ease;
-  position: relative;
-}
-.tree-node-row:hover {
-  background: var(--hover, rgba(255, 255, 255, 0.06));
-}
-.tree-node-row.is-selected {
-  background: rgba(99, 102, 241, 0.18);
-  color: #a5b4fc;
-  font-weight: 600;
-}
-.tree-node-row.is-disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.tree-chevron-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted, #94a3b8);
-  cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-.tree-chevron-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-}
-.tree-chevron-spacer {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-}
-.tree-folder-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fbbf24;
-  flex-shrink: 0;
-}
-.tree-folder-icon.root-icon {
-  color: #818cf8;
-}
-.tree-node-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tree-node-count {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 10px;
-  background: var(--surface-container, rgba(255, 255, 255, 0.08));
-  color: var(--text-muted, #94a3b8);
-  flex-shrink: 0;
-}
-.tree-empty-note {
-  padding: 12px;
-  color: var(--text-muted, #71717a);
-  font-size: 13px;
-  text-align: center;
-  font-style: italic;
-}
-
-/* Modal Tree View */
-.folder-select-tree {
-  max-height: 320px;
-  overflow-y: auto;
-  margin-top: 14px;
-  padding: 8px;
-  border-radius: 10px;
-  border: 1px solid var(--border, #282838);
-  background: var(--elevated, #14141e);
-}
-@media (max-width: 880px) {
-  .files-explorer-layout {
-    flex-direction: column;
-  }
-  .files-tree-sidebar {
-    width: 100%;
-    position: static;
-    max-height: 260px;
-  }
 }

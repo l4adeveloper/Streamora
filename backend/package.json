@@ -7,7 +7,7 @@
     "build": "npm run build --workspace=@streamora/contracts && npm run db:generate && tsc",
     "start": "node dist/main.js",
     "typecheck": "npm run build --workspace=@streamora/contracts && npm run db:generate && tsc --noEmit",
-    "test": "npm run build && node --test test/*.test.cjs",
+    "test": "npm run build && node --test --test-concurrency=1 test/*.test.cjs",
     "test:integration": "npm run build && node --test --test-concurrency=1 test/integration/*.test.cjs",
     "test:browser": "npm run build && node --test --test-concurrency=1 test/browser/*.test.cjs",
     "docs:api": "npm run build && node scripts/export-openapi.cjs",

@@ -245,9 +245,9 @@ test(
       );
       const participants = () =>
         f.api(owner, "GET", `/sessions/${publicMeeting.id}/participants`);
-      const withGuest = await participants();
-      assert.equal(withGuest.status, 200);
-      assert.ok(withGuest.body.items.some((visit) => visit.userId === guest.id));
+      const withMember = await participants();
+      assert.equal(withMember.status, 200);
+      assert.ok(withMember.body.items.some((visit) => visit.userId === member.id));
       const requested = await f.api(
         guest,
         "POST",
@@ -298,6 +298,9 @@ test(
         ).status,
         200,
       );
+      const withGuest = await participants();
+      assert.equal(withGuest.status, 200);
+      assert.ok(withGuest.body.items.some((visit) => visit.userId === guest.id));
       assert.equal(
         (
           await f.api(owner, "PATCH", `/sessions/${publicMeeting.id}`, {
