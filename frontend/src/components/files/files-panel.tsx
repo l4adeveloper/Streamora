@@ -732,23 +732,64 @@ export function FilesPanel({
             }}
           >
             <div className="library-dialog-heading">
-              <h3 id="library-dialog-title">
-                {action === "rename"
-                  ? "Đổi tên tài liệu"
-                  : action === "delete"
-                    ? "Xóa vĩnh viễn tài liệu?"
-                    : action === "preview"
-                      ? previewLabel(selected)
-                      : "Chi tiết tài liệu"}
-              </h3>
-              <button
-                type="button"
-                aria-label="Đóng"
-                disabled={busy}
-                onClick={() => setSelected(null)}
-              >
-                <X size={18} />
-              </button>
+              {action === "preview" ? (
+                <>
+                  <div className="library-dialog-title-group">
+                    <h3 id="library-dialog-title">{previewLabel(selected)}</h3>
+                    <p className="library-preview-filename">{selected.name}</p>
+                  </div>
+                  <div className="library-preview-tools">
+                    {!videoTypes.has(selected.mimeType) && (
+                      <button
+                        type="button"
+                        title="Tải lại bản xem trước"
+                        aria-label="Tải lại bản xem trước"
+                        onClick={() => setPreviewRevision((value) => value + 1)}
+                      >
+                        <RefreshCw size={16} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="preview-download"
+                      title="Tải xuống tài liệu"
+                      aria-label={`Tải xuống ${selected.name}`}
+                      disabled={busy || selected.status !== "AVAILABLE"}
+                      onClick={() => void download(selected)}
+                    >
+                      <Download size={16} />
+                      <span>Tải xuống</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="preview-close"
+                      aria-label="Đóng"
+                      disabled={busy}
+                      onClick={() => setSelected(null)}
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h3 id="library-dialog-title">
+                    {action === "rename"
+                      ? "Đổi tên tài liệu"
+                      : action === "delete"
+                        ? "Xóa vĩnh viễn tài liệu?"
+                        : "Chi tiết tài liệu"}
+                  </h3>
+                  <button
+                    type="button"
+                    aria-label="Đóng"
+                    disabled={busy}
+                    onClick={() => setSelected(null)}
+                  >
+                    <X size={18} />
+                  </button>
+                </>
+              )}
             </div>
             {action === "rename" ? (
               <label>
@@ -762,7 +803,7 @@ export function FilesPanel({
                   onChange={(event) => setName(event.target.value)}
                 />
               </label>
-            ) : (
+            ) : action === "preview" ? null : (
               <p className="library-detail-name">{selected.name}</p>
             )}
             {action === "delete" && (
@@ -862,57 +903,50 @@ export function FilesPanel({
                 {actionError}
               </p>
             )}
-            <div className="library-dialog-actions">
-              <button
-                type="button"
-                className="button secondary"
-                disabled={busy}
-                onClick={() => setSelected(null)}
-              >
-                Đóng
-              </button>
-              {action === "detail" && canPreview(selected) && (
+            {action !== "preview" && (
+              <div className="library-dialog-actions">
                 <button
                   type="button"
                   className="button secondary"
-                  disabled={busy || selected.status !== "AVAILABLE"}
-                  onClick={() => setAction("preview")}
+                  disabled={busy}
+                  onClick={() => setSelected(null)}
                 >
-                  <Eye size={16} /> {previewLabel(selected)}
+                  Đóng
                 </button>
-              )}
-              {action === "preview" && !videoTypes.has(selected.mimeType) && (
-                <button
-                  type="button"
-                  className="button secondary"
-                  onClick={() => setPreviewRevision((value) => value + 1)}
-                >
-                  Tải lại bản xem trước
-                </button>
-              )}
-              {action === "detail" || action === "preview" ? (
-                <button
-                  type="button"
-                  className="button primary"
-                  disabled={busy || selected.status !== "AVAILABLE"}
-                  onClick={() => void download(selected)}
-                >
-                  Tải xuống
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  className="button primary"
-                  disabled={busy || (action === "rename" && !name.trim())}
-                >
-                  {busy
-                    ? "Đang xử lý…"
-                    : action === "delete"
-                      ? "Xóa vĩnh viễn"
-                      : "Lưu tên"}
-                </button>
-              )}
-            </div>
+                {action === "detail" && canPreview(selected) && (
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={busy || selected.status !== "AVAILABLE"}
+                    onClick={() => setAction("preview")}
+                  >
+                    <Eye size={16} /> {previewLabel(selected)}
+                  </button>
+                )}
+                {action === "detail" ? (
+                  <button
+                    type="button"
+                    className="button primary"
+                    disabled={busy || selected.status !== "AVAILABLE"}
+                    onClick={() => void download(selected)}
+                  >
+                    Tải xuống
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    className="button primary"
+                    disabled={busy || (action === "rename" && !name.trim())}
+                  >
+                    {busy
+                      ? "Đang xử lý…"
+                      : action === "delete"
+                        ? "Xóa vĩnh viễn"
+                        : "Lưu tên"}
+                  </button>
+                )}
+              </div>
+            )}
           </form>
         )}
       </dialog>
