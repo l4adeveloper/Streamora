@@ -209,7 +209,9 @@ function MediaTile({
     .join(" ");
 
   return (
-    <div className={`class-media-tile ${isSpeaking ? "speaking" : ""}`}>
+    <div
+      className={`class-media-tile ${isSpeaking ? "speaking" : ""} ${isLocal && screen ? "class-media-self-screen" : ""}`}
+    >
       {stream && (
         <video
           ref={video}
@@ -219,6 +221,16 @@ function MediaTile({
           aria-label={name}
           className={videoClasses}
         />
+      )}
+      {isLocal && screen && (
+        <div className="class-media-self-screen-notice" role="status">
+          <MonitorUp size={42} aria-hidden="true" />
+          <strong>Bạn đang chia sẻ màn hình</strong>
+          <p>
+            Bản xem trước của bạn được ẩn khi toàn màn hình để tránh hình ảnh lặp
+            lại. Nhấn Esc để xem lại bản xem trước.
+          </p>
+        </div>
       )}
       {!camera && !screen && (
         <div
@@ -720,7 +732,7 @@ export function ClassMediaRoom({
     if (recorderActive) updateRecordingScene(buildScene());
   });
   const localScreen = media.screenPreview && (
-    <MediaTile stream={media.screenPreview} name="Bạn · Màn hình" screen />
+    <MediaTile stream={media.screenPreview} name="Bạn · Màn hình" screen isLocal />
   );
   if (layout === "workspace") {
     const preferred = screenPeers.length ? screenPeers : participants;

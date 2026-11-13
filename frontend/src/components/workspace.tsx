@@ -56,6 +56,7 @@ import { GroupsListPage } from "./groups/groups-list-page";
 import { MeetHub } from "./class-sessions/meet-hub";
 import { CreateGroupMeeting } from "./class-sessions/create-group-meeting";
 import { WorkspaceMeetingRoom } from "./class-sessions/workspace-meeting-room";
+import { ActiveMeetingCard } from "./class-sessions/active-meeting-card";
 import {
   MeetingPeoplePanel,
   MeetingChatSidePanel,
@@ -94,12 +95,14 @@ function groupInitials(name: string) {
 }
 export function Workspace({
   view: baseView,
-  channel = "trò-chuyện-chung",
+  channel: routeChannel = "trò-chuyện-chung",
 }: {
   view: View;
   channel?: string;
 }) {
   const router = useRouter();
+  const [meetingChatChannel, setMeetingChatChannel] = useState<string | null>(null);
+  const channel = meetingChatChannel ?? routeChannel;
   const { notify } = useToast();
   const { user } = useAuth();
   const workspaceGroup = useWorkspaceGroup();
@@ -224,8 +227,8 @@ export function Workspace({
   workspaceScope.current = `${user?.id ?? ""}:${workspaceGroup.groupId ?? ""}`;
   const switching = useRef(false);
   const [roomSwitching, setRoomSwitching] = useState(false);
-  const view: View = activeMeetingId && !meetingMinimized
-    ? "meetings"
+  const view: View = activeMeetingId
+    ? meetingMinimized ? "chat" : "meetings"
     : baseView === "meetings" ||
         (baseView === "live" && !!workspaceGroup.groupId)
       ? "chat"
@@ -262,6 +265,12 @@ export function Workspace({
       history.pushState(null, "", url);
     });
   }
+  function returnToMeeting() {
+    setMeetingMinimized(false);
+    const url = new URL(location.href);
+    url.pathname = "/workspace";
+    history.pushState(null, "", url);
+  }
   const updateRoom = useCallback(
     (session: ClassSession) => {
       rooms.update(session);
@@ -285,7 +294,7 @@ export function Workspace({
       session.id === activeMeetingId &&
       session.groupId === workspaceGroup.groupId
     ) {
-      setMeetingMinimized(false);
+      returnToMeeting();
       return;
     }
     if (session.groupId !== workspaceGroup.groupId) return;
@@ -382,6 +391,11 @@ export function Workspace({
       }
       if (current) {
         setMeetingSelection(id && groupId ? { id, groupId } : null);
+        const chatPath = location.pathname.match(/^\/community(?:\/([^/]+))?\/?$/);
+        setMeetingMinimized(!!id && !!chatPath);
+        setMeetingChatChannel(
+          chatPath ? decodeURIComponent(chatPath[1] ?? "trò-chuyện-chung") : null,
+        );
         setRoomInfo(null);
         if (id) {
           setPanel(!matchMedia("(max-width: 900px)").matches);
@@ -915,8 +929,14 @@ export function Workspace({
       if (targetHref.startsWith("/community")) {
         event.preventDefault();
         setMeetingMinimized(true);
-        const href = event.currentTarget.href;
-        router.push(href);
+        const target = new URL(event.currentTarget.href);
+        setMeetingChatChannel(
+          decodeURIComponent(target.pathname.split("/")[2] || "trò-chuyện-chung"),
+        );
+        target.searchParams.set("groupId", workspaceGroup.groupId!);
+        target.searchParams.set("meetingId", activeMeetingId);
+        // Keep the room mounted while browsing chat so its media and controls survive.
+        history.pushState(null, "", target);
         return;
       }
       event.preventDefault();
@@ -1170,7 +1190,7 @@ export function Workspace({
                     title={`${room.title} · ${room.status === "LIVE" ? "Đang diễn ra" : "Sắp diễn ra"}`}
                     onClick={() => {
                       if (isCurrentActive) {
-                        setMeetingMinimized(false);
+                        returnToMeeting();
                         return;
                       }
                       openRoom(room);
@@ -1370,31 +1390,12 @@ export function Workspace({
         </header>
         <div className="workspace-body">
           {activeMeetingId && meetingMinimized && (
-            <div className="active-meeting-banner" role="status">
-              <div className="active-meeting-banner-left">
-                <span className="live-meeting-indicator" />
-                <span className="active-meeting-title">
-                  Đang trong cuộc họp: <strong>{selectedMeeting?.title ?? "Cuộc họp"}</strong>
-                </span>
-              </div>
-              <div className="active-meeting-banner-actions">
-                <button
-                  type="button"
-                  className="button primary compact"
-                  onClick={() => setMeetingMinimized(false)}
-                >
-                  <Video size={14} /> Quay lại cuộc họp
-                </button>
-                <button
-                  type="button"
-                  className="button danger compact"
-                  onClick={returnToChat}
-                  title="Rời phòng họp"
-                >
-                  <PhoneOff size={14} /> Rời phòng
-                </button>
-              </div>
-            </div>
+            <ActiveMeetingCard
+              title={selectedMeeting?.title ?? "Cuộc họp"}
+              leaving={roomSwitching}
+              onReturn={returnToMeeting}
+              onLeave={returnToChat}
+            />
           )}
           <main
             className={`main-content view-${view} ${membersView ? "membership-main" : ""}`}
