@@ -2,7 +2,7 @@
 import Link from "next/link";
 
 import {
-  useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
@@ -45,6 +45,9 @@ function belongsToSameGroup(
 
 export function WorkspaceChat({
   messages,
+  hasOlder = false,
+  loadingOlder = false,
+  onLoadOlder,
   draft,
   onDraftChange,
   onSubmit,
@@ -56,10 +59,16 @@ export function WorkspaceChat({
   onDelete,
   onMeetingOpen,
   welcome,
+  showInfo = true,
+  showHistoryLabel = true,
+  placeholder = "Gửi lời nhắn đến mọi người…",
   infoText = "Cuộc trò chuyện được lưu trong cộng đồng",
   disabled = false,
 }: {
   messages: ChatMessage[];
+  hasOlder?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => Promise<void>;
   draft: string;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
@@ -71,6 +80,9 @@ export function WorkspaceChat({
   onDelete?: (id: string) => Promise<void>;
   onMeetingOpen?: (id: string) => void;
   welcome?: ReactNode;
+  showInfo?: boolean;
+  showHistoryLabel?: boolean;
+  placeholder?: string;
   infoText?: string;
   disabled?: boolean;
 }) {
@@ -79,15 +91,23 @@ export function WorkspaceChat({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
-  useEffect(() => {
+  const pinned = useRef(true);
+  const previous = useRef({ first: "", height: 0, count: 0 });
+  useLayoutEffect(() => {
     const element = history.current;
     if (!element) return;
-    element.scrollTo({
-      top: element.scrollHeight,
-      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "instant"
-        : "smooth",
-    });
+    const first = messages[0]?.id ?? "";
+    const prev = previous.current;
+    if (prev.count && first !== prev.first && messages.length > prev.count) {
+      element.scrollTop += element.scrollHeight - prev.height;
+    } else if (!prev.count || pinned.current) {
+      element.scrollTop = element.scrollHeight;
+    }
+    previous.current = {
+      first,
+      height: element.scrollHeight,
+      count: messages.length,
+    };
   }, [messages]);
 
   function startReply(message: ChatMessage) {
@@ -127,18 +147,38 @@ export function WorkspaceChat({
       <div
         className="chat-history"
         ref={history}
+        onScroll={() => {
+          const el = history.current;
+          if (!el) return;
+          pinned.current =
+            el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+          previous.current.height = el.scrollHeight;
+          if (el.scrollTop < 80 && !pinned.current && hasOlder && !loadingOlder)
+            void onLoadOlder?.();
+        }}
         role="log"
         aria-label="Lịch sử tin nhắn"
         tabIndex={0}
       >
+        {hasOlder && (
+          <button
+            className="button secondary compact"
+            disabled={loadingOlder}
+            onClick={() => void onLoadOlder?.()}
+          >
+            {loadingOlder ? "Đang tải…" : "Tải tin nhắn trước"}
+          </button>
+        )}
         {welcome}
-        <div className="chat-info">
-          <ShieldCheck size={14} />
-          <span>{infoText}</span>
-        </div>
-        {messages.length > 0 && (
+        {showInfo && (
+          <div className="chat-info">
+            <ShieldCheck size={14} />
+            <span>{infoText}</span>
+          </div>
+        )}
+        {showHistoryLabel && messages.length > 0 && (
           <div className="chat-date">
-            <span /> Hôm nay <span />
+            <span /> Lịch sử trò chuyện <span />
           </div>
         )}
         <div className="messages">
@@ -351,7 +391,7 @@ export function WorkspaceChat({
             ref={composer}
             value={draft}
             onChange={(event) => onDraftChange(event.target.value)}
-            placeholder="Gửi lời nhắn đến mọi người…"
+            placeholder={placeholder}
             aria-label="Tin nhắn"
             disabled={disabled}
           />

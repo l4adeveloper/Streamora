@@ -732,10 +732,9 @@ test("authenticated group chat sends through the backend and reloads durable his
       .click();
     await viewerHistory.getByText(text, { exact: true }).waitFor();
     await viewerHistory.getByText(owner.fullName, { exact: true }).waitFor();
-    const savedMessages = await fixture.prisma.groupChatMessage.findMany({
-      where: { groupId: group.id, senderId: owner.id, text },
-      select: { id: true },
-    });
+    const savedMessages = (
+      await api(owner, "GET", `/groups/${group.id}/chat/messages`)
+    ).body.items.filter((m) => m.senderId === owner.id && m.text === text);
     assert.equal(savedMessages.length, 1);
 
     const ownerMessage = ownerSession.page.locator(

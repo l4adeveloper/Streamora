@@ -17,13 +17,18 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:status": "prisma migrate status",
-    "db:check": "npm run build && node scripts/check-database.cjs"
+    "db:check": "npm run build && node scripts/check-database.cjs",
+    "chat:setup": "node scripts/chat-dynamodb.cjs",
+    "chat:migrate": "npm run build && node scripts/migrate-chat-dynamodb.cjs",
+    "test:chat": "npm run build && node --test test/chat-dynamodb.test.cjs"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1168.0",
     "@aws-sdk/client-ivs-realtime": "3.1164.0",
     "@aws-sdk/client-s3": "^3.1164.0",
     "@aws-sdk/client-secrets-manager": "3.1164.0",
     "@aws-sdk/client-sqs": "3.1164.0",
+    "@aws-sdk/lib-dynamodb": "3.1168.0",
     "@aws-sdk/s3-request-presigner": "^3.1164.0",
     "@azure/web-pubsub-socket.io": "1.2.1",
     "@nestjs/common": "^11.0.0",

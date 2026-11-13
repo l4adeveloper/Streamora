@@ -72,6 +72,8 @@ import { useGroupChat } from "@/lib/memberships/use-group-chat";
 
 import { LivePlayer } from "./live-player";
 import { WorkspaceChat } from "./workspace-chat";
+import { WorkspaceThreads } from "./workspace-threads";
+import { WorkspaceSearch } from "./workspace-search";
 import { FilesPanel } from "./files/files-panel";
 import { initialFiles, membersInitial, portrait } from "./demo-data";
 import type { View, ChatMessage } from "./demo-data";
@@ -101,7 +103,9 @@ export function Workspace({
   channel?: string;
 }) {
   const router = useRouter();
-  const [meetingChatChannel, setMeetingChatChannel] = useState<string | null>(null);
+  const [meetingChatChannel, setMeetingChatChannel] = useState<string | null>(
+    null,
+  );
   const channel = meetingChatChannel ?? routeChannel;
   const { notify } = useToast();
   const { user } = useAuth();
@@ -186,7 +190,8 @@ export function Workspace({
   }, [rooms.items, workspaceGroup.groupId]);
 
   // Track pending room switch to show confirm dialog
-  const [pendingRoomSwitch, setPendingRoomSwitch] = useState<ClassSession | null>(null);
+  const [pendingRoomSwitch, setPendingRoomSwitch] =
+    useState<ClassSession | null>(null);
   const [roomInfo, setRoomInfo] = useState<ClassSession | null>(null);
   const selectedMeeting =
     roomInfo?.id === activeMeetingId
@@ -228,7 +233,9 @@ export function Workspace({
   const switching = useRef(false);
   const [roomSwitching, setRoomSwitching] = useState(false);
   const view: View = activeMeetingId
-    ? meetingMinimized ? "chat" : "meetings"
+    ? meetingMinimized
+      ? "chat"
+      : "meetings"
     : baseView === "meetings" ||
         (baseView === "live" && !!workspaceGroup.groupId)
       ? "chat"
@@ -391,10 +398,14 @@ export function Workspace({
       }
       if (current) {
         setMeetingSelection(id && groupId ? { id, groupId } : null);
-        const chatPath = location.pathname.match(/^\/community(?:\/([^/]+))?\/?$/);
+        const chatPath = location.pathname.match(
+          /^\/community(?:\/([^/]+))?\/?$/,
+        );
         setMeetingMinimized(!!id && !!chatPath);
         setMeetingChatChannel(
-          chatPath ? decodeURIComponent(chatPath[1] ?? "trò-chuyện-chung") : null,
+          chatPath
+            ? decodeURIComponent(chatPath[1] ?? "trò-chuyện-chung")
+            : null,
         );
         setRoomInfo(null);
         if (id) {
@@ -545,7 +556,7 @@ export function Workspace({
       new URLSearchParams(location.search).get("tab") === "members";
     setMembersView(showMembers);
     if (view === "chat") setPanelTab("members");
-    if (showMembers) setPanel(false);
+    if (showMembers || channel === "hỏi-đáp") setPanel(false);
     setMobileNav(false);
   }, [view, channel]);
   useEffect(() => {
@@ -553,7 +564,9 @@ export function Workspace({
     setReplyingToId(null);
   }, [workspaceGroup.groupId, channel]);
   useEffect(() => {
-    const confirmedIds = new Set(groupChat.messages.map((message) => message.id));
+    const confirmedIds = new Set(
+      groupChat.messages.map((message) => message.id),
+    );
     const confirmedClientIds = new Set(
       groupChat.messages.map((message) => message.clientId),
     );
@@ -931,7 +944,9 @@ export function Workspace({
         setMeetingMinimized(true);
         const target = new URL(event.currentTarget.href);
         setMeetingChatChannel(
-          decodeURIComponent(target.pathname.split("/")[2] || "trò-chuyện-chung"),
+          decodeURIComponent(
+            target.pathname.split("/")[2] || "trò-chuyện-chung",
+          ),
         );
         target.searchParams.set("groupId", workspaceGroup.groupId!);
         target.searchParams.set("meetingId", activeMeetingId);
@@ -951,6 +966,9 @@ export function Workspace({
   }
 
   const chatProps = {
+    hasOlder: groupChat.hasOlder,
+    loadingOlder: groupChat.loadingOlder,
+    onLoadOlder: groupChat.loadOlder,
     messages,
     draft,
     onDraftChange: setDraft,
@@ -1126,15 +1144,13 @@ export function Workspace({
               <Hash size={19} /> trò-chuyện-chung{" "}
               <span className="unread-dot" />
             </Link>
-            <button
-              className="channel"
-              onClick={() => {
-                setModal("questions");
-              }}
+            <Link
+              className={`channel ${channel === "hỏi-đáp" ? "selected" : ""}`}
+              href={`/community/${encodeURIComponent("hỏi-đáp")}${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
+              onClick={navigateWorkspace}
             >
-              <Hash size={19} /> hỏi-đáp{" "}
-              <span className="channel-count">3</span>
-            </button>
+              <Hash size={19} /> hỏi-đáp
+            </Link>
             <Link
               className={`channel ${!membersView && view === "chat" && channel === "thông-báo" ? "selected" : ""}`}
               href={`/community/${encodeURIComponent("thông-báo")}${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
@@ -1182,9 +1198,7 @@ export function Workspace({
                     type="button"
                     className={`channel workspace-meeting-channel ${!membersView && isCurrentActive ? "selected" : ""}`}
                     aria-current={
-                      !membersView && isCurrentActive
-                        ? "page"
-                        : undefined
+                      !membersView && isCurrentActive ? "page" : undefined
                     }
                     disabled={roomSwitching}
                     title={`${room.title} · ${room.status === "LIVE" ? "Đang diễn ra" : "Sắp diễn ra"}`}
@@ -1742,32 +1756,44 @@ export function Workspace({
                       onFilterChange={setFilter}
                     />
                   ) : null)}
-                {view === "chat" && (
-                  <div className="community-chat">
-                    <WorkspaceChat
-                      {...chatProps}
-                      welcome={
-                        <div className="chat-welcome">
-                          <div className="card-icon">
-                            <Hash size={30} />
-                          </div>
-                          <h2>Mỗi kết nối bắt đầu bằng lời chào.</h2>
-                          <p>
-                            Chào mừng đến với <b>#{title}</b> của {group}.<br />
-                            Cùng đặt câu hỏi, chia sẻ kiến thức và giúp nhau
-                            tiến bộ.
-                          </p>
-                          <button
-                            className="button secondary compact"
-                            onClick={() => setModal("invite")}
-                          >
-                            <Users size={15} /> Mời bạn bè
-                          </button>
-                        </div>
-                      }
+                {view === "chat" &&
+                  channel === "hỏi-đáp" &&
+                  workspaceGroup.groupId && (
+                    <WorkspaceThreads
+                      key={workspaceGroup.groupId}
+                      groupId={workspaceGroup.groupId}
+                      userId={user?.id}
                     />
-                  </div>
-                )}
+                  )}
+                {view === "chat" &&
+                  !(channel === "hỏi-đáp" && workspaceGroup.groupId) && (
+                    <div className="community-chat">
+                      <WorkspaceChat
+                        key={`${workspaceGroup.groupId}:${channel}`}
+                        {...chatProps}
+                        welcome={
+                          <div className="chat-welcome">
+                            <div className="card-icon">
+                              <Hash size={30} />
+                            </div>
+                            <h2>Mỗi kết nối bắt đầu bằng lời chào.</h2>
+                            <p>
+                              Chào mừng đến với <b>#{title}</b> của {group}.
+                              <br />
+                              Cùng đặt câu hỏi, chia sẻ kiến thức và giúp nhau
+                              tiến bộ.
+                            </p>
+                            <button
+                              className="button secondary compact"
+                              onClick={() => setModal("invite")}
+                            >
+                              <Users size={15} /> Mời bạn bè
+                            </button>
+                          </div>
+                        }
+                      />
+                    </div>
+                  )}
                 {view === "room" && (
                   <div className="room-page">
                     <div className="room-banner">
@@ -1976,7 +2002,10 @@ export function Workspace({
                   userId={roomState?.userId ?? user?.id}
                 />
               ) : view !== "chat" && panelTab === "chat" ? (
-                <WorkspaceChat {...chatProps} />
+                <WorkspaceChat
+                  key={`${workspaceGroup.groupId}:${channel}`}
+                  {...chatProps}
+                />
               ) : view === "meetings" && activeMeetingId ? (
                 roomState?.sessionId === activeMeetingId ? (
                   <MeetingPeoplePanel
@@ -2086,7 +2115,7 @@ export function Workspace({
               role="dialog"
               aria-modal="true"
               aria-label="Hộp thao tác"
-              className="modal"
+              className={`modal ${modal === "search" ? "space-search-dialog" : ""}`}
               data-workspace-dialog="true"
               onClick={(e) => e.stopPropagation()}
             >
@@ -2162,15 +2191,27 @@ export function Workspace({
               {modal === "search" && (
                 <>
                   <h2>Tìm trong không gian</h2>
+                  <p className="space-search-description">
+                    Tin nhắn và tài liệu, ngay trong tầm tay.
+                  </p>
                   <div className="input-icon">
                     <Search size={18} />
                     <input
                       autoFocus
+                      aria-label="Tìm trong không gian"
                       placeholder="Tìm tài liệu, cuộc trò chuyện…"
+                      maxLength={100}
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
                   </div>
+                  {workspaceGroup.groupId && (
+                    <WorkspaceSearch
+                      groupId={workspaceGroup.groupId}
+                      query={search}
+                      onNavigate={() => setModal(null)}
+                    />
+                  )}
                   <div className="search-results">
                     {search.trim() ? (
                       <>
@@ -2187,26 +2228,28 @@ export function Workspace({
                               <ArrowRight size={15} />
                             </Link>
                           ))}
-                        {messages
-                          .filter((m) =>
-                            m.text
+                        {!workspaceGroup.groupId &&
+                          messages
+                            .filter((m) =>
+                              m.text
+                                .toLocaleLowerCase("vi")
+                                .includes(search.toLocaleLowerCase("vi")),
+                            )
+                            .map((m, i) => (
+                              <Link key={i} href="/community">
+                                <MessageCircle size={17} />
+                                <span>
+                                  <b>{m.name}</b>
+                                  <small>{m.text}</small>
+                                </span>
+                              </Link>
+                            ))}
+                        {!workspaceGroup.groupId &&
+                          !files.some((f) =>
+                            f.name
                               .toLocaleLowerCase("vi")
                               .includes(search.toLocaleLowerCase("vi")),
-                          )
-                          .map((m, i) => (
-                            <Link key={i} href="/community">
-                              <MessageCircle size={17} />
-                              <span>
-                                <b>{m.name}</b>
-                                <small>{m.text}</small>
-                              </span>
-                            </Link>
-                          ))}
-                        {!files.some((f) =>
-                          f.name
-                            .toLocaleLowerCase("vi")
-                            .includes(search.toLocaleLowerCase("vi")),
-                        ) &&
+                          ) &&
                           !messages.some((m) =>
                             m.text
                               .toLocaleLowerCase("vi")
@@ -2214,9 +2257,9 @@ export function Workspace({
                           ) && <p>Không có kết quả phù hợp.</p>}
                       </>
                     ) : (
-                      <p>
-                        Nhập từ khóa để tìm trong dữ liệu mẫu của cộng đồng.
-                      </p>
+                      !workspaceGroup.groupId && (
+                        <p>Nhập từ khóa để tìm trong không gian.</p>
+                      )
                     )}
                   </div>
                 </>
@@ -2469,8 +2512,13 @@ export function Workspace({
           >
             <h2 id="room-switch-dialog-title">Rời phòng họp hiện tại?</h2>
             <p>
-              Bạn đang trong phòng <strong>&ldquo;{selectedMeeting?.title ?? "phòng họp"}&rdquo;</strong>.
-              Chuyển sang <strong>&ldquo;{pendingRoomSwitch.title}&rdquo;</strong> sẽ tự động rời phòng hiện tại.
+              Bạn đang trong phòng{" "}
+              <strong>
+                &ldquo;{selectedMeeting?.title ?? "phòng họp"}&rdquo;
+              </strong>
+              . Chuyển sang{" "}
+              <strong>&ldquo;{pendingRoomSwitch.title}&rdquo;</strong> sẽ tự
+              động rời phòng hiện tại.
             </p>
             <div className="room-switch-actions">
               <button

@@ -29,6 +29,8 @@ import type { Prisma } from "../../generated/prisma/client";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
 
+import { ChatStore } from "./chat-store";
+
 const RESERVED_CHAT_CHANNELS = new Set([
   "trò-chuyện-chung",
   "hỏi-đáp",
@@ -53,12 +55,19 @@ export class MembershipGateway
   private chatVersion = 0n;
   private nextChatCleanup = 0;
   private lastWarning = 0;
+  private readonly sendWindows = new Map<
+    string,
+    { start: number; count: number }
+  >();
+  private readonly seenChatEvents = new Map<string, number>();
+  private chatSince = new Date(Date.now() - 60000).toISOString();
   private readonly logger = new Logger(MembershipGateway.name);
   constructor(
     private readonly tokens: AccessTokenService,
     private readonly sessions: SessionStore,
     private readonly access: GroupAccessService,
     private readonly prisma: PrismaService,
+    private readonly chat: ChatStore,
     @Inject(APP_CONFIG) private readonly config: EnvironmentConfig,
   ) {}
 
@@ -241,18 +250,31 @@ export class MembershipGateway
     try {
       const { groupId } = await this.authorize(client, body);
       const channel = this.channel(body);
+      await this.chat.requireThread(groupId, channel);
       await client.join(`group:${groupId}`);
       if (!client.rooms.has(`group:${groupId}`))
         return this.chatFailure(
           "SERVICE_UNAVAILABLE",
           "Chưa thể tham gia cuộc trò chuyện.",
         );
-      const [rows, channels] = await Promise.all([
-        this.prisma.groupChatMessage.findMany({
-          where: { groupId, channel, deletedAt: null },
+      // Relational meeting commands own the announcement outbox; materialize before reading.
+      if (channel === "thông-báo") {
+        const announcements = await this.prisma.groupChatMessage.findMany({
+          where: {
+            groupId,
+            channel,
+            meetingId: { not: null },
+            deletedAt: null,
+          },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          take: 100,
-        }),
+          take: 20,
+        });
+        for (const row of announcements)
+          if (!(await this.chat.get(groupId, row.id)))
+            await this.chat.save(this.chatMessage(row));
+      }
+      const [page, channels] = await Promise.all([
+        this.chat.history(groupId, channel),
         this.prisma.groupChatChannel.findMany({
           where: { groupId },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -262,11 +284,22 @@ export class MembershipGateway
         ok: true,
         groupId,
         channel,
-        messages: rows.reverse().map((row) => this.chatMessage(row)),
+        messages: page.items,
+        nextCursor: page.nextCursor,
         channels: channels.map((row) => this.chatChannel(row)),
       };
-    } catch {
-      return this.failure();
+    } catch (error) {
+      if (error instanceof ApiError)
+        return {
+          ok: false,
+          ...(error.getResponse() as {
+            error: { code: string; message: string };
+          }),
+        };
+      return this.chatFailure(
+        "SERVICE_UNAVAILABLE",
+        "Dịch vụ trò chuyện tạm thời chưa sẵn sàng.",
+      );
     }
   }
   @SubscribeMessage("chat:channel.create")
@@ -289,7 +322,12 @@ export class MembershipGateway
           data: { id: randomUUID(), groupId, name, createdById: userId },
         });
         const channel = this.chatChannel(saved);
-        await this.recordChatChange(tx, groupId, "chat:channel.created", channel);
+        await this.recordChatChange(
+          tx,
+          groupId,
+          "chat:channel.created",
+          channel,
+        );
         return channel;
       });
       return { ok: true, channel };
@@ -313,7 +351,18 @@ export class MembershipGateway
         client,
         body,
       );
+      const now = Date.now();
+      for (const [id, value] of this.sendWindows)
+        if (now - value.start > 10000) this.sendWindows.delete(id);
+      const window = this.sendWindows.get(userId) ?? { start: now, count: 0 };
+      if (++window.count > 20)
+        return this.chatFailure(
+          "RATE_LIMITED",
+          "Bạn gửi quá nhanh. Vui lòng chờ một chút.",
+        );
+      this.sendWindows.set(userId, window);
       const channel = this.channel(body);
+      await this.chat.requireThread(groupId, channel);
       if (
         !body ||
         typeof body !== "object" ||
@@ -341,16 +390,8 @@ export class MembershipGateway
             "VALIDATION_ERROR",
             "Tin nhắn được trả lời không hợp lệ.",
           );
-        const target = await this.prisma.groupChatMessage.findFirst({
-          where: {
-            id: payload.replyToId,
-            groupId,
-            channel,
-            deletedAt: null,
-          },
-          select: { id: true },
-        });
-        if (!target)
+        const target = await this.chat.get(groupId, payload.replyToId);
+        if (!target || target.channel !== channel)
           return this.chatFailure(
             "NOT_FOUND",
             "Tin nhắn được trả lời không còn tồn tại.",
@@ -358,26 +399,38 @@ export class MembershipGateway
         replyToId = target.id;
       }
       const text = body.text.trim();
-      const message = await this.prisma.$transaction(async (tx) => {
-        const saved = await tx.groupChatMessage.create({
-          data: {
-            id: randomUUID(),
-            groupId,
-            senderId: userId,
-            senderName: fullName,
-            senderRole: role,
-            channel,
-            text,
-            replyToId,
-          },
-        });
-        const message = { ...this.chatMessage(saved), clientId };
-        await this.recordChatChange(tx, groupId, "chat:message", message);
-        return message;
+      if (channel === "hỏi-đáp")
+        return this.chatFailure(
+          "VALIDATION_ERROR",
+          "Hãy tạo hoặc chọn một chủ đề hỏi đáp.",
+        );
+      const message = await this.chat.save({
+        id: randomUUID(),
+        clientId,
+        groupId,
+        senderId: userId,
+        senderName: fullName,
+        senderRole: role,
+        channel,
+        text,
+        replyToId,
+        meetingId: null,
+        createdAt: new Date().toISOString(),
+        editedAt: null,
       });
       return { ok: true, id: message.id };
-    } catch {
-      return this.failure();
+    } catch (error) {
+      if (error instanceof ApiError)
+        return {
+          ok: false,
+          ...(error.getResponse() as {
+            error: { code: string; message: string };
+          }),
+        };
+      return this.chatFailure(
+        "SERVICE_UNAVAILABLE",
+        "Dịch vụ trò chuyện tạm thời chưa sẵn sàng.",
+      );
     }
   }
   @SubscribeMessage("chat:edit")
@@ -385,6 +438,7 @@ export class MembershipGateway
     try {
       const { groupId, userId } = await this.authorize(client, body);
       const channel = this.channel(body);
+      await this.chat.requireThread(groupId, channel);
       if (!body || typeof body !== "object")
         return this.chatFailure("VALIDATION_ERROR", "Yêu cầu không hợp lệ.");
       const payload = body as Record<string, unknown>;
@@ -396,38 +450,32 @@ export class MembershipGateway
         payload.text.trim().length > 4000
       )
         return this.chatFailure("VALIDATION_ERROR", "Tin nhắn không hợp lệ.");
-      const existing = await this.prisma.groupChatMessage.findFirst({
-        where: {
-          id: payload.id,
-          groupId,
-          channel,
-          senderId: userId,
-          deletedAt: null,
-          meetingId: null,
-        },
-        select: { id: true },
-      });
-      if (!existing)
+      const existing = await this.chat.get(groupId, payload.id);
+      if (
+        !existing ||
+        existing.senderId !== userId ||
+        existing.channel !== channel ||
+        existing.meetingId
+      )
         return this.chatFailure(
           "FORBIDDEN",
           "Bạn chỉ có thể sửa tin nhắn của mình.",
         );
       const text = payload.text.trim();
-      await this.prisma.$transaction(async (tx) => {
-        const saved = await tx.groupChatMessage.update({
-          where: { id: existing.id, deletedAt: null },
-          data: { text, editedAt: new Date() },
-        });
-        await this.recordChatChange(
-          tx,
-          groupId,
-          "chat:message.updated",
-          this.chatMessage(saved),
-        );
-      });
+      await this.chat.change(existing, text);
       return { ok: true, id: existing.id };
-    } catch {
-      return this.failure();
+    } catch (error) {
+      if (error instanceof ApiError)
+        return {
+          ok: false,
+          ...(error.getResponse() as {
+            error: { code: string; message: string };
+          }),
+        };
+      return this.chatFailure(
+        "SERVICE_UNAVAILABLE",
+        "Dịch vụ trò chuyện tạm thời chưa sẵn sàng.",
+      );
     }
   }
   @SubscribeMessage("chat:delete")
@@ -438,38 +486,37 @@ export class MembershipGateway
     try {
       const { groupId, userId } = await this.authorize(client, body);
       const channel = this.channel(body);
+      await this.chat.requireThread(groupId, channel);
       if (!body || typeof body !== "object")
         return this.chatFailure("VALIDATION_ERROR", "Yêu cầu không hợp lệ.");
       const payload = body as Record<string, unknown>;
       if (typeof payload.id !== "string" || !isUUID(payload.id))
         return this.chatFailure("VALIDATION_ERROR", "Tin nhắn không hợp lệ.");
-      const existing = await this.prisma.groupChatMessage.findFirst({
-        where: {
-          id: payload.id,
-          groupId,
-          channel,
-          senderId: userId,
-          deletedAt: null,
-          meetingId: null,
-        },
-        select: { id: true },
-      });
-      if (!existing)
+      const existing = await this.chat.get(groupId, payload.id);
+      if (
+        !existing ||
+        existing.senderId !== userId ||
+        existing.channel !== channel ||
+        existing.meetingId
+      )
         return this.chatFailure(
           "FORBIDDEN",
           "Bạn chỉ có thể xóa tin nhắn của mình.",
         );
-      await this.prisma.$transaction(async (tx) => {
-        await tx.groupChatMessage.update({
-          where: { id: existing.id, deletedAt: null },
-          data: { deletedAt: new Date() },
-        });
-        const deleted: GroupChatDeleted = { id: existing.id, groupId, channel };
-        await this.recordChatChange(tx, groupId, "chat:message.deleted", deleted);
-      });
+      await this.chat.change(existing);
       return { ok: true, id: existing.id };
-    } catch {
-      return this.failure();
+    } catch (error) {
+      if (error instanceof ApiError)
+        return {
+          ok: false,
+          ...(error.getResponse() as {
+            error: { code: string; message: string };
+          }),
+        };
+      return this.chatFailure(
+        "SERVICE_UNAVAILABLE",
+        "Dịch vụ trò chuyện tạm thời chưa sẵn sàng.",
+      );
     }
   }
   private async recordChatChange(
@@ -485,7 +532,11 @@ export class MembershipGateway
     });
   }
 
-  private async broadcastGroup(groupId: string, event: string, payload: unknown) {
+  private async broadcastGroup(
+    groupId: string,
+    event: string,
+    payload: unknown,
+  ) {
     const recipients: string[] = [];
     for (const socket of this.server.sockets.values()) {
       if (!socket.rooms.has(`group:${groupId}`)) continue;
@@ -505,35 +556,6 @@ export class MembershipGateway
     if (this.busy || this.stopping) return;
     this.busy = true;
     try {
-      const meetings = await this.prisma.classSessionChange.findMany({
-        where: {
-          kind: { in: GROUP_MEETING_EVENTS },
-          version: { gt: this.meetingVersion },
-        },
-        orderBy: { version: "asc" },
-        take: 100,
-        include: { session: { include: { announcement: true } } },
-      });
-      for (const event of meetings) {
-        const message = event.session.announcement;
-        if (message && event.kind === "meeting.created") {
-          await this.broadcastGroup(
-            message.groupId,
-            "chat:message",
-            this.chatMessage(message),
-          );
-          await this.broadcastGroup(message.groupId, "meeting.created", {
-            groupId: message.groupId,
-          });
-        }
-        if (event.session.groupId && event.kind !== "meeting.created") {
-          await this.broadcastGroup(event.session.groupId, "meeting.updated", {
-            groupId: event.session.groupId,
-            sessionId: event.sessionId,
-          });
-        }
-        this.meetingVersion = event.version;
-      }
       const events = await this.prisma.membershipChange.findMany({
         where: { version: { gt: this.version } },
         orderBy: { version: "asc" },
@@ -561,6 +583,53 @@ export class MembershipGateway
         }
         this.version = event.version;
       }
+      const meetings = await this.prisma.classSessionChange.findMany({
+        where: {
+          kind: { in: GROUP_MEETING_EVENTS },
+          version: { gt: this.meetingVersion },
+        },
+        orderBy: { version: "asc" },
+        take: 100,
+        include: { session: { include: { announcement: true } } },
+      });
+      for (const event of meetings) {
+        const message = event.session.announcement;
+        if (message && event.kind === "meeting.created") {
+          if (!(await this.chat.get(message.groupId, message.id)))
+            await this.chat.save(this.chatMessage(message));
+          await this.broadcastGroup(
+            message.groupId,
+            "chat:message",
+            this.chatMessage(message),
+          );
+          await this.broadcastGroup(message.groupId, "meeting.created", {
+            groupId: message.groupId,
+          });
+        }
+        if (event.session.groupId && event.kind !== "meeting.created") {
+          await this.broadcastGroup(event.session.groupId, "meeting.updated", {
+            groupId: event.session.groupId,
+            sessionId: event.sessionId,
+          });
+        }
+        this.meetingVersion = event.version;
+      }
+      const pollStart = Date.now();
+      const groups = new Set<string>();
+      for (const socket of this.server.sockets.values()) {
+        for (const room of socket.rooms)
+          if (room.startsWith("group:")) groups.add(room.slice(6));
+      }
+      for (const groupId of groups) {
+        for (const event of await this.chat.events(groupId, this.chatSince)) {
+          if (this.seenChatEvents.has(event.id)) continue;
+          await this.broadcastGroup(groupId, event.event, event.payload);
+          this.seenChatEvents.set(event.id, pollStart);
+        }
+      }
+      this.chatSince = new Date(pollStart - 60000).toISOString();
+      for (const [id, seenAt] of this.seenChatEvents)
+        if (seenAt < pollStart - 120000) this.seenChatEvents.delete(id);
       const chat = await this.prisma.groupChatChange.findMany({
         where: { version: { gt: this.chatVersion } },
         orderBy: { version: "asc" },
