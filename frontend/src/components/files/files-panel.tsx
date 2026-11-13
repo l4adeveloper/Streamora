@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   Download,
@@ -41,6 +41,7 @@ import { useToast } from "../common/toast-provider";
 import { LoadingState, RequestError } from "../common/feedback";
 import "./files.css";
 import { FileUploader } from "./file-uploader";
+import { FolderTree } from "./folder-tree";
 import { VideoPreview } from "./video-preview";
 
 const sources = {
@@ -129,6 +130,14 @@ export function FilesPanel({
   const [moveError, setMoveError] = useState("");
   const moveDialog = useRef<HTMLDialogElement>(null);
 
+  const folderMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const f of allFolders) {
+      map.set(f.id, f.name);
+    }
+    return map;
+  }, [allFolders]);
+
   const type =
     filter === "Tài liệu"
       ? "document"
@@ -146,11 +155,15 @@ export function FilesPanel({
   const loadFolders = useCallback(async () => {
     setFolderLoading(true);
     try {
-      const res = await listFolders(groupId, currentFolderId);
+      const [currentRes, allRes] = await Promise.all([
+        listFolders(groupId, currentFolderId),
+        listFolders(groupId, "all"),
+      ]);
       if (!alive.current) return;
-      setFolders(res.folders);
-      setBreadcrumbs(res.breadcrumbs ?? []);
-      setCurrentFolder(res.currentFolder ?? null);
+      setFolders(currentRes.folders);
+      setBreadcrumbs(currentRes.breadcrumbs ?? []);
+      setCurrentFolder(currentRes.currentFolder ?? null);
+      setAllFolders(allRes.folders);
     } catch (cause) {
       if (alive.current) console.error(cause);
     } finally {
@@ -171,7 +184,7 @@ export function FilesPanel({
       const response = await listFiles(groupId, {
         q: query.trim(),
         type,
-        folderId: query.trim() ? undefined : (currentFolderId ?? "root"),
+        folderId: currentFolderId ?? undefined,
         limit: 20,
       });
       if (version !== sequence.current) return;
@@ -308,7 +321,7 @@ export function FilesPanel({
       const response = await listFiles(groupId, {
         q: query.trim(),
         type,
-        folderId: query.trim() ? undefined : (currentFolderId ?? "root"),
+        folderId: currentFolderId ?? undefined,
         limit: 20,
         cursor,
       });
@@ -536,6 +549,7 @@ export function FilesPanel({
           <div className="file-table" aria-label="Tài liệu trong nhóm">
             <div className="file-table-heading">
               <span>Tên tài liệu</span>
+              <span>Thư mục</span>
               <span>Dung lượng</span>
               <span>Được thêm</span>
               <span>Thao tác</span>
@@ -569,8 +583,48 @@ export function FilesPanel({
                     </small>
                   </span>
                 </button>
-                <span>{sizeLabel(file.size)}</span>
-                <span>
+                {(() => {
+                  const resolvedFolderId =
+                    file.folderId ||
+                    (file.folderPath && file.folderPath !== "/"
+                      ? (allFolders.find(
+                          (f) =>
+                            f.name ===
+                            file.folderPath.split("/").filter(Boolean).pop(),
+                        )?.id ?? null)
+                      : null);
+                  const resolvedFolderName =
+                    file.folderName ||
+                    (file.folderId ? folderMap.get(file.folderId) : null) ||
+                    (file.folderPath && file.folderPath !== "/"
+                      ? (file.folderPath.split("/").filter(Boolean).pop() ?? null)
+                      : null);
+
+                  return (
+                    <span className="library-file-folder">
+                      {resolvedFolderName ? (
+                        <button
+                          type="button"
+                          className="file-folder-badge"
+                          title={`Mở thư mục ${resolvedFolderName}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (resolvedFolderId) {
+                              setCurrentFolderId(resolvedFolderId);
+                            }
+                          }}
+                        >
+                          <Folder size={14} />
+                          <span>{resolvedFolderName}</span>
+                        </button>
+                      ) : (
+                        <span className="file-folder-empty">—</span>
+                      )}
+                    </span>
+                  );
+                })()}
+                <span className="library-file-size">{sizeLabel(file.size)}</span>
+                <span className="library-file-date">
                   {new Date(file.createdAt).toLocaleDateString("vi-VN")}
                 </span>
                 <span className="library-actions">
@@ -981,26 +1035,15 @@ export function FilesPanel({
             <p className="library-detail-name">
               Chọn vị trí đích cho: <b>{movingFile.name}</b>
             </p>
-            <div className="folder-select-list">
-              <button
-                type="button"
-                className={`folder-select-item ${targetDestFolderId === null ? "selected" : ""}`}
-                onClick={() => setTargetDestFolderId(null)}
-              >
-                <Home size={18} />
-                <span>Tài liệu chung (Thư mục gốc)</span>
-              </button>
-              {allFolders.map((f) => (
-                <button
-                  type="button"
-                  key={f.id}
-                  className={`folder-select-item ${targetDestFolderId === f.id ? "selected" : ""}`}
-                  onClick={() => setTargetDestFolderId(f.id)}
-                >
-                  <Folder size={18} />
-                  <span>{f.name}</span>
-                </button>
-              ))}
+            <div className="folder-select-tree">
+              <FolderTree
+                folders={allFolders}
+                selectedId={targetDestFolderId}
+                onSelect={(folderId) => setTargetDestFolderId(folderId)}
+                includeRoot={true}
+                rootLabel="Tài liệu chung (Thư mục gốc)"
+                autoExpandSelected={true}
+              />
             </div>
             {moveError && (
               <p role="alert" className="library-error">
