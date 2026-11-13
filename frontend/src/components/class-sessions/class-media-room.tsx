@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useId,
   useRef,
   useState,
   type Ref,
@@ -17,7 +18,10 @@ import {
   Unplug,
   Settings2,
   Maximize2,
+  Minimize2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Users,
   MonitorUp,
   MonitorOff,
@@ -251,6 +255,172 @@ function MediaTile({
         </div>
       )}
       <span className="class-media-name">{name}</span>
+    </div>
+  );
+}
+
+type WorkspaceMediaTile = {
+  id: string;
+  name: string;
+  stream?: MediaStream;
+  cameraEnabled?: boolean;
+  isScreenShare?: boolean;
+  isLocal?: boolean;
+};
+
+function WorkspaceTile({ tile }: { tile: WorkspaceMediaTile }) {
+  return (
+    <MediaTile
+      stream={tile.stream}
+      name={tile.isScreenShare ? `${tile.name} · Màn hình` : tile.name}
+      camera={tile.cameraEnabled}
+      screen={tile.isScreenShare}
+      isLocal={tile.isLocal}
+    />
+  );
+}
+
+function MediaTray({
+  label,
+  icon: Icon,
+  tiles,
+  featuredId,
+  onFeature,
+}: {
+  label: "CAMERA" | "SHARING";
+  icon: typeof Video;
+  tiles: WorkspaceMediaTile[];
+  featuredId?: string;
+  onFeature: (id: string | null) => void;
+}) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="workspace-media-tray">
+      <button
+        type="button"
+        className="workspace-media-tray-toggle"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Icon size={15} aria-hidden="true" />
+        {label}
+        <ChevronDown size={15} aria-hidden="true" />
+      </button>
+      <div id={id} hidden={!open}>
+        {open &&
+          (tiles.length > 0 ? (
+            <MediaTrayRow
+              label={label}
+              tiles={tiles}
+              featuredId={featuredId}
+              onFeature={onFeature}
+            />
+          ) : (
+            <p className="workspace-media-tray-empty">
+              {label === "SHARING" ? "Chưa có chia sẻ màn hình" : "Chưa có camera"}
+            </p>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function MediaTrayRow({
+  label,
+  tiles,
+  featuredId,
+  onFeature,
+}: {
+  label: string;
+  tiles: WorkspaceMediaTile[];
+  featuredId?: string;
+  onFeature: (id: string | null) => void;
+}) {
+  const row = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const updateEdges = useCallback(() => {
+    const element = row.current;
+    if (!element) return;
+    const { scrollLeft, scrollWidth, clientWidth } = element;
+    const left = scrollLeft > 1;
+    const right = scrollLeft + clientWidth < scrollWidth - 1;
+    setEdges((previous) =>
+      previous.left === left && previous.right === right
+        ? previous
+        : { left, right },
+    );
+  }, []);
+
+  useEffect(() => {
+    const element = row.current;
+    if (!element) return;
+    const observer = new ResizeObserver(updateEdges);
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    updateEdges();
+    return () => observer.disconnect();
+  }, [updateEdges]);
+
+  function scroll(direction: -1 | 1) {
+    const element = row.current;
+    if (!element) return;
+    const firstTile = element.querySelector(".workspace-media-peer");
+    const tileWidth = firstTile?.getBoundingClientRect().width ?? 0;
+    element.scrollBy({
+      left: direction * Math.max(tileWidth, element.clientWidth - tileWidth),
+      behavior: "smooth",
+    });
+  }
+
+  return (
+    <div className="workspace-media-tray-row">
+      <div className="workspace-media-peers" ref={row} onScroll={updateEdges}>
+        <div className="workspace-media-peer-list">
+          {tiles.map((tile) => {
+            const selected = tile.id === featuredId;
+            const name = tile.isScreenShare ? `${tile.name} · Màn hình` : tile.name;
+            const action = selected ? "Bỏ ghim" : "Phóng to";
+            return (
+              <div key={tile.id} className="workspace-media-peer">
+                <WorkspaceTile tile={tile} />
+                <button
+                  type="button"
+                  className="workspace-pin-peer"
+                  aria-label={`${action} ${name}`}
+                  title={`${action} ${name}`}
+                  onClick={() => onFeature(selected ? null : tile.id)}
+                >
+                  {selected ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {(edges.left || edges.right) && (
+        <>
+          <button
+            type="button"
+            className="workspace-media-arrow previous"
+            aria-label={`Cuộn ${label} sang trái`}
+            disabled={!edges.left}
+            onClick={() => scroll(-1)}
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            type="button"
+            className="workspace-media-arrow next"
+            aria-label={`Cuộn ${label} sang phải`}
+            disabled={!edges.right}
+            onClick={() => scroll(1)}
+          >
+            <ChevronRight size={18} />
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -735,13 +905,34 @@ export function ClassMediaRoom({
     <MediaTile stream={media.screenPreview} name="Bạn · Màn hình" screen isLocal />
   );
   if (layout === "workspace") {
-    const preferred = screenPeers.length ? screenPeers : participants;
-    const featured = sharing
-      ? undefined
-      : (preferred.find((peer) => peer.id === featuredId) ?? preferred[0]);
-    const thumbnails = [...screenPeers, ...participants].filter(
-      (peer) => peer.id !== featured?.id,
-    );
+    const localCamera: WorkspaceMediaTile | undefined =
+      media.preview || participationId
+        ? {
+            id: "local-camera",
+            name: `${localName} · Bạn`,
+            stream: media.preview ?? undefined,
+            cameraEnabled: cameraOn,
+            isLocal: true,
+          }
+        : undefined;
+    const localShare: WorkspaceMediaTile | undefined = media.screenPreview
+      ? {
+          id: `local-screen:${media.screenPreview.id}`,
+          name: "Bạn",
+          stream: media.screenPreview,
+          isScreenShare: true,
+          isLocal: true,
+        }
+      : undefined;
+    const cameras: WorkspaceMediaTile[] = localCamera
+      ? [localCamera, ...participants]
+      : participants;
+    const screens: WorkspaceMediaTile[] = localShare
+      ? [localShare, ...screenPeers]
+      : screenPeers;
+    const pinned = [...screens, ...cameras].find((tile) => tile.id === featuredId);
+    const featured: WorkspaceMediaTile | undefined =
+      pinned ?? screens[0] ?? participants[0] ?? localCamera;
     return (
       <section
         ref={frame}
@@ -759,7 +950,7 @@ export function ClassMediaRoom({
             {(featured?.name ?? localName).slice(0, 1).toUpperCase()}
           </span>
           <b>{featured?.name ?? localName}</b>
-          {!featured && canManage && (
+          {(!featured || featured.isLocal) && canManage && (
             <span className="presenter-badge">Chủ phòng</span>
           )}
           <span className="workspace-call-connection" role="status">
@@ -774,32 +965,9 @@ export function ClassMediaRoom({
         </div>
         {mediaFeedback}
         <div className="workspace-media-stage">
-          {localScreen ? (
-            <div className="workspace-media-feature">{localScreen}</div>
-          ) : featured ? (
+          {featured ? (
             <div className="workspace-media-feature">
-              <MediaTile
-                stream={featured.stream}
-                name={
-                  featured.isScreenShare
-                    ? `${featured.name} · Màn hình`
-                    : featured.name
-                }
-                camera={featured.cameraEnabled}
-                screen={featured.isScreenShare}
-              />
-            </div>
-          ) : media.preview || participationId ? (
-            <div className="workspace-media-feature">
-              <MediaTile
-                stream={media.preview ?? undefined}
-                name={`${localName} · Bạn`}
-                camera={
-                  media.cameraEnabled &&
-                  !!media.preview?.getVideoTracks().length
-                }
-                isLocal
-              />
+              <WorkspaceTile tile={featured} />
             </div>
           ) : (
             <div className="workspace-media-empty">
@@ -812,45 +980,22 @@ export function ClassMediaRoom({
               )}
             </div>
           )}
-          {(featured || sharing) && media.preview && (
-            <div className="workspace-media-local">
-              <MediaTile
-                stream={media.preview}
-                name="Bạn"
-                camera={
-                  media.cameraEnabled &&
-                  media.preview.getVideoTracks().length > 0
-                }
-                isLocal
-              />
-            </div>
-          )}
-          {thumbnails.length > 0 && (
-            <div className="workspace-media-peers">
-              {thumbnails.map((peer) => (
-                <div key={peer.id} className="workspace-media-peer">
-                  <MediaTile
-                    stream={peer.stream}
-                    name={
-                      peer.isScreenShare ? `${peer.name} · Màn hình` : peer.name
-                    }
-                    camera={peer.cameraEnabled}
-                    screen={peer.isScreenShare}
-                  />
-                  {!sharing && (!screenPeers.length || peer.isScreenShare) && (
-                    <button
-                      type="button"
-                      className="workspace-pin-peer"
-                      aria-label={`Hiển thị ${peer.name}`}
-                      onClick={() => setFeaturedId(peer.id)}
-                    >
-                      <Maximize2 size={13} />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+        </div>
+        <div className="workspace-media-trays">
+          <MediaTray
+            label="CAMERA"
+            icon={Video}
+            tiles={cameras}
+            featuredId={pinned?.id}
+            onFeature={setFeaturedId}
+          />
+          <MediaTray
+            label="SHARING"
+            icon={MonitorUp}
+            tiles={screens}
+            featuredId={pinned?.id}
+            onFeature={setFeaturedId}
+          />
         </div>
         <div className="workspace-call-controls">
           <div className="workspace-device-controls">
