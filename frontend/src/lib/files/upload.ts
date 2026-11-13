@@ -187,6 +187,7 @@ export async function uploadFile(
     source?: "DOCUMENT" | "LOCAL_RECORDING";
     sessionId?: string;
     folderId?: string;
+    isPublished?: boolean;
     runPart?: PartRunner;
     resumeId?: string;
     fileHandle?: UploadFileHandle;
@@ -269,6 +270,7 @@ export async function uploadFile(
         source: options.source ?? "DOCUMENT",
         sessionId: options.sessionId,
         folderId: options.folderId,
+        isPublished: options.isPublished,
       },
     }));
   const stopNewSession = async () => {

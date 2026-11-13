@@ -17,6 +17,7 @@ export function listFiles(groupId: string, query: FileListQuery = {}) {
   if (query.folderId !== undefined && query.folderId !== null) {
     params.set("folderId", query.folderId);
   }
+  if (query.sessionId) params.set("sessionId", query.sessionId);
   if (query.cursor) params.set("cursor", query.cursor);
   if (query.limit) params.set("limit", String(query.limit));
   return apiRequest<FileListResponse>(`/groups/${groupId}/files?${params}`, {
@@ -120,5 +121,12 @@ export function moveFile(fileId: string, destinationFolderId: string | null) {
   return apiRequest<FileResponse>(`/files/${fileId}/move`, {
     method: "PATCH",
     body: { destinationFolderId },
+  });
+}
+
+export function publishFile(fileId: string, isPublished = true) {
+  return apiRequest<FileResponse>(`/files/${fileId}/publish`, {
+    method: "PATCH",
+    body: { isPublished },
   });
 }

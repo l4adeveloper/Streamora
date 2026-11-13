@@ -17,12 +17,18 @@ export interface LibraryFile {
   recordingId: string | null;
   createdBy: string;
   createdAt: string;
+  isPublished: boolean;
+  publishedAt: string | null;
+}
+export interface PublishFileRequest {
+  isPublished?: boolean;
 }
 export interface FileListQuery extends PaginationRequest {
   folderPath?: string;
   q?: string;
   type?: "document" | "video";
   folderId?: string | null;
+  sessionId?: string;
 }
 export type FileListResponse = CursorPage<LibraryFile> & { folders: string[] };
 export interface FileResponse {

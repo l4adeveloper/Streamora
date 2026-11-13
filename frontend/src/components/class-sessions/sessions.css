@@ -518,3 +518,70 @@
     flex-basis: 100%;
   }
 }
+
+/* Session Documents Section */
+.session-documents-panel {
+  margin-top: 16px;
+}
+.session-docs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.session-doc-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--surface-container, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  gap: 12px;
+  transition: background 0.15s ease;
+}
+.session-doc-item:hover {
+  background: var(--hover, rgba(255, 255, 255, 0.06));
+}
+.session-doc-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+.session-doc-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary, #6366f1);
+  flex-shrink: 0;
+}
+.session-doc-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.session-doc-name {
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--text, #f4f4fc);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-doc-sub {
+  font-size: 12px;
+  color: var(--text-muted, #a1a1aa);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.session-doc-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+

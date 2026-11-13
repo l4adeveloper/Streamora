@@ -106,8 +106,8 @@ export class ChatStore {
     const result = await this.query(groupId, `M#${channel}#`, limit, cursor);
     return {
       items: (result.Items ?? [])
-        .filter((x) => !x.deletedAt)
-        .map((x) => this.publicMessage(x))
+        .filter((x: any) => !x.deletedAt)
+        .map((x: any) => this.publicMessage(x))
         .reverse(),
       nextCursor: this.cursor(
         `${groupId}:M#${channel}#`,
@@ -284,7 +284,7 @@ export class ChatStore {
     // Bounded Query on this group's partition, never a table-wide Scan. Continue even on empty pages.
     const result = await this.query(groupId, "M#", 100, cursor, scope);
     const matches = (result.Items ?? []).filter(
-      (x) =>
+      (x: any) =>
         !x.deletedAt &&
         normalizeChatSearch(x.text).includes(normalizeChatSearch(q)),
     );
@@ -294,7 +294,7 @@ export class ChatStore {
         ? items[items.length - 1]
         : result.LastEvaluatedKey;
     return {
-      items: items.map((x) => this.publicMessage(x)),
+      items: items.map((x: any) => this.publicMessage(x)),
       nextCursor: this.cursor(
         `${groupId}:${scope}`,
         key ? { pk: key.pk, sk: key.sk } : undefined,
@@ -309,7 +309,7 @@ export class ChatStore {
     const result = await this.query(groupId, "T#", limit, cursor);
     return {
       items: (result.Items ?? []).map(
-        ({ pk, sk, ...thread }) => thread as GroupChatThread,
+        ({ pk, sk, ...thread }: any) => thread as GroupChatThread,
       ),
       nextCursor: this.cursor(`${groupId}:T#`, result.LastEvaluatedKey),
     };

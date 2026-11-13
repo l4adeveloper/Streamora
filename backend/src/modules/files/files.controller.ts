@@ -33,6 +33,7 @@ import {
   FolderDto,
   ChangeFolderDto,
   RenameFolderDto,
+  PublishFileDto,
 } from "./files.dto";
 import {
   FileDownloadResponseDto,
@@ -225,6 +226,41 @@ export class FilesController {
       auth.user.id,
       fileId,
       dto.destinationFolderId ?? null,
+    );
+  }
+  @Patch(":fileId/publish")
+  @HttpCode(200)
+  @ApiOperation({ summary: "Công bố hoặc ẩn tài liệu trong nhóm" })
+  @ApiSuccess(200, FileResponseDto)
+  @ApiErrors(
+    [400, "VALIDATION_ERROR"],
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FILE_NOT_FOUND"],
+  )
+  publish(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("fileId", UUIDParamPipe) fileId: string,
+    @Body() dto: PublishFileDto,
+  ) {
+    return this.files.publish(
+      auth.user.id,
+      fileId,
+      dto.isPublished ?? true,
+    );
+  }
+  @Post(":fileId/publish")
+  @HttpCode(200)
+  @ApiExcludeEndpoint()
+  publishPost(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("fileId", UUIDParamPipe) fileId: string,
+    @Body() dto: PublishFileDto,
+  ) {
+    return this.files.publish(
+      auth.user.id,
+      fileId,
+      dto.isPublished ?? true,
     );
   }
   @Delete(":fileId")

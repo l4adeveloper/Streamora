@@ -33,6 +33,10 @@ export class FileListQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   folderId?: string;
+  @ApiPropertyOptional({ format: "uuid" })
+  @IsOptional()
+  @IsUUID()
+  sessionId?: string;
 }
 export class RenameFileDto {
   @ApiProperty({ minLength: 1, maxLength: 255 })
@@ -119,4 +123,11 @@ export class RenameFolderDto {
   @Length(1, 255)
   @Matches(/^(?!\.{1,2}$)[^\/\\\x00-\x1f\x7f]+$/u)
   name!: string;
+}
+
+export class PublishFileDto {
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  isPublished?: boolean;
 }

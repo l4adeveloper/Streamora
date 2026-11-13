@@ -56,6 +56,7 @@ import {
 import { MeetingChatPanel } from "./meeting-chat-panel";
 import { ClassBanList, ParticipantControls } from "./participant-controls";
 import { ClassPolls } from "./class-polls";
+import { SessionDocuments } from "./session-documents";
 import "./sessions.css";
 import "./meeting-chat.css";
 
@@ -292,6 +293,15 @@ export function SessionRoom({
   const polls = canViewPolls && data && (
     <ClassPolls key={data.id} sessionId={data.id} canManage={manage}
       live={status === "LIVE"} revision={pollRevision} listener={pollListener} />
+  );
+  const sessionGroupId = data?.session?.groupId ?? data?.preview?.groupId;
+  const sessionDocuments = sessionGroupId && data && (
+    <SessionDocuments
+      key={`${data.id}:${revision}`}
+      sessionId={data.id}
+      groupId={sessionGroupId}
+      canManage={manage}
+    />
   );
   const meetingChat = useMeetingChat(
     !error && !["ENDED", "CANCELLED"].includes(status ?? "") ? id : null,
@@ -594,6 +604,24 @@ export function SessionRoom({
                   </strong>
                   {status === "SCHEDULED" && (
                     <>
+                      {data?.session?.scheduledAt && (
+                        <p style={{ margin: "4px 0", color: "var(--accent)" }}>
+                          Thời gian dự kiến:{" "}
+                          <strong>
+                            {new Date(data.session.scheduledAt).toLocaleString(
+                              "vi-VN",
+                              {
+                                weekday: "short",
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              },
+                            )}
+                          </strong>
+                        </p>
+                      )}
                       <p>Chờ người quản lý bắt đầu cuộc họp.</p>
                       {manage && (
                         <button
@@ -1136,6 +1164,7 @@ export function SessionRoom({
               />
             )}
             {polls}
+            {sessionDocuments}
             <div className="class-grid">
               {manage && (
                 <JoinQueue

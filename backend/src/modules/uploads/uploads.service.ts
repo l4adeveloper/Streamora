@@ -152,6 +152,7 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
             fingerprint: dto.fingerprint,
             source: dto.source,
             sessionId: dto.sessionId,
+            isPublished: dto.isPublished ?? true,
             objectKey: `groups/${dto.groupId}/uploads/${id}`,
             storageId: this.config.files?.driver === "local" ? id : "",
             driver: this.config.files?.driver ?? "s3",
@@ -495,6 +496,8 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
               objectKey: current.objectKey,
               storageLocationId: current.storageLocationId,
               status: "AVAILABLE",
+              isPublished: current.isPublished,
+              publishedAt: current.isPublished ? new Date() : null,
             },
           });
           return tx.uploadSession.update({

@@ -15,6 +15,9 @@ export class LibraryFileDto {
   recordingId!: string | null;
   @ApiProperty({ format: "uuid" }) createdBy!: string;
   @ApiProperty({ format: "date-time" }) createdAt!: string;
+  @ApiProperty({ type: Boolean, default: true }) isPublished!: boolean;
+  @ApiPropertyOptional({ type: String, nullable: true, format: "date-time" })
+  publishedAt!: string | null;
 }
 export class FileResponseDto {
   @ApiProperty({ type: LibraryFileDto }) file!: LibraryFileDto;
