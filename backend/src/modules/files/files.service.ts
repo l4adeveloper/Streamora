@@ -120,11 +120,6 @@ export class FilesService {
       where,
       take: query.limit + 1,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      include: {
-        folder: {
-          select: { id: true, name: true },
-        },
-      },
     });
     const prefix = query.folderPath ? query.folderPath + "/" : "";
     const paths =
@@ -402,14 +397,7 @@ export class FilesService {
     fileId: string,
     db: Prisma.TransactionClient = this.prisma,
   ) {
-    const file = await db.libraryFile.findUnique({
-      where: { id: fileId },
-      include: {
-        folder: {
-          select: { id: true, name: true },
-        },
-      },
-    });
+    const file = await db.libraryFile.findUnique({ where: { id: fileId } });
     if (!file || file.status === "DELETED")
       throw new ApiError(
         404,
@@ -458,11 +446,6 @@ export class FilesService {
           await tx.libraryFile.update({
             where: { id: fileId },
             data: { name },
-            include: {
-              folder: {
-                select: { id: true, name: true },
-              },
-            },
           }),
         ),
       };
@@ -946,11 +929,6 @@ export class FilesService {
       const updated = await tx.libraryFile.update({
         where: { id: fileId },
         data: { folderId: destinationFolderId },
-        include: {
-          folder: {
-            select: { id: true, name: true },
-          },
-        },
       });
 
       return { file: present(updated) };
