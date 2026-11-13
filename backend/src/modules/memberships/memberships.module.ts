@@ -8,11 +8,18 @@ import {
   MembershipsController,
 } from "./memberships.controller";
 import { MembershipGateway } from "./membership.gateway";
+import { ChatStore } from "./chat-store";
+import { ChatController } from "./chat.controller";
 
 @Module({
   imports: [SessionSecurityModule],
-  controllers: [MembershipLookupController, MembershipsController],
+  controllers: [
+    MembershipLookupController,
+    MembershipsController,
+    ChatController,
+  ],
   providers: [
+    ChatStore,
     GroupAccessService,
     GroupAccessGuard,
     MembershipsService,

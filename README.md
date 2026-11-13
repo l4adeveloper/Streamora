@@ -1,6 +1,8 @@
 # Streamora
 
-Nền tảng học trực tuyến, cộng đồng và phát trực tiếp có tua lại. Dự án dùng **Next.js + NestJS + PostgreSQL**, tổ chức theo monorepo, với giao diện tiếng Việt.
+Nền tảng học trực tuyến, cộng đồng và phát trực tiếp có tua lại. Dự án dùng **Next.js + NestJS + PostgreSQL + DynamoDB**, tổ chức theo monorepo, với giao diện tiếng Việt.
+
+Chat workspace dùng DynamoDB; chat cuộc họp giữ trong RAM. Xem [bàn giao chat, tìm kiếm và thread hỏi đáp](backend/docs/workspace-chat-dynamodb-handoff.md) để chạy DynamoDB Local, chuyển lịch sử cũ và cấu hình AWS.
 
 ## 1. Chạy local
 
@@ -8,6 +10,7 @@ Nền tảng học trực tuyến, cộng đồng và phát trực tiếp có tu
 
 - **Node.js 22.16+**, **npm 10+**.
 - PostgreSQL truy cập được qua `DATABASE_URL`; dự án kết nối trực tiếp, không cần Docker.
+- DynamoDB Local trên cổng 8000 cho chat workspace (Docker hoặc Java theo tài liệu bàn giao); chạy `npm run chat:setup --workspace=@streamora/api` trước khi thử chat.
 - Thực hiện các lệnh dưới đây tại **thư mục gốc repository**.
 
 ### Bước 1 — Cài đặt và tạo cấu hình

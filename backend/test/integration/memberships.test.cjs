@@ -10,6 +10,7 @@ const { PrismaService } = require("../../dist/database/prisma.service");
 const {
   MembershipGateway,
 } = require("../../dist/modules/memberships/membership.gateway");
+const { ChatStore } = require("../../dist/modules/memberships/chat-store");
 const { createTestDatabase } = require("./database-fixture.cjs");
 let fixture,
   prisma,
@@ -426,9 +427,9 @@ test("T03-07 only notifies the affected user, evicts online sockets and rejects 
     assert.equal(messages[0].senderRole, "HOST");
     assert.equal(messages[0].channel, "trò-chuyện-chung");
     assert.equal(
-      await prisma.groupChatMessage.count({
-        where: { groupId: id, text: "Trước khi xóa" },
-      }),
+      (await app.get(ChatStore).history(id, "trò-chuyện-chung")).items.filter(
+        (m) => m.text === "Trước khi xóa",
+      ).length,
       1,
     );
     const history = await ack(observer, "channel:join", { groupId: id });
@@ -609,14 +610,7 @@ test("group chat replies, edits and soft-deletes only the author's messages in r
       history.messages.find((message) => message.id === reply.id).replyToId,
       original.id,
     );
-    assert.ok(
-      (
-        await prisma.groupChatMessage.findUnique({
-          where: { id: original.id },
-          select: { deletedAt: true },
-        })
-      ).deletedAt,
-    );
+    assert.equal(await app.get(ChatStore).get(id, original.id), null);
   } finally {
     author.disconnect();
     reader.disconnect();

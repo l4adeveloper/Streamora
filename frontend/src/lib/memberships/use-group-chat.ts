@@ -11,6 +11,8 @@ import type {
   GroupChatMessage,
   GroupChatSendAck,
 } from "@streamora/contracts";
+import { apiRequest } from "@/lib/api";
+import type { CursorPage } from "@streamora/contracts";
 import { authSession } from "@/lib/auth/session";
 import { connectClassroom } from "@/lib/realtime";
 
@@ -81,13 +83,11 @@ function mergeMessages(
 ) {
   const byId = new Map(current.map((message) => [message.id, message]));
   for (const message of incoming) byId.set(message.id, message);
-  return [...byId.values()]
-    .sort(
-      (left, right) =>
-        Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
-        left.id.localeCompare(right.id),
-    )
-    .slice(-500);
+  return [...byId.values()].sort(
+    (left, right) =>
+      Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
+      left.id.localeCompare(right.id),
+  );
 }
 
 export function useGroupChat(groupId: string | null, channel: string) {
@@ -95,10 +95,24 @@ export function useGroupChat(groupId: string | null, channel: string) {
   const [channels, setChannels] = useState<GroupChatChannel[]>([]);
   const [status, setStatus] = useState<GroupChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const context = useRef({ groupId, channel });
+  if (
+    context.current.groupId !== groupId ||
+    context.current.channel !== channel
+  )
+    context.current = { groupId, channel };
+  const olderInFlight = useRef(false);
+  const retryIds = useRef(new Map<string, string>());
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
+    retryIds.current.clear();
     setMessages([]);
+    setNextCursor(null);
+    setLoadingOlder(false);
+    olderInFlight.current = false;
     setChannels([]);
     setError(null);
     if (!groupId) {
@@ -145,6 +159,12 @@ export function useGroupChat(groupId: string | null, channel: string) {
         current.filter((message) => message.id !== value.id),
       );
     });
+    socket.on("chat:thread.created", (value: { groupId?: string }) => {
+      if (active && value?.groupId === groupId)
+        window.dispatchEvent(
+          new CustomEvent("streamora:threads-changed", { detail: { groupId } }),
+        );
+    });
     socket.on("chat:channel.created", (value: unknown) => {
       if (!active || !isChannel(value) || value.groupId !== groupId) return;
       setChannels((current) => mergeChannels(current, [value]));
@@ -164,9 +184,10 @@ export function useGroupChat(groupId: string | null, channel: string) {
             );
             return;
           }
-          setMessages((current) =>
+          setNextCursor(ack.nextCursor ?? null);
+          setMessages(() =>
             mergeMessages(
-              current,
+              [],
               ack.messages.filter(
                 (message) =>
                   isMessage(message) &&
@@ -221,6 +242,34 @@ export function useGroupChat(groupId: string | null, channel: string) {
     };
   }, [groupId, channel]);
 
+  const loadOlder = useCallback(async () => {
+    if (!groupId || !nextCursor || olderInFlight.current) return;
+    olderInFlight.current = true;
+    setLoadingOlder(true);
+    const current = context.current;
+    try {
+      const query = new URLSearchParams({
+        channel,
+        cursor: nextCursor,
+        limit: "20",
+      });
+      const page = await apiRequest<CursorPage<GroupChatMessage>>(
+        "/groups/" + groupId + "/chat/messages?" + query,
+      );
+      if (context.current !== current) return;
+      setMessages((items) => mergeMessages(items, page.items));
+      setNextCursor(page.nextCursor);
+    } catch {
+      if (context.current === current)
+        setError("Không thể tải tin cũ. Hãy thử lại.");
+    } finally {
+      if (context.current === current) {
+        olderInFlight.current = false;
+        setLoadingOlder(false);
+      }
+    }
+  }, [groupId, channel, nextCursor]);
+
   const send = useCallback(
     (text: string, replyToId?: string, clientId?: string) =>
       new Promise<string>((resolve, reject) => {
@@ -229,17 +278,28 @@ export function useGroupChat(groupId: string | null, channel: string) {
           reject(new Error("Cuộc trò chuyện chưa kết nối."));
           return;
         }
+        const retryKey = JSON.stringify([
+          groupId,
+          channel,
+          text,
+          replyToId ?? null,
+        ]);
+        const stableClientId =
+          retryIds.current.get(retryKey) ?? clientId ?? crypto.randomUUID();
+        retryIds.current.set(retryKey, stableClientId);
         const timer = setTimeout(
           () => reject(new Error("Gửi tin nhắn quá thời gian chờ.")),
           8000,
         );
         socket.emit(
           "chat:send",
-          { groupId, channel, text, replyToId, clientId },
+          { groupId, channel, text, replyToId, clientId: stableClientId },
           (ack: GroupChatSendAck) => {
             clearTimeout(timer);
-            if (ack?.ok) resolve(ack.id);
-            else
+            if (ack?.ok) {
+              retryIds.current.delete(retryKey);
+              resolve(ack.id);
+            } else
               reject(
                 new Error(ack?.error?.message ?? "Không thể gửi tin nhắn."),
               );
@@ -325,5 +385,8 @@ export function useGroupChat(groupId: string | null, channel: string) {
     edit,
     remove,
     createChannel,
+    loadOlder,
+    loadingOlder,
+    hasOlder: nextCursor !== null,
   };
 }

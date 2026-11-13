@@ -56,6 +56,14 @@ export interface GroupChatChannel {
   createdAt: string;
 }
 
+export interface GroupChatThread {
+  id: string;
+  groupId: string;
+  title: string;
+  createdById: string;
+  createdAt: string;
+}
+
 export type GroupChatJoinAck =
   | {
       ok: true;
@@ -63,6 +71,7 @@ export type GroupChatJoinAck =
       channel: string;
       messages: GroupChatMessage[];
       channels: GroupChatChannel[];
+      nextCursor?: string | null;
     }
   | { ok: false; error: { code: string; message: string } };
 
