@@ -135,6 +135,54 @@ Chat trong nhóm dùng API/realtime thật; phần demo không gắn nhóm vẫn
 | `npm run demo:auth`      | Chạy kịch bản demo auth                                                        |
 | `npm run files:import`   | Nhập file local; xem [hướng dẫn T15](backend/docs/t15-local.md) trước khi dùng |
 
+### Cập nhật trên EC2 bằng PM2 — gồm video worker T13
+
+Thực hiện tại **thư mục gốc repository trên EC2**, sau khi cập nhật code. `npm ci` đã cài dependencies theo `package-lock.json`, không cần chạy thêm `npm install` sau đó.
+
+Trước khi bật T13, tạo hạ tầng theo [hướng dẫn AWS Management Console](backend/docs/t13-aws-console.md), lấy `VideoEnvironment` từ Outputs để cập nhật các biến tương ứng trong `backend/.env`. Giữ nguyên database, khóa đăng nhập, bộ AWS credentials của `streamora-developer` và cấu hình IVS/DynamoDB đang dùng. API và video worker dùng cùng database và cấu hình backend.
+
+EC2 cần chạy được `ffprobe -version`; `VIDEO_FFPROBE_PATH` phải trỏ tới executable đã cài. Backup database trước khi áp migration mới. **Chỉ chạy tiếp khi lệnh trước đã thành công**; `db:migrate` áp tất cả migrations đang pending của repo.
+
+**Lần đầu thêm T13**, khi PM2 chưa có tiến trình `streamora-video-worker`:
+
+```bash
+npm ci
+npm run build
+npm run db:migrate
+
+pm2 restart streamora --update-env
+pm2 restart streamora-api --update-env
+pm2 start backend/dist/video.worker.js --name streamora-video-worker
+
+pm2 save
+pm2 status
+```
+
+**Những lần cập nhật sau**, restart worker đã tạo:
+
+```bash
+npm ci
+npm run build
+npm run db:migrate
+
+pm2 restart streamora --update-env
+pm2 restart streamora-api --update-env
+pm2 restart streamora-video-worker --update-env
+
+pm2 save
+pm2 status
+```
+
+Tên `streamora` và `streamora-api` là tên PM2 của bản triển khai hiện tại. T13 cần thêm worker riêng; chỉ restart frontend/API thì queue video chưa được xử lý. `pm2 save` lưu danh sách tiến trình hiện tại.
+
+Sau cập nhật, kiểm tra cả ba tiến trình đều `online` và xem log worker:
+
+```bash
+pm2 logs streamora-video-worker --lines 50
+```
+
+Upload một MP4 ngắn qua thư viện để kiểm tra MediaConvert `COMPLETE` → processing `READY` → player phát được nhiều chất lượng. Việc build/restart trên EC2 không tự tạo tài nguyên AWS. Chi tiết pipeline và giới hạn tích hợp IVS: [bàn giao T13](backend/docs/t13-video-pipeline.md), [video worker](backend/services/video-worker/README.md).
+
 ### Kiểm thử
 
 | Phạm vi                                         | Lệnh                                                                       |

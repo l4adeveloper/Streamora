@@ -1,5 +1,10 @@
 # T13: EC2 ở tài khoản khác, dịch vụ dùng streamora-developer
 
+**Cách đơn giản hơn theo yêu cầu dùng Management Console:** xem
+[hướng dẫn Console](t13-aws-console.md), dùng `cloudformation-console.yaml`.
+Bản đó tự tạo khóa/secret, chỉ cần giữ bốn ô đã điền sẵn. Các bước CloudShell
+bên dưới là cách thủ công trước đó, không cần làm nếu dùng bản Console.
+
 Đối chiếu ngày 14/11/2026. Đây là hướng dẫn theo cấu hình bạn đã xác nhận, thay cho phần tạo EC2/RDS mới trong hướng dẫn trước.
 
 | Thành phần | Cấu hình dùng |

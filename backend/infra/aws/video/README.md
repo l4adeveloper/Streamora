@@ -1,5 +1,10 @@
 # Triển khai AWS cho T13
 
+**Cách cài qua Management Console, không cần CloudShell:** dùng
+`cloudformation-console.yaml` và [hướng dẫn Console](../../../docs/t13-aws-console.md).
+Template tự tạo secret/khóa ký, gắn policy vào IAM user hiện có và xuất
+`VideoEnvironment` để nối API/worker. Chưa nghiệm thu AWS thực.
+
 **EC2 ở tài khoản khác, dùng IAM user hiện có:** xem
 [hướng dẫn theo cấu hình streamora-developer](../../../docs/t13-aws-iam-user-setup.md)
 và dùng `cloudformation-iam-user.yaml`. Bản này gắn runtime policy vào user, tạo

@@ -1,0 +1,453 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Streamora T13 console setup; generates signing keys privately and configures upload VOD for an existing IAM user
+Parameters:
+  SourceBucket:
+    Type: String
+    Default: streamora-file-storage
+  WebOrigin:
+    Type: String
+    Default: https://18-138-205-52.sslip.io
+    AllowedPattern: "https://[A-Za-z0-9.-]+"
+  ApiDomain:
+    Type: String
+    Default: 18-138-205-52.sslip.io
+    Description: HTTPS API origin hostname; no protocol or path
+  RuntimeUserName:
+    Type: String
+    Default: streamora-developer
+    Description: Existing IAM user in the account where this stack is deployed
+Resources:
+  SigningSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Private signing key for Streamora CloudFront video cookies
+      SecretString: "{}"
+  SigningSetupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: signing-secret-setup
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  [secretsmanager:GetSecretValue, secretsmanager:PutSecretValue]
+                Resource: !Ref SigningSecret
+              - Effect: Allow
+                Action: logs:CreateLogGroup
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*"
+  SigningSetup:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Creates a private RSA key and binds its CloudFront public key ID during stack setup
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: !GetAtt SigningSetupRole.Arn
+      Timeout: 60
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          const crypto = require("node:crypto");
+          const {
+            SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand,
+          } = require("@aws-sdk/client-secrets-manager");
+          const client = new SecretsManagerClient({ maxAttempts: 2 });
+
+          function publicKey(privateKey) {
+            const key = crypto.createPrivateKey(privateKey);
+            if (key.asymmetricKeyType !== "rsa" || key.asymmetricKeyDetails.modulusLength !== 2048)
+              throw new Error("InvalidSigningKey");
+            return crypto.createPublicKey(key).export({ type: "spki", format: "pem" });
+          }
+
+          async function reply(event, status, data) {
+            const body = JSON.stringify({
+              Status: status,
+              Reason: status === "SUCCESS" ? "Signing setup complete" : "Signing setup failed; check the setup function log",
+              PhysicalResourceId: event.PhysicalResourceId || `${event.LogicalResourceId}:${event.ResourceProperties.SecretArn}`,
+              StackId: event.StackId,
+              RequestId: event.RequestId,
+              LogicalResourceId: event.LogicalResourceId,
+              Data: data,
+            });
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                const response = await fetch(event.ResponseURL, {
+                  method: "PUT", headers: { "content-type": "" }, body,
+                  signal: AbortSignal.timeout(5000),
+                });
+                if (!response.ok) throw new Error("ResponseUploadFailed");
+                return;
+              } catch (error) {
+                if (attempt === 2) throw error;
+                await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+              }
+            }
+          }
+
+          exports.handler = async (event) => {
+            if (event.RequestType === "Delete") return reply(event, "SUCCESS", {});
+            let status = "SUCCESS";
+            let data = {};
+            try {
+              const props = event.ResourceProperties;
+              const stored = await client.send(new GetSecretValueCommand({ SecretId: props.SecretArn }));
+              const secret = JSON.parse(stored.SecretString || "{}");
+              let changed = false;
+              if (props.Stage === "Generate") {
+                if (!secret.privateKey) {
+                  secret.privateKey = crypto.generateKeyPairSync("rsa", {
+                    modulusLength: 2048,
+                    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+                    publicKeyEncoding: { type: "spki", format: "pem" },
+                  }).privateKey;
+                  secret.keyPairId = "PENDING_STACK_OUTPUT";
+                  changed = true;
+                }
+                data = { PublicKey: publicKey(secret.privateKey) };
+              } else if (props.Stage === "Bind") {
+                if (!/^[A-Z0-9]{1,64}$/.test(props.KeyPairId || "") ||
+                    publicKey(secret.privateKey) !== props.PublicKey)
+                  throw new Error("SigningKeyMismatch");
+                if (secret.keyPairId !== props.KeyPairId) {
+                  secret.keyPairId = props.KeyPairId;
+                  changed = true;
+                }
+              } else throw new Error("InvalidSigningStage");
+              if (changed) await client.send(new PutSecretValueCommand({
+                SecretId: props.SecretArn,
+                SecretString: JSON.stringify(secret),
+                ClientRequestToken: crypto.createHash("sha256")
+                  .update(`${event.StackId}:${event.LogicalResourceId}:${event.RequestId}`).digest("hex"),
+              }));
+            } catch (error) {
+              // Never log the request, private key, secret value or signed response URL.
+              console.error("SigningSetupFailed", error.name || "Error");
+              status = "FAILED";
+              data = {};
+            }
+            return reply(event, status, data);
+          };
+  SigningKeys:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt SigningSetup.Arn
+      ServiceTimeout: "180"
+      Stage: Generate
+      SecretArn: !Ref SigningSecret
+  SigningKeyBinding:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt SigningSetup.Arn
+      ServiceTimeout: "180"
+      Stage: Bind
+      SecretArn: !Ref SigningSecret
+      KeyPairId: !Ref PublicKey
+      PublicKey: !GetAtt SigningKeys.PublicKey
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: abandoned-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+  DispatchDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  CompletionDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  DispatchQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 60
+      ReceiveMessageWaitTimeSeconds: 10
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        { deadLetterTargetArn: !GetAtt DispatchDlq.Arn, maxReceiveCount: 20 }
+  CompletionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 60
+      ReceiveMessageWaitTimeSeconds: 10
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        { deadLetterTargetArn: !GetAtt CompletionDlq.Arn, maxReceiveCount: 20 }
+  CompletionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source: [aws.mediaconvert]
+        account: [!Ref AWS::AccountId]
+        region: [!Ref AWS::Region]
+        detail-type: [MediaConvert Job State Change]
+        detail:
+          status: [COMPLETE, ERROR, CANCELED, STATUS_UPDATE]
+          userMetadata: { project: [streamora] }
+      Targets: [{ Id: completion, Arn: !GetAtt CompletionQueue.Arn }]
+  CompletionQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref CompletionQueue]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sqs:SendMessage
+            Resource: !GetAtt CompletionQueue.Arn
+            Condition:
+              ArnEquals: { "aws:SourceArn": !GetAtt CompletionRule.Arn }
+              StringEquals: { "aws:SourceAccount": !Ref AWS::AccountId }
+  EncodeQueue:
+    Type: AWS::MediaConvert::Queue
+    Properties:
+      Description: Streamora explicit rendition jobs
+      PricingPlan: ON_DEMAND
+      Status: ACTIVE
+  EncodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          [
+            {
+              Effect: Allow,
+              Principal: { Service: mediaconvert.amazonaws.com },
+              Action: "sts:AssumeRole",
+            },
+          ]
+      Policies:
+        - PolicyName: media-objects
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${SourceBucket}/*"
+              - Effect: Allow
+                Action: [s3:PutObject]
+                Resource: !Sub "${OutputBucket.Arn}/*"
+              - Effect: Allow
+                Action: [s3:ListBucket, s3:GetBucketLocation]
+                Resource:
+                  [
+                    !Sub "arn:${AWS::Partition}:s3:::${SourceBucket}",
+                    !GetAtt OutputBucket.Arn,
+                  ]
+  WorkerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Runtime video permissions for the existing IAM user
+      Users: [!Ref RuntimeUserName]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              [
+                sqs:SendMessage,
+                sqs:ReceiveMessage,
+                sqs:DeleteMessage,
+                sqs:ChangeMessageVisibility,
+                sqs:GetQueueAttributes,
+              ]
+            Resource: [!GetAtt DispatchQueue.Arn, !GetAtt CompletionQueue.Arn]
+          - Effect: Allow
+            Action:
+              [
+                mediaconvert:CreateJob,
+                mediaconvert:GetJob,
+                mediaconvert:ListJobs,
+              ]
+            Resource: "*"
+          - Effect: Allow
+            Action: iam:PassRole
+            Resource: !GetAtt EncodeRole.Arn
+            Condition:
+              {
+                StringEquals:
+                  { "iam:PassedToService": mediaconvert.amazonaws.com },
+              }
+          - Effect: Allow
+            Action: [s3:GetObject]
+            Resource:
+              [
+                !Sub "arn:${AWS::Partition}:s3:::${SourceBucket}/*",
+                !Sub "${OutputBucket.Arn}/*",
+              ]
+          - Effect: Allow
+            Action: [s3:ListBucket]
+            Resource:
+              [
+                !Sub "arn:${AWS::Partition}:s3:::${SourceBucket}",
+                !GetAtt OutputBucket.Arn,
+              ]
+          - Effect: Allow
+            Action: [s3:DeleteObject]
+            Resource: !Sub "${OutputBucket.Arn}/groups/*/videos/*"
+          - Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Ref SigningSecret
+  OriginAccess:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-video"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+  PublicKey:
+    Type: AWS::CloudFront::PublicKey
+    Properties:
+      PublicKeyConfig:
+        CallerReference: !Sub "${AWS::StackName}-video"
+        Name: !Sub "${AWS::StackName}-video"
+        EncodedKey: !GetAtt SigningKeys.PublicKey
+  KeyGroup:
+    Type: AWS::CloudFront::KeyGroup
+    Properties:
+      KeyGroupConfig:
+        Name: !Sub "${AWS::StackName}-video"
+        Items: [!Ref PublicKey]
+  ApiOriginPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "${AWS::StackName}-grant"
+        CookiesConfig: { CookieBehavior: none }
+        QueryStringsConfig: { QueryStringBehavior: none }
+        HeadersConfig: { HeaderBehavior: allExcept, Headers: [Host] }
+  CorsPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${AWS::StackName}-cors"
+        CorsConfig:
+          AccessControlAllowCredentials: true
+          AccessControlAllowHeaders:
+            { Items: [Range, Authorization, Content-Type] }
+          AccessControlAllowMethods: { Items: [GET, HEAD, OPTIONS, POST] }
+          AccessControlAllowOrigins: { Items: [!Ref WebOrigin] }
+          AccessControlExposeHeaders:
+            { Items: [Content-Length, Content-Range, Accept-Ranges] }
+          OriginOverride: true
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: SigningKeyBinding
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+          - Id: objects
+            DomainName: !GetAtt OutputBucket.RegionalDomainName
+            OriginAccessControlId: !Ref OriginAccess
+            S3OriginConfig: { OriginAccessIdentity: "" }
+          - Id: api
+            DomainName: !Ref ApiDomain
+            CustomOriginConfig:
+              {
+                OriginProtocolPolicy: https-only,
+                OriginSSLProtocols: [TLSv1.2],
+              }
+        DefaultCacheBehavior:
+          TargetOriginId: objects
+          ViewerProtocolPolicy: https-only
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          # Managed CachingDisabled: grants last only 60s, and membership is checked at renewal.
+          CachePolicyId: 413f160f-4fd3-4a5c-9e78-c83d228e58ce
+          ResponseHeadersPolicyId: !Ref CorsPolicy
+          TrustedKeyGroups: [!Ref KeyGroup]
+          Compress: true
+        CacheBehaviors:
+          - PathPattern: "/api/v1/files/*/media-grant"
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 413f160f-4fd3-4a5c-9e78-c83d228e58ce
+            OriginRequestPolicyId: !Ref ApiOriginPolicy
+            ResponseHeadersPolicyId: !Ref CorsPolicy
+        ViewerCertificate: { CloudFrontDefaultCertificate: true }
+  OutputBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref OutputBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub "${OutputBucket.Arn}/*"
+            Condition:
+              {
+                StringEquals:
+                  {
+                    "AWS:SourceArn": !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}",
+                  },
+              }
+Outputs:
+  SigningSecretArn: { Value: !Ref SigningSecret }
+  VideoEnvironment:
+    Description: Copy this block into the existing backend environment, then restart API and video worker
+    Value: !Sub |
+      WEB_ORIGIN=${WebOrigin}
+      AUTH_COOKIE_SECURE=true
+      FILES_STORAGE_DRIVER=s3
+      FILES_S3_BUCKET=${SourceBucket}
+      FILES_S3_REGION=${AWS::Region}
+      VIDEO_MODE=aws
+      VIDEO_AWS_ACCOUNT_ID=${AWS::AccountId}
+      VIDEO_MAX_QUALITY=1080
+      VIDEO_FFPROBE_PATH=ffprobe
+      VIDEO_DISPATCH_QUEUE_URL=${DispatchQueue}
+      VIDEO_COMPLETION_QUEUE_URL=${CompletionQueue}
+      VIDEO_OUTPUT_BUCKET=${OutputBucket}
+      VIDEO_MEDIACONVERT_ROLE_ARN=${EncodeRole.Arn}
+      VIDEO_MEDIACONVERT_QUEUE_ARN=${EncodeQueue.Arn}
+      VIDEO_MEDIA_DOMAIN=${Distribution.DomainName}
+      VIDEO_SIGNING_SECRET_ARN=${SigningSecret}
+  DispatchQueueUrl: { Value: !Ref DispatchQueue }
+  CompletionQueueUrl: { Value: !Ref CompletionQueue }
+  OutputBucketName: { Value: !Ref OutputBucket }
+  MediaConvertRoleArn: { Value: !GetAtt EncodeRole.Arn }
+  MediaConvertQueueArn: { Value: !GetAtt EncodeQueue.Arn }
+  MediaDomain: { Value: !GetAtt Distribution.DomainName }
+  KeyPairId: { Value: !Ref PublicKey }
+  WorkerPolicyArn: { Value: !Ref WorkerPolicy }
+  DistributionId: { Value: !Ref Distribution }
