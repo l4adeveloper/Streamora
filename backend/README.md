@@ -133,7 +133,7 @@ backend/
       files/                 # API mẫu cũ
   test/                      # Kiểm thử cấu hình và HTTP
   realtime/                  # Service Socket.IO dùng chung quyền T03
-  services/                  # Điểm tích hợp recording, video-worker (chưa triển khai)
+  services/                  # Điểm tích hợp recording
   contracts/                 # @streamora/contracts: kiểu request/response dùng chung FE/BE
   scripts/                   # setup-env, demo, seed, export OpenAPI
   infra/                     # Ghi chú Kubernetes/observability
@@ -317,3 +317,5 @@ Tham khảo API nạp env của [Node.js](https://nodejs.org/docs/latest-v24.x/a
 và cấu hình [CORS NestJS](https://docs.nestjs.com/security/cors).
 Prisma sử dụng [PostgreSQL adapter](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/postgresql)
 và [generator CommonJS](https://www.prisma.io/docs/orm/v7/prisma-schema/overview/generators).
+
+T13: [Setup AWS bằng Console](docs/t13-aws-setup.md) · [Handoff và test local](docs/t13-handoff.md).

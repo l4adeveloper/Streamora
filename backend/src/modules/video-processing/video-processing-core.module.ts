@@ -4,6 +4,7 @@ import { FileStorageService } from "../files/file-storage.service";
 import { StorageLocationsService } from "../files/storage-locations.service";
 import { VideoRenditionCatalog } from "../files/video-rendition-catalog";
 import { VideoProcessingService } from "./video-processing.service";
+import { VideoJobsService } from "./video-jobs.service";
 import { VideoStorage } from "./video-storage";
 import { VideoDelivery } from "./video-delivery";
 import { VideoWorker } from "./video-worker";
@@ -18,6 +19,7 @@ import { DatabaseVideoCatalog } from "./database-video-catalog";
     StorageLocationsService,
     VideoStorage,
     VideoProcessingService,
+    { provide: VideoJobsService, useExisting: VideoProcessingService },
     VideoDelivery,
     VideoWorker,
     { provide: VideoRenditionCatalog, useClass: DatabaseVideoCatalog },

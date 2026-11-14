@@ -8,7 +8,9 @@ import { ApiError } from "../../common/api-error";
 export type StorageTarget =
   | { driver: "local"; directory: string }
   | { driver: "s3"; bucket: string; region: string };
-export function configuredStorage(config: EnvironmentConfig): StorageTarget {
+export function configuredStorage(
+  config: Pick<EnvironmentConfig, "files">,
+): StorageTarget {
   return config.files?.driver === "local"
     ? { driver: "local", directory: config.files.localDirectory! }
     : {
@@ -33,7 +35,7 @@ export class StorageLocationsService implements OnModuleInit {
   private registered?: Promise<string>;
   private readonly cache = new Map<string, StorageTarget>();
   constructor(
-    @Inject(APP_CONFIG) config: EnvironmentConfig,
+    @Inject(APP_CONFIG) config: Pick<EnvironmentConfig, "files">,
     @Optional() private readonly db?: PrismaService,
   ) {
     this.target = configuredStorage(config);

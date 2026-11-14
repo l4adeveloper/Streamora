@@ -1,41 +1,30 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
-import { createHmac, createSign, timingSafeEqual } from "node:crypto";
-import {
-  GetSecretValueCommand,
-  SecretsManagerClient,
-} from "@aws-sdk/client-secrets-manager";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
 import { ApiError } from "../../common/api-error";
 import { objectKey, type VideoOutput } from "./video-policy";
 import { StorageLocationsService } from "../files/storage-locations.service";
 
-export interface DeliveryCookie {
-  name: string;
-  value: string;
-  path: string;
-  domain?: string;
-  secure: boolean;
-}
-export interface MediaGrant {
-  url: string;
-  expiresAt: string;
-  cookies: DeliveryCookie[];
-  grantUrl?: string;
-}
-const cloudBase64 = (value: Buffer) =>
-  value
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/=/g, "_")
-    .replace(/\//g, "~");
+import {
+  VIDEO_CDN_PROVIDERS,
+  type MediaGrant,
+  type VideoCdnProvider,
+} from "./video-cdn";
+import { CloudFrontVideoCdn } from "./cloudfront-video-cdn";
+export type { DeliveryCookie, MediaGrant } from "./video-cdn";
+
 @Injectable()
 export class VideoDelivery {
-  private secret?: { keyPairId: string; privateKey: string; expires: number };
+  private readonly providers: VideoCdnProvider[];
   constructor(
     @Inject(APP_CONFIG) readonly config: EnvironmentConfig,
     @Optional() private readonly locations?: StorageLocationsService,
-  ) {}
+    @Optional() @Inject(VIDEO_CDN_PROVIDERS) providers?: VideoCdnProvider[],
+  ) {
+    this.providers =
+      providers ?? (config.video ? [new CloudFrontVideoCdn(config.video)] : []);
+  }
   private sign(payload: string) {
     return createHmac("sha256", this.config.auth.accessTokenSecret)
       .update("video-grant.v1:" + payload)
@@ -71,6 +60,12 @@ export class VideoDelivery {
         url:
           base + path + "/" + output.masterKey.slice(output.prefix.length + 1),
         expiresAt,
+        assetUrl: (key) => {
+          objectKey(key);
+          if (!key.startsWith(output.prefix + "/"))
+            throw new Error("VIDEO_OUTPUT_INVALID");
+          return base + path + "/" + key.slice(output.prefix.length + 1);
+        },
         cookies: [
           {
             name: "video_grant",
@@ -81,68 +76,21 @@ export class VideoDelivery {
         ],
       };
     }
-    if (
-      target?.driver === "s3" &&
-      target.bucket !== this.config.video?.outputBucket
-    )
-      throw new ApiError(
-        503,
-        "VIDEO_DELIVERY_UNAVAILABLE",
-        "Vị trí video chưa được gắn vào media CDN.",
-      );
-    const video = this.config.video;
-    const domain = video?.mediaDomain;
-    if (!domain)
-      throw new ApiError(
-        503,
-        "VIDEO_DELIVERY_UNAVAILABLE",
-        "Chưa cấu hình phân phối video.",
-      );
-    if (!this.secret || this.secret.expires < Date.now()) {
-      const client = new SecretsManagerClient({ region: video!.region });
-      try {
-        const result = await client.send(
-          new GetSecretValueCommand({ SecretId: video!.signingSecretArn }),
-        );
-        const secret = JSON.parse(result.SecretString ?? "{}");
-        if (!secret.keyPairId || !secret.privateKey) throw new Error();
-        this.secret = { ...secret, expires: Date.now() + 300000 };
-      } catch {
-        throw new ApiError(
-          503,
-          "VIDEO_DELIVERY_UNAVAILABLE",
-          "Chưa thể cấp quyền phát video.",
-        );
-      } finally {
-        client.destroy();
-      }
-    }
-    const policy = JSON.stringify({
-      Statement: [
-        {
-          Resource: `https://${domain}/${output.prefix}/*`,
-          Condition: { DateLessThan: { "AWS:EpochTime": expires } },
-        },
-      ],
-    });
-    const signature = createSign("RSA-SHA1")
-      .update(policy)
-      .sign(this.secret!.privateKey);
-    return {
-      url: `https://${domain}/${output.masterKey}`,
-      expiresAt,
-      grantUrl: `https://${domain}/api/v1/files/${fileId}/media-grant`,
-      cookies: [
-        { name: "CloudFront-Policy", value: cloudBase64(Buffer.from(policy)) },
-        { name: "CloudFront-Signature", value: cloudBase64(signature) },
-        { name: "CloudFront-Key-Pair-Id", value: this.secret!.keyPairId },
-      ].map((c) => ({
-        ...c,
-        path: "/" + output.prefix + "/",
-        domain,
-        secure: true,
-      })),
+    const source = target ?? {
+      driver: "s3" as const,
+      bucket: this.config.video?.outputBucket ?? "",
+      region: this.config.video?.region ?? "",
     };
+    const provider = this.providers.find((candidate) =>
+      candidate.supports(source),
+    );
+    if (!provider)
+      throw new ApiError(
+        503,
+        "VIDEO_DELIVERY_UNAVAILABLE",
+        "Vị trí video chưa được gắn vào CDN.",
+      );
+    return provider.grant(fileId, output, expires);
   }
   verify(token: string, fileId: string, jobId: string) {
     try {

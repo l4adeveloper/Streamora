@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 export interface VideoConfig {
   mode: "local" | "aws";
+  workerEnabled: boolean;
   maxQuality: number;
   optionalQualities: number[];
   ffmpegPath: string;
@@ -20,6 +21,7 @@ export function readVideoConfig(
   env: NodeJS.ProcessEnv,
   driver: string,
   region: string,
+  purpose: "api" | "lambda" = "api",
 ): VideoConfig {
   const bad = (key: string): never => {
     throw new Error(`Cấu hình ${key} không hợp lệ.`);
@@ -41,6 +43,7 @@ export function readVideoConfig(
     bad("VIDEO_OPTIONAL_QUALITIES");
   const config: VideoConfig = {
     mode: mode as VideoConfig["mode"],
+    workerEnabled: env.VIDEO_WORKER_ENABLED === "true",
     maxQuality,
     optionalQualities,
     ffmpegPath:
@@ -62,54 +65,57 @@ export function readVideoConfig(
     accountId: env.VIDEO_AWS_ACCOUNT_ID ?? "",
     region,
   };
+  if (
+    env.VIDEO_WORKER_ENABLED &&
+    !["true", "false"].includes(env.VIDEO_WORKER_ENABLED)
+  )
+    bad("VIDEO_WORKER_ENABLED");
+  if (config.workerEnabled && mode === "aws") bad("VIDEO_WORKER_ENABLED");
   // Existing S3 installations can still boot before T13 infrastructure is provisioned.
   // An explicitly selected AWS mode must be fully configured.
   if (env.VIDEO_MODE === "aws") {
-    for (const [key, value] of Object.entries({
-      VIDEO_OUTPUT_BUCKET: config.outputBucket,
-      VIDEO_MEDIACONVERT_ROLE_ARN: config.roleArn,
-      VIDEO_MEDIACONVERT_QUEUE_ARN: config.queueArn,
-      VIDEO_SIGNING_SECRET_ARN: config.signingSecretArn,
-    }))
-      if (!value) bad(key);
     if (!/^\d{12}$/.test(config.accountId)) bad("VIDEO_AWS_ACCOUNT_ID");
     if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(config.outputBucket))
       bad("VIDEO_OUTPUT_BUCKET");
-    if (!config.roleArn.startsWith(`arn:aws:iam::${config.accountId}:role/`))
-      bad("VIDEO_MEDIACONVERT_ROLE_ARN");
-    if (
-      !config.queueArn.startsWith(
-        `arn:aws:mediaconvert:${region}:${config.accountId}:queues/`,
-      )
-    )
-      bad("VIDEO_MEDIACONVERT_QUEUE_ARN");
-    if (
-      !config.signingSecretArn.startsWith(
-        `arn:aws:secretsmanager:${region}:${config.accountId}:secret:`,
-      )
-    )
-      bad("VIDEO_SIGNING_SECRET_ARN");
-    if (!/^[a-z0-9.-]+$/.test(config.mediaDomain)) bad("VIDEO_MEDIA_DOMAIN");
-    for (const [key, value] of [
-      ["VIDEO_DISPATCH_QUEUE_URL", config.dispatchQueueUrl],
-      ["VIDEO_COMPLETION_QUEUE_URL", config.completionQueueUrl],
-    ]) {
-      try {
-        const url = new URL(value);
-        if (
-          url.protocol !== "https:" ||
-          url.hostname !== `sqs.${region}.amazonaws.com` ||
-          !new RegExp(`^/${config.accountId}/[\\w-]+$`).test(url.pathname) ||
-          url.search ||
-          url.hash ||
-          url.username ||
-          url.password
+    if (purpose === "api") {
+      if (
+        !config.signingSecretArn.startsWith(
+          `arn:aws:secretsmanager:${region}:${config.accountId}:secret:`,
         )
-          bad(key);
-      } catch {
-        bad(key);
-      }
+      )
+        bad("VIDEO_SIGNING_SECRET_ARN");
+      if (!/^[a-z0-9.-]+$/.test(config.mediaDomain)) bad("VIDEO_MEDIA_DOMAIN");
+    } else {
+      if (!config.roleArn.startsWith(`arn:aws:iam::${config.accountId}:role/`))
+        bad("VIDEO_MEDIACONVERT_ROLE_ARN");
+      if (
+        !config.queueArn.startsWith(
+          `arn:aws:mediaconvert:${region}:${config.accountId}:queues/`,
+        )
+      )
+        bad("VIDEO_MEDIACONVERT_QUEUE_ARN");
     }
+    if (purpose === "lambda")
+      for (const [key, value] of [
+        ["VIDEO_DISPATCH_QUEUE_URL", config.dispatchQueueUrl],
+        ["VIDEO_COMPLETION_QUEUE_URL", config.completionQueueUrl],
+      ]) {
+        try {
+          const url = new URL(value);
+          if (
+            url.protocol !== "https:" ||
+            url.hostname !== `sqs.${region}.amazonaws.com` ||
+            !new RegExp(`^/${config.accountId}/[\\w-]+$`).test(url.pathname) ||
+            url.search ||
+            url.hash ||
+            url.username ||
+            url.password
+          )
+            bad(key);
+        } catch {
+          bad(key);
+        }
+      }
   }
   return config;
 }

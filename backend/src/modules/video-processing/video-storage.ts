@@ -57,7 +57,7 @@ export class VideoStorage {
     if (target.driver === "local") return this.localPath(location, key);
     const client = new S3Client({ region: target.region });
     try {
-      // ffprobe receives only a backend-signed URL for a registered S3 source.
+      // Managed Probe receives only a backend-signed URL for a registered S3 object.
       return await getSignedUrl(
         client,
         new GetObjectCommand({ Bucket: target.bucket, Key: key }),

@@ -2,13 +2,58 @@ import {
   CreateJobCommand,
   GetJobCommand,
   ListJobsCommand,
+  ProbeCommand,
   MediaConvertClient,
   type JobSettings,
   type Job,
+  type ProbeResult,
 } from "@aws-sdk/client-mediaconvert";
 import { createHash } from "node:crypto";
 import type { VideoConfig } from "./video-config";
 import { VideoError, type VideoPolicy } from "./video-policy";
+import { parseProbe } from "./video-probe";
+
+// Normalize managed Probe metadata through the same validation used by local FFprobe.
+export function parseMediaConvertProbe(result?: ProbeResult) {
+  const tracks = result?.Container?.Tracks ?? [];
+  return parseProbe({
+    format: { duration: result?.Container?.Duration },
+    streams: tracks.map((track) => {
+      const video = track.VideoProperties;
+      const codec = video?.CodecMetadata;
+      const rate = video?.FrameRate ?? codec?.CodedFrameRate;
+      const sar = video?.SampleAspectRatio ?? codec?.SampleAspectRatio;
+      return {
+        codec_type: track.TrackType,
+        codec_name: track.Codec === "AVC" ? "h264" : track.Codec?.toLowerCase(),
+        width: video?.Width ?? codec?.Width,
+        height: video?.Height ?? codec?.Height,
+        duration: track.Duration,
+        level:
+          track.Codec === "AVC" &&
+          codec?.Level &&
+          /^\d+(\.\d+)?$/.test(codec.Level)
+            ? Math.round(Number(codec.Level) * 10)
+            : undefined,
+        bits_per_raw_sample: Math.max(
+          video?.BitDepth ?? 0,
+          codec?.BitDepth ?? 0,
+        ),
+        color_transfer: [
+          video?.TransferCharacteristics,
+          codec?.TransferCharacteristics,
+        ].some((v) => v === "SMPTE_2084" || v === "ARIB_B67")
+          ? "smpte2084"
+          : undefined,
+        avg_frame_rate: `${rate?.Numerator ?? 0}/${rate?.Denominator ?? 1}`,
+        sample_aspect_ratio: sar
+          ? `${sar.Numerator}:${sar.Denominator}`
+          : "1:1",
+        tags: { rotate: video?.Rotation ?? codec?.Rotation ?? 0 },
+      };
+    }),
+  });
+}
 
 export function mediaConvertSettings(
   input: string,
@@ -151,6 +196,12 @@ export class MediaConvertEncoder {
   }
   async inspect(id: string) {
     return (await this.client.send(new GetJobCommand({ Id: id }))).Job;
+  }
+  async probe(input: string) {
+    const response = await this.client.send(
+      new ProbeCommand({ InputFiles: [{ FileUrl: input }] }),
+    );
+    return parseMediaConvertProbe(response.ProbeResults?.[0]);
   }
   async reconcile(jobId: string, attempt: number): Promise<Job | undefined> {
     let token: string | undefined;

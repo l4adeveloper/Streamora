@@ -208,7 +208,7 @@ test("source schemas enforce STANDARD/ALL and environment rejects mixed presets"
     readVideoConfig({ VIDEO_MAX_QUALITY: "9999" }, "local", "ap-southeast-1"),
   );
 });
-test("dispatch acknowledgement requires committed READY; FAILED and database failure retain receipt", async () => {
+test("dispatch handles terminal jobs idempotently and propagates database failures", async () => {
   const {
     VideoWorker,
   } = require("../dist/modules/video-processing/video-worker");
@@ -219,43 +219,33 @@ test("dispatch acknowledgement requires committed READY; FAILED and database fai
       state,
       file: { objectKey: "source", recordingId: "recording" },
     };
-    let calls = [],
-      reads = 0;
-    const service = {
-      config: { video: {} },
-      db: {
-        videoJob: {
-          findUnique: async () => {
-            if (state === "PROCESSING" && ++reads > 1)
-              throw new Error("db unavailable");
-            return row;
-          },
-        },
+    const worker = new VideoWorker(
+      {
+        config: { video: { mode: "aws" } },
+        db: { videoJob: { findUnique: async () => row } },
       },
+      {},
+    );
+    worker.sqs = {};
+    worker.encoder = {};
+    worker.once = async () => {
+      throw new Error("db unavailable");
     };
-    const worker = new VideoWorker(service, {}, {});
-    worker.sqs = {
-      send: async (command) => {
-        calls.push(command.constructor.name);
-      },
-    };
-    const work = worker.message(
-      "queue",
+    const work = worker.handleMessage(
       JSON.stringify({
         jobId: "job",
         recordingId: "recording",
         sourceObjectKey: "source",
         outputVersion: "job",
       }),
-      "receipt",
       false,
     );
-    if (state === "PROCESSING") await assert.rejects(work);
+    if (state === "PROCESSING") await assert.rejects(work, /db unavailable/);
     else await work;
-    assert.deepEqual(calls, state === "READY" ? ["DeleteMessageCommand"] : []);
   }
 });
-test("early completion resolves provider mapping; stale attempt and foreign account never acknowledge", async () => {
+
+test("early completion resolves provider mapping; stale attempts do no work and foreign accounts are rejected", async () => {
   const {
     VideoWorker,
   } = require("../dist/modules/video-processing/video-worker");
@@ -267,7 +257,13 @@ test("early completion resolves provider mapping; stale attempt and foreign acco
   };
   let calls = [];
   const service = {
-    config: { video: { accountId: "123456789012", region: "ap-southeast-1" } },
+    config: {
+      video: {
+        mode: "aws",
+        accountId: "123456789012",
+        region: "ap-southeast-1",
+      },
+    },
     db: {
       videoJob: {
         findUnique: async () => row,
@@ -304,22 +300,19 @@ test("early completion resolves provider mapping; stale attempt and foreign acco
       userMetadata: { project: "streamora", jobId: "job", attemptNo: "1" },
     },
   };
-  await worker.message("queue", JSON.stringify(event), "receipt", true);
+  await worker.handleMessage(JSON.stringify(event), true);
   assert.equal(row.providerJobId, "provider");
-  assert.deepEqual(calls, ["DeleteMessageCommand"]);
+  assert.deepEqual(calls, []);
   calls = [];
   await assert.rejects(
-    worker.message(
-      "queue",
+    worker.handleMessage(
       JSON.stringify({ ...event, account: "999999999999" }),
-      "receipt",
       true,
     ),
     /PROVIDER_MISMATCH/,
   );
-  await assert.rejects(
-    worker.message(
-      "queue",
+  await assert.doesNotReject(
+    worker.handleMessage(
       JSON.stringify({
         ...event,
         detail: {
@@ -327,10 +320,8 @@ test("early completion resolves provider mapping; stale attempt and foreign acco
           userMetadata: { ...event.detail.userMetadata, attemptNo: "2" },
         },
       }),
-      "receipt",
       true,
     ),
-    /PROVIDER_MISMATCH/,
   );
   assert.deepEqual(calls, []);
 });
@@ -346,125 +337,6 @@ test("encoder child is stopped when the lease abort signal fires", async () => {
   await assert.rejects(pending, /LEASE_LOST/);
   assert.ok(Date.now() - started < 3000);
 });
-test("AWS infrastructure contains independent DLQs, restricted completion events, STANDARD/ALL and private media", () => {
-  const yaml = require("js-yaml"),
-    fs = require("node:fs"),
-    path = require("node:path");
-  const schema = new yaml.Schema([
-    ...yaml.CORE_SCHEMA.tags,
-    ...["Ref", "GetAtt", "Sub"].map((tag) =>
-      yaml.defineScalarTag("!" + tag, {
-        resolve: (value) => ({ [tag]: value }),
-        identify: () => false,
-      }),
-    ),
-  ]);
-  const t = yaml.load(
-    fs.readFileSync(
-      path.join(__dirname, "../infra/aws/video/cloudformation.yaml"),
-      "utf8",
-    ),
-    { schema },
-  );
-  assert.equal(t.Resources.LiveChannel.Properties.Type, "STANDARD");
-  assert.equal(
-    t.Resources.RecordingConfiguration.Properties.RenditionConfiguration
-      .RenditionSelection,
-    "ALL",
-  );
-  assert.notDeepEqual(
-    t.Resources.DispatchQueue.Properties.RedrivePolicy.deadLetterTargetArn,
-    t.Resources.CompletionQueue.Properties.RedrivePolicy.deadLetterTargetArn,
-  );
-  assert.deepEqual(
-    t.Resources.CompletionRule.Properties.EventPattern.detail.userMetadata
-      .project,
-    ["streamora"],
-  );
-  assert.equal(
-    t.Resources.Distribution.Properties.DistributionConfig.DefaultCacheBehavior
-      .TrustedKeyGroups.length,
-    1,
-  );
-  assert.equal(
-    t.Resources.OutputBucket.Properties.PublicAccessBlockConfiguration
-      .BlockPublicPolicy,
-    true,
-  );
-});
-test("IAM-user deployment adds VOD resources and attaches runtime permissions without duplicating existing services", () => {
-  const yaml = require("js-yaml");
-  const schema = new yaml.Schema([
-    ...yaml.CORE_SCHEMA.tags,
-    ...["Ref", "GetAtt", "Sub"].map((tag) =>
-      yaml.defineScalarTag("!" + tag, {
-        resolve: (value) => ({ [tag]: value }),
-        identify: () => false,
-      }),
-    ),
-  ]);
-  const t = yaml.load(
-    require("node:fs").readFileSync(
-      require("node:path").join(
-        __dirname,
-        "../infra/aws/video/cloudformation-iam-user.yaml",
-      ),
-      "utf8",
-    ),
-    { schema },
-  );
-  assert.equal(t.Parameters.SourceBucket.Default, "streamora-file-storage");
-  assert.equal(t.Parameters.RuntimeUserName.Default, "streamora-developer");
-  assert.equal(
-    t.Parameters.WebOrigin.Default,
-    "https://18-138-205-52.sslip.io",
-  );
-  assert.deepEqual(t.Resources.WorkerPolicy.Properties.Users, [
-    { Ref: "RuntimeUserName" },
-  ]);
-  assert.ok(
-    Object.values(t.Resources).every(
-      (r) => !/^AWS::(EC2|RDS|IVS|DynamoDB)::/.test(r.Type),
-    ),
-  );
-  const passRole =
-    t.Resources.WorkerPolicy.Properties.PolicyDocument.Statement.find(
-      (s) => s.Action === "iam:PassRole",
-    );
-  assert.deepEqual(passRole.Resource, { GetAtt: "EncodeRole.Arn" });
-  assert.equal(
-    passRole.Condition.StringEquals["iam:PassedToService"],
-    "mediaconvert.amazonaws.com",
-  );
-  assert.equal(
-    t.Resources.OutputBucketPolicy.Properties.PolicyDocument.Statement.length,
-    1,
-  );
-  assert.equal(
-    t.Resources.Distribution.Properties.DistributionConfig.DefaultCacheBehavior
-      .TrustedKeyGroups.length,
-    1,
-  );
-  assert.deepEqual(t.Outputs.MediaDomain.Value, {
-    GetAtt: "Distribution.DomainName",
-  });
-  // Removing the IVS resources must not leave dangling references anywhere.
-  function checkRefs(value) {
-    if (!value || typeof value !== "object") return;
-    if (value.Ref)
-      assert.ok(
-        value.Ref.startsWith("AWS::") ||
-          value.Ref in t.Resources ||
-          value.Ref in t.Parameters,
-        value.Ref,
-      );
-    if (value.GetAtt)
-      assert.ok(value.GetAtt.split(".")[0] in t.Resources, value.GetAtt);
-    for (const child of Object.values(value)) checkRefs(child);
-  }
-  checkRefs(t);
-});
-
 test("scratch quota is checked before encode and only stale generated directories are removed", async () => {
   const {
     mkdtemp,

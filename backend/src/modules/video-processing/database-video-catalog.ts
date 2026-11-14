@@ -38,11 +38,6 @@ export class DatabaseVideoCatalog extends VideoRenditionCatalog {
       result.hls = { url: grant.url, expiresAt: grant.expiresAt };
       result.deliveryCookies = grant.cookies;
       result.grantUrl = grant.grantUrl;
-      const base = grant.url.slice(
-        0,
-        grant.url.length -
-          output.masterKey.slice(output.prefix.length + 1).length,
-      );
       result.qualities = output.renditions
         .map((r) => ({
           id: r.id,
@@ -50,15 +45,14 @@ export class DatabaseVideoCatalog extends VideoRenditionCatalog {
           height: r.height,
           bitrate: r.bitrate,
           label: qualityLabel(r.width, r.height),
-          url: base + r.variantKey.slice(output.prefix.length + 1),
+          url: grant.assetUrl(r.variantKey),
           expiresAt: grant.expiresAt,
         }))
         .sort(
           (a, b) => Math.min(b.width, b.height) - Math.min(a.width, a.height),
         );
       if (output.thumbnailKey)
-        result.thumbnail =
-          base + output.thumbnailKey.slice(output.prefix.length + 1);
+        result.thumbnail = grant.assetUrl(output.thumbnailKey);
     }
     return result;
   }

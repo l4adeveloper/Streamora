@@ -116,7 +116,7 @@ Chat trong nhóm dùng API/realtime thật; phần demo không gắn nhóm vẫn
 - Mic/camera và chia sẻ màn hình cần cấu hình AWS IVS để chạy với người tham gia thật.
 - Ghi hình và bản ghi trong workspace còn minh họa; T10/T11, IVS server-side composition và Web Audio API là phần tích hợp tiếp.
 - Cần triển khai pipeline encode AWS, retry/DLQ, Redis adapter, replication GCS, CDN và hạ tầng Kubernetes/HPA/WAF/metrics.
-- S3 có adapter, IAM/CORS/lifecycle mẫu; chưa triển khai và kiểm thử upload S3 thật. Preview video local xem [hướng dẫn video](backend/docs/video-preview-local.md).
+- S3 có adapter, IAM/CORS/lifecycle mẫu; chưa triển khai và kiểm thử upload S3 thật. Preview video và test local xem [handoff T13](backend/docs/t13-handoff.md).
 - Giao diện dùng ảnh chân dung minh họa từ Unsplash và font Be Vietnam Pro từ Google Fonts; có font fallback.
 
 ## 4. Các lệnh thường dùng
@@ -135,53 +135,35 @@ Chat trong nhóm dùng API/realtime thật; phần demo không gắn nhóm vẫn
 | `npm run demo:auth`      | Chạy kịch bản demo auth                                                        |
 | `npm run files:import`   | Nhập file local; xem [hướng dẫn T15](backend/docs/t15-local.md) trước khi dùng |
 
-### Cập nhật trên EC2 bằng PM2 — gồm video worker T13
+### Cập nhật trên EC2 bằng PM2
 
-Thực hiện tại **thư mục gốc repository trên EC2**, sau khi cập nhật code. `npm ci` đã cài dependencies theo `package-lock.json`, không cần chạy thêm `npm install` sau đó.
+Tạo từng tài nguyên theo [setup AWS T13](backend/docs/t13-aws-setup.md), rồi điền
+`backend/.env` với `VIDEO_MODE=aws`, `VIDEO_WORKER_ENABLED=false` và cấu hình CDN.
+Lambda điều phối SQS/MediaConvert; EC2 chỉ phục vụ API và cấp quyền phát video.
+Đóng gói ZIP bằng `npm run package:video-lambda`, upload và nối trigger theo tài liệu.
+Xem [handoff và test local](backend/docs/t13-handoff.md) để hiểu luồng xử lý.
 
-Trước khi bật T13, tạo hạ tầng theo [hướng dẫn AWS Management Console](backend/docs/t13-aws-console.md), lấy `VideoEnvironment` từ Outputs để cập nhật các biến tương ứng trong `backend/.env`. Giữ nguyên database, khóa đăng nhập, bộ AWS credentials của `streamora-developer` và cấu hình IVS/DynamoDB đang dùng. API và video worker dùng cùng database và cấu hình backend.
-
-EC2 cần chạy được `ffprobe -version`; `VIDEO_FFPROBE_PATH` phải trỏ tới executable đã cài. Backup database trước khi áp migration mới. **Chỉ chạy tiếp khi lệnh trước đã thành công**; `db:migrate` áp tất cả migrations đang pending của repo.
-
-**Lần đầu thêm T13**, khi PM2 chưa có tiến trình `streamora-video-worker`:
-
-```bash
-npm ci
-npm run build
-npm run db:migrate
-
-pm2 restart streamora --update-env
-pm2 restart streamora-api --update-env
-pm2 start backend/dist/video.worker.js --name streamora-video-worker
-
-pm2 save
-pm2 status
-```
-
-**Những lần cập nhật sau**, restart worker đã tạo:
+Tại thư mục gốc repository, sau khi cập nhật code và sao lưu database, chạy từng lệnh;
+chỉ tiếp tục khi lệnh trước thành công. `db:migrate` áp mọi migration đang pending.
 
 ```bash
 npm ci
 npm run build
 npm run db:migrate
-
 pm2 restart streamora --update-env
 pm2 restart streamora-api --update-env
-pm2 restart streamora-video-worker --update-env
-
 pm2 save
 pm2 status
+pm2 logs streamora-api --lines 50
 ```
 
-Tên `streamora` và `streamora-api` là tên PM2 của bản triển khai hiện tại. T13 cần thêm worker riêng; chỉ restart frontend/API thì queue video chưa được xử lý. `pm2 save` lưu danh sách tiến trình hiện tại.
+Tên PM2 phải khớp tiến trình thực tế. Nếu trước đây đã tạo `streamora-video-worker`,
+dừng và xóa tiến trình đó bằng `pm2 delete streamora-video-worker` trước khi restart
+API với `VIDEO_WORKER_ENABLED=false`, rồi `pm2 save`. Lambda tiếp tục job qua
+lease/providerJobId trong database. Trên AWS không chạy `dev:video-worker`.
 
-Sau cập nhật, kiểm tra cả ba tiến trình đều `online` và xem log worker:
-
-```bash
-pm2 logs streamora-video-worker --lines 50
-```
-
-Upload một MP4 ngắn qua thư viện để kiểm tra MediaConvert `COMPLETE` → processing `READY` → player phát được nhiều chất lượng. Việc build/restart trên EC2 không tự tạo tài nguyên AWS. Chi tiết pipeline và giới hạn tích hợp IVS: [bàn giao T13](backend/docs/t13-video-pipeline.md), [video worker](backend/services/video-worker/README.md).
+Upload MP4 ngắn và kiểm tra MediaConvert `COMPLETE` → processing `READY` → player
+phát được các chất lượng thật. Tạo tài nguyên AWS là bước bạn thực hiện trong Console.
 
 ### Kiểm thử
 
@@ -194,6 +176,8 @@ Upload một MP4 ngắn qua thư viện để kiểm tra MediaConvert `COMPLETE`
 | T03 — thành viên và quyền                       | `npm run test:t03`                                                         |
 | T04 — lịch học, tham gia và realtime            | `npm run test:t04`                                                         |
 | T05 — mic/camera IVS | `npm run test:t05` / `npm run test:t05:integration` / `npm run test:t05:frontend` |
+| T13 — video nhiều chất lượng | `npm run test:t13` / `npm run test:t13:browser` |
+| T13 — Lambda ZIP | `npm run package:video-lambda` / `npm run test:t13:lambda` |
 | T15 — thư viện và UI                            | `npm run test:t15` / `npm run test:t15:frontend`                           |
 | T16 — multipart và UI                           | `npm run test:t16` / `npm run test:t16:frontend`                           |
 | T17 — resume và điều phối, không cần PostgreSQL | `npm run test:t17`                                                         |
@@ -218,7 +202,7 @@ Upload một MP4 ngắn qua thư viện để kiểm tra MediaConvert `COMPLETE`
 | T15 — thư viện               | [Bàn giao](backend/docs/t15-handoff.md)                | [Nhập file và chạy local](backend/docs/t15-local.md)                                                  |
 | T16 — upload multipart       | [Bàn giao local/AWS](backend/docs/t16-handoff.md)      | API, quota, storage và nghiệm thu multipart                                                           |
 | T17 — tiếp tục upload        | [Bàn giao mới nhất](backend/docs/t17-handoff.md)       | Pause/resume, reload hàng đợi, tối ưu truyền và các giới hạn                                          |
-| Preview video / điểm nối T13 | [Hướng dẫn local](backend/docs/video-preview-local.md) | Tua, phát bản gốc và khung chất lượng                                                                 |
+| T13 — Pipeline video | [Setup AWS](backend/docs/t13-aws-setup.md), [Handoff và test local](backend/docs/t13-handoff.md) | MediaConvert serverless, SQS, HLS nhiều chất lượng và preview private |
 
 ### Quy ước dùng chung
 
@@ -253,7 +237,7 @@ backend/                       # NestJS API — @streamora/api
   prisma/                      # Schema và migration
   realtime/                    # Service Socket.IO — @streamora/realtime
   contracts/                   # Kiểu dữ liệu FE/BE — @streamora/contracts
-  services/                    # Điểm nối recording / video-worker
+  services/                    # Điểm nối recording
   infra/                       # Mẫu AWS, Kubernetes và observability
   scripts/                     # Setup, demo, seed và xuất OpenAPI
   test/                        # Unit, integration, browser và UI

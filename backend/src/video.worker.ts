@@ -31,7 +31,7 @@ async function main() {
 }
 void main().catch(() => {
   console.error(
-    "Không thể chạy video worker. Kiểm tra cấu hình, database và ffmpeg/ffprobe.",
+    "Không thể chạy video worker. Kiểm tra cấu hình và database; local cần ffmpeg/ffprobe.",
   );
   process.exitCode = 1;
 });

@@ -1,17 +1,17 @@
-import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+  Optional,
+} from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import {
-  SQSClient,
-  SendMessageCommand,
-  ReceiveMessageCommand,
-  DeleteMessageCommand,
-  ChangeMessageVisibilityCommand,
-} from "@aws-sdk/client-sqs";
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { Prisma, VideoJob } from "../../generated/prisma/client";
-import { VideoProcessingService, ACTIVE } from "./video-processing.service";
+import { VideoJobsService, ACTIVE } from "./video-jobs.service";
 import { VideoStorage } from "./video-storage";
 import { FileStorageService } from "../files/file-storage.service";
 import {
@@ -38,7 +38,7 @@ import type {
 } from "@streamora/contracts";
 
 @Injectable()
-export class VideoWorker implements OnModuleDestroy {
+export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly owner = randomUUID();
   private stopped = false;
   private readonly aborts = new Set<AbortController>();
@@ -49,37 +49,31 @@ export class VideoWorker implements OnModuleDestroy {
   private retentionCursor?: string;
   private readonly logger = new Logger(VideoWorker.name);
   constructor(
-    readonly service: VideoProcessingService,
+    readonly service: VideoJobsService,
     readonly storage: VideoStorage,
-    readonly files: FileStorageService,
+    @Optional() readonly files?: FileStorageService,
   ) {}
   get config() {
     const c = this.service.config.video;
     if (!c) throw new VideoError("VIDEO_NOT_CONFIGURED");
     return c;
   }
+  async onApplicationBootstrap() {
+    if (this.service.config.video?.workerEnabled) await this.start();
+  }
   async start() {
-    await runProcess(this.config.ffprobePath, ["-version"]);
+    if (this.running) return;
     if (this.config.mode === "local") {
+      await runProcess(this.config.ffprobePath, ["-version"]);
       await runProcess(this.config.ffmpegPath, ["-version"]);
       this.running = this.localLoop();
-    } else {
-      if (
-        !this.config.dispatchQueueUrl ||
-        !this.config.completionQueueUrl ||
-        !this.config.roleArn ||
-        !this.config.accountId
-      )
-        throw new VideoError("VIDEO_NOT_CONFIGURED");
-      this.sqs = new SQSClient({ region: this.config.region, maxAttempts: 2 });
-      this.encoder = new MediaConvertEncoder(this.config);
-      this.running = Promise.all([
-        this.dispatchLoop(),
-        this.queueLoop(false),
-        this.queueLoop(true),
-        this.reconcileLoop(),
-      ]).then(() => {});
-    }
+    } else throw new VideoError("AWS_VIDEO_REQUIRES_LAMBDA");
+  }
+  private cloud() {
+    if (this.config.mode !== "aws")
+      throw new VideoError("VIDEO_NOT_CONFIGURED");
+    this.sqs ??= new SQSClient({ region: this.config.region, maxAttempts: 2 });
+    this.encoder ??= new MediaConvertEncoder(this.config);
   }
   private log(code: string) {
     this.logger.warn(JSON.stringify({ event: "video_worker", code }));
@@ -98,6 +92,7 @@ export class VideoWorker implements OnModuleDestroy {
     }
   }
   async once(id?: string) {
+    if (this.config.mode === "aws") this.cloud();
     const job = await this.service.claim(this.owner, id);
     if (!job) return false;
     await this.process(job);
@@ -108,10 +103,11 @@ export class VideoWorker implements OnModuleDestroy {
     this.aborts.add(abort);
     let pending: number | undefined,
       busy = false;
+    let heartbeatWork: Promise<void> | undefined;
     const heartbeat = setInterval(() => {
       if (busy) return;
       busy = true;
-      void this.service
+      heartbeatWork = this.service
         .heartbeat(job, pending)
         .then((ok) => {
           if (!ok) abort.abort();
@@ -150,12 +146,8 @@ export class VideoWorker implements OnModuleDestroy {
           source.masterKey,
           undefined,
           source.expectedHeights,
-          async (key) =>
-            probe(
-              this.config.ffprobePath,
-              await this.storage.input(source.storageLocationId, key),
-              abort.signal,
-            ),
+          (key) =>
+            this.inspectMedia(source.storageLocationId, key, abort.signal),
         );
         if (!(await this.service.publish(job, output)))
           throw new VideoError("LEASE_LOST");
@@ -224,13 +216,9 @@ export class VideoWorker implements OnModuleDestroy {
         );
         return;
       }
-      const input = await this.storage.input(
+      const metadata = await this.inspectMedia(
         source.storageLocationId,
         source.key,
-      );
-      const metadata = await probe(
-        this.config.ffprobePath,
-        input,
         abort.signal,
       );
       const policy =
@@ -289,7 +277,18 @@ export class VideoWorker implements OnModuleDestroy {
               policy,
             ),
           );
-        } catch {
+        } catch (error) {
+          const status = (error as { $metadata?: { httpStatusCode?: number } })
+            .$metadata?.httpStatusCode;
+          if (
+            status &&
+            status >= 400 &&
+            status < 500 &&
+            ![408, 429].includes(status)
+          )
+            throw new VideoError(
+              status === 403 ? "PROVIDER_ACCESS_DENIED" : "ENCODE_FAILED",
+            );
           this.log("SUBMISSION_UNCERTAIN");
           await this.release(job, 30000);
           return;
@@ -298,6 +297,10 @@ export class VideoWorker implements OnModuleDestroy {
         await this.release(job, 10000);
         return;
       }
+      const input = await this.storage.input(
+        source.storageLocationId,
+        source.key,
+      );
       await prepareScratch(
         this.config.scratchDirectory,
         ((policy.duration *
@@ -324,7 +327,7 @@ export class VideoWorker implements OnModuleDestroy {
           if (entry.isDirectory()) await copy(path);
           else if (entry.isFile()) {
             if (abort.signal.aborted) throw new VideoError("LEASE_LOST");
-            await this.files.importLocalFile(
+            await this.files!.importLocalFile(
               path,
               `${prefix}/${relative(directory!, path).split(sep).join("/")}`,
               source.storageLocationId,
@@ -375,6 +378,7 @@ export class VideoWorker implements OnModuleDestroy {
       }
     } finally {
       clearInterval(heartbeat);
+      await heartbeatWork;
       this.aborts.delete(abort);
       if (directory) {
         const root = resolve(this.config.scratchDirectory),
@@ -397,6 +401,17 @@ export class VideoWorker implements OnModuleDestroy {
       leaseUntil: { gt: new Date() },
       state: { in: ACTIVE },
     };
+  }
+  private async inspectMedia(
+    location: string,
+    key: string,
+    signal?: AbortSignal,
+  ) {
+    const input = await this.storage.input(location, key);
+    if (signal?.aborted) throw new VideoError("LEASE_LOST");
+    return this.config.mode === "aws"
+      ? this.encoder!.probe(input)
+      : probe(this.config.ffprobePath, input, signal);
   }
   private async update(
     job: VideoJob,
@@ -448,116 +463,67 @@ export class VideoWorker implements OnModuleDestroy {
       master,
       policy,
       undefined,
-      async (key) =>
-        probe(this.config.ffprobePath, await this.storage.input(location, key)),
+      (key) => this.inspectMedia(location, key),
     );
     if (!(await this.service.publish(job, output)))
       throw new VideoError("LEASE_LOST");
   }
-  private async dispatchLoop() {
-    while (!this.stopped) {
-      try {
-        const jobs = await this.service.db.videoJob.findMany({
-          where: {
-            state: "QUEUED",
-            nextRunAt: { lte: new Date() },
-            OR: [
-              { lastDispatchAt: null },
-              { lastDispatchAt: { lt: new Date(Date.now() - 300000) } },
-            ],
+  async dispatch() {
+    this.cloud();
+    const jobs = await this.service.db.videoJob.findMany({
+      where: {
+        state: "QUEUED",
+        encoder: { in: ["mediaconvert", "ivs"] },
+        nextRunAt: { lte: new Date() },
+        OR: [
+          { lastDispatchAt: null },
+          { lastDispatchAt: { lt: new Date(Date.now() - 300000) } },
+        ],
+      },
+      take: 10,
+    });
+    for (const job of jobs) {
+      const file = await this.service.db.libraryFile.findUniqueOrThrow({
+        where: { id: job.fileId },
+        include: { classRecording: true },
+      });
+      const recordingId = file.recordingId ?? file.classRecording?.id;
+      const body: VideoFinalizeMessage | VideoFileFinalizeMessage = recordingId
+        ? {
+            jobId: job.id,
+            recordingId,
+            sourceObjectKey: file.objectKey,
+            outputVersion: job.id,
+            requestedAt: job.createdAt.toISOString(),
+          }
+        : {
+            type: "video.file.finalize.v1",
+            jobId: job.id,
+            fileId: file.id,
+            requestedAt: job.createdAt.toISOString(),
+          };
+      await this.sqs!.send(
+        new SendMessageCommand({
+          QueueUrl: this.config.dispatchQueueUrl,
+          MessageBody: JSON.stringify(body),
+          MessageAttributes: {
+            contract: {
+              DataType: "String",
+              StringValue: recordingId
+                ? "video.finalize.v1"
+                : "video.file.finalize.v1",
+            },
           },
-          take: 10,
-        });
-        for (const job of jobs) {
-          const file = await this.service.db.libraryFile.findUniqueOrThrow({
-            where: { id: job.fileId },
-            include: { classRecording: true },
-          });
-          const recordingId = file.recordingId ?? file.classRecording?.id;
-          const body: VideoFinalizeMessage | VideoFileFinalizeMessage =
-            recordingId
-              ? {
-                  jobId: job.id,
-                  recordingId,
-                  sourceObjectKey: file.objectKey,
-                  outputVersion: job.id,
-                  requestedAt: job.createdAt.toISOString(),
-                }
-              : {
-                  type: "video.file.finalize.v1",
-                  jobId: job.id,
-                  fileId: file.id,
-                  requestedAt: job.createdAt.toISOString(),
-                };
-          await this.sqs!.send(
-            new SendMessageCommand({
-              QueueUrl: this.config.dispatchQueueUrl,
-              MessageBody: JSON.stringify(body),
-              MessageAttributes: {
-                contract: {
-                  DataType: "String",
-                  StringValue: recordingId
-                    ? "video.finalize.v1"
-                    : "video.file.finalize.v1",
-                },
-              },
-            }),
-          );
-          await this.service.db.videoJob.updateMany({
-            where: { id: job.id, state: "QUEUED" },
-            data: { lastDispatchAt: new Date() },
-          });
-        }
-      } catch {
-        this.log("DISPATCH_RETRY");
-      }
-      await delay(1500);
+        }),
+      );
+      await this.service.db.videoJob.updateMany({
+        where: { id: job.id, state: "QUEUED" },
+        data: { lastDispatchAt: new Date() },
+      });
     }
   }
-  private async queueLoop(completion: boolean) {
-    const QueueUrl = completion
-      ? this.config.completionQueueUrl
-      : this.config.dispatchQueueUrl;
-    const active = new Set<Promise<void>>();
-    while (!this.stopped) {
-      try {
-        if (active.size >= 4) {
-          await Promise.race(active);
-          continue;
-        }
-        const page = await this.sqs!.send(
-          new ReceiveMessageCommand({
-            QueueUrl,
-            MaxNumberOfMessages: 1,
-            WaitTimeSeconds: 10,
-            VisibilityTimeout: 60,
-          }),
-        );
-        for (const message of page.Messages ?? []) {
-          const work = this.message(
-            QueueUrl,
-            message.Body ?? "",
-            message.ReceiptHandle!,
-            completion,
-          ).catch(() => this.log("QUEUE_RETRY"));
-          active.add(work);
-          void work.finally(() => active.delete(work));
-        }
-      } catch {
-        if (!this.stopped) {
-          this.log("QUEUE_RETRY");
-          await delay(2000);
-        }
-      }
-    }
-    await Promise.allSettled(active);
-  }
-  private async message(
-    QueueUrl: string,
-    body: string,
-    ReceiptHandle: string,
-    completion: boolean,
-  ) {
+  async handleMessage(body: string, completion: boolean) {
+    this.cloud();
     const data = JSON.parse(body);
     let id: string;
     if (completion) {
@@ -576,11 +542,13 @@ export class VideoWorker implements OnModuleDestroy {
         throw new VideoError("PROVIDER_MISMATCH");
       id = metadata.jobId;
       const row = await this.service.db.videoJob.findUnique({ where: { id } });
+      if (!row) throw new VideoError("PROVIDER_MISMATCH");
       if (
-        !row ||
         row.attemptNo !== Number(metadata.attemptNo) ||
-        (row.providerJobId && row.providerJobId !== data.detail.jobId)
+        ["READY", "FAILED"].includes(row.state)
       )
+        return;
+      if (row.providerJobId && row.providerJobId !== data.detail.jobId)
         throw new VideoError("PROVIDER_MISMATCH");
       if (!row.providerJobId) {
         // Early completion: persist the mapping under a claim after GetJob confirms metadata.
@@ -604,10 +572,11 @@ export class VideoWorker implements OnModuleDestroy {
       const current = await this.service.db.videoJob.findUnique({
         where: { id },
       });
-      if (current && ["READY", "FAILED"].includes(current.state))
-        await this.sqs!.send(
-          new DeleteMessageCommand({ QueueUrl, ReceiptHandle }),
-        );
+      if (
+        ["COMPLETE", "ERROR", "CANCELED"].includes(data.detail.status) &&
+        (!current || !["READY", "FAILED"].includes(current.state))
+      )
+        throw new VideoError("VIDEO_COMPLETION_PENDING");
       return;
     }
     id = data.jobId;
@@ -626,50 +595,44 @@ export class VideoWorker implements OnModuleDestroy {
           data.fileId !== initial.fileId)
     )
       throw new VideoError("SOURCE_MISSING");
-    // Keep the original receipt until READY is durably committed. A failed job goes to the dispatch DLQ.
-    for (let tick = 0; !this.stopped && tick < 1000; tick++) {
-      const current = await this.service.db.videoJob.findUnique({
-        where: { id },
-      });
-      if (current?.state === "READY") {
-        await this.sqs!.send(
-          new DeleteMessageCommand({ QueueUrl, ReceiptHandle }),
-        );
-        return;
-      }
-      if (!current || current.state === "FAILED") return;
-      await this.sqs!.send(
-        new ChangeMessageVisibilityCommand({
-          QueueUrl,
-          ReceiptHandle,
-          VisibilityTimeout: 60,
-        }),
-      );
-      await this.once(id);
-      await delay(10000);
-    }
-    // Yield well before SQS's maximum receipt lifetime; redelivery resumes providerJobId.
+    if (["READY", "FAILED"].includes(initial.state)) return;
+    if (initial.encoder === "ffmpeg")
+      throw new VideoError("VIDEO_SOURCE_NOT_CLOUD");
+    await this.once(id);
+    const current = await this.service.db.videoJob.findUnique({
+      where: { id },
+    });
+    // Dispatch is a short submission command. Its durable DB state is the handoff
+    // to completion/reconcile, rather than keeping a Lambda alive during encoding.
+    if (
+      !current ||
+      !(
+        ["READY", "FAILED", "SUBMITTING"].includes(current.state) ||
+        current.providerJobId
+      )
+    )
+      throw new VideoError("VIDEO_DISPATCH_PENDING");
   }
-  private async reconcileLoop() {
-    while (!this.stopped) {
-      try {
-        const jobs = await this.service.db.videoJob.findMany({
-          where: {
-            state: { in: ["SUBMITTING", "PROCESSING", "VERIFYING"] },
-            nextRunAt: { lte: new Date() },
-            OR: [{ leaseUntil: null }, { leaseUntil: { lt: new Date() } }],
-          },
-          take: 4,
-        });
-        for (const job of jobs) await this.once(job.id);
-        await this.retention();
-      } catch {
-        this.log("RECONCILE_RETRY");
-      }
-      await delay(5000);
+  async maintenance(remaining: () => number = () => Infinity) {
+    this.cloud();
+    await this.dispatch();
+    const jobs = await this.service.db.videoJob.findMany({
+      where: {
+        encoder: { in: ["mediaconvert", "ivs"] },
+        state: { in: ["SUBMITTING", "PROCESSING", "VERIFYING"] },
+        nextRunAt: { lte: new Date() },
+        OR: [{ leaseUntil: null }, { leaseUntil: { lt: new Date() } }],
+      },
+      orderBy: { nextRunAt: "asc" },
+      take: 4,
+    });
+    for (const job of jobs) {
+      if (remaining() < 60000) break;
+      await this.once(job.id);
     }
+    if (remaining() >= 60000) await this.retention(remaining);
   }
-  private async retention() {
+  private async retention(remaining: () => number = () => Infinity) {
     if (Date.now() - this.lastRetentionAt < 300000) return;
     this.lastRetentionAt = Date.now();
     const jobs = await this.service.db.videoJob.findMany({
@@ -688,6 +651,7 @@ export class VideoWorker implements OnModuleDestroy {
       return;
     }
     for (const job of jobs) {
+      if (remaining() < 30000) break;
       this.retentionCursor = job.id;
       const asset = await this.service.db.videoAsset.findUnique({
         where: { fileId: job.fileId },
