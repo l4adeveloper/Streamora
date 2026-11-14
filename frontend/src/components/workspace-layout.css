@@ -232,11 +232,30 @@ body:has(.app-shell) {
   max-height: 100dvh;
   min-height: 0;
 }
+.app-shell .workspace-navigation {
+  display: flex;
+  flex: 0 0 calc(var(--rail-width) + var(--channel-width) - 16px);
+  min-width: 0;
+  height: calc(100% - var(--identity-height) - 16px);
+  margin: 8px;
+  border-radius: 16px;
+  background: var(--panel);
+  overflow: hidden;
+}
 .app-shell .community-rail {
-  padding-bottom: calc(var(--identity-height) + var(--space-3));
+  width: calc(var(--rail-width) - 8px);
+  height: 100%;
+  padding-top: 12px;
+  padding-bottom: var(--space-3);
 }
 .app-shell .channel-sidebar {
-  padding-bottom: var(--identity-height);
+  width: calc(var(--channel-width) - 8px);
+  height: 100%;
+  padding-bottom: 0;
+}
+.app-shell .community-title {
+  height: calc(var(--workspace-topbar-height) - 8px);
+  padding-inline: var(--space-3);
 }
 .app-shell .sidebar-scroll {
   flex: 1;
@@ -273,15 +292,18 @@ body:has(.app-shell) {
 .app-shell .workspace-identity {
   position: absolute;
   z-index: 60;
-  inset-inline-start: 0;
-  bottom: 0;
-  width: calc(var(--rail-width) + var(--channel-width));
-  height: var(--identity-height);
+  inset-inline-start: 8px;
+  bottom: 8px;
+  width: calc(var(--rail-width) + var(--channel-width) - 16px);
+  height: calc(var(--identity-height) - 8px);
+  display: flex;
   margin: 0;
   padding: var(--space-2);
-  gap: var(--space-1);
-  border-right: 1px solid var(--border);
-  background: var(--navigation);
+  gap: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-container);
+  box-shadow: none;
 }
 .app-shell .workspace-account {
   display: flex;
@@ -289,7 +311,7 @@ body:has(.app-shell) {
   flex: 1;
   min-width: 0;
   gap: var(--space-2);
-  padding: var(--space-1);
+  padding: 0;
   border-radius: var(--radius-small);
 }
 .app-shell .workspace-account:hover {
@@ -298,6 +320,13 @@ body:has(.app-shell) {
 .app-shell .workspace-account .avatar {
   width: 32px;
   height: 32px;
+}
+.app-shell .workspace-account .session-identity {
+  min-width: 0;
+}
+.app-shell .workspace-account b {
+  font-size: 13px;
+  font-weight: 500;
 }
 .app-shell .workspace-account small {
   margin-top: 2px;
@@ -308,6 +337,16 @@ body:has(.app-shell) {
 .app-shell .workspace-identity .icon-button {
   width: 32px;
   height: 32px;
+  min-width: 32px;
+  border-radius: 8px;
+  background: transparent;
+}
+.app-shell .workspace-identity .icon-button:hover:not(:disabled) {
+  background: var(--hover);
+}
+.app-shell .workspace-identity .icon-button.active {
+  color: var(--on-accent-soft);
+  background: var(--accent-soft);
 }
 .app-shell .workspace,
 .app-shell .main-content {
@@ -707,9 +746,30 @@ body:has(.app-shell) {
     --rail-width: 55px;
     --channel-width: 225px;
   }
+  .app-shell .workspace-navigation {
+    flex-basis: calc(var(--rail-width) - 16px);
+    background: transparent;
+    overflow: visible;
+  }
+  .app-shell .community-rail {
+    width: 100%;
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .app-shell.nav-open .channel-sidebar {
+    left: var(--rail-width);
+    top: 8px;
+    bottom: calc(var(--identity-height) + 8px);
+    width: calc(var(--channel-width) - 8px);
+    height: auto;
+    border-radius: 16px;
+    overflow: hidden;
+  }
   .app-shell:not(.nav-open) .workspace-identity {
-    width: var(--rail-width);
-    padding: var(--space-1);
+    width: calc(var(--rail-width) - 16px);
+    height: 48px;
+    display: flex;
+    padding: 3px;
   }
   .app-shell:not(.nav-open) .workspace-account {
     justify-content: center;

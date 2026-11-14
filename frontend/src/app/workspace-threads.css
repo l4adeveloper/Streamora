@@ -125,18 +125,23 @@
   gap: 8px;
   min-width: 0;
   flex: 1;
-  padding: 10px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  min-height: 44px;
+  padding: 10px 16px;
+  background: var(--surface-container);
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
   color: var(--muted);
   transition:
-    border-color 160ms ease,
-    background-color 160ms ease;
+    border-color var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard);
+}
+.qa-filter:hover {
+  background: var(--surface-container-high);
 }
 .qa-filter:focus-within {
   border-color: var(--accent);
   outline: 1px solid var(--accent);
+  background: var(--elevated);
 }
 .qa-filter input {
   min-height: 0;
@@ -153,8 +158,10 @@
   margin: 0;
   border-radius: 0;
 }
-.qa-filter input:focus {
+.qa-filter input:focus,
+.qa-filter input:focus-visible {
   box-shadow: none;
+  outline: 0;
 }
 .qa-list-caption {
   display: flex;
