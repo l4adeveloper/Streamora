@@ -18,7 +18,8 @@ async function createEmbeddedTestDatabase() {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const port = server.address().port;
   await new Promise((r) => server.close(r));
-  const socket = new PGLiteSocketServer({ db, host: "127.0.0.1", port });
+  // Import scripts open a separate client alongside the running API.
+  const socket = new PGLiteSocketServer({ db, host: "127.0.0.1", port, maxConnections: 50 });
   await socket.start();
   const url = `postgresql://postgres:postgres@127.0.0.1:${port}/postgres`;
   const { readEnvironment } = require("../../dist/config/environment");

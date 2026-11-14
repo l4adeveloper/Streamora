@@ -93,12 +93,20 @@ export class FilesService {
           ? null
           : query.folderId
         : undefined;
+    // Unscoped searches and the video tab span the group. Normal browsing
+    // starts at root; folderId is also needed for files in managed folders,
+    // whose legacy folderPath may still be empty.
+    const rootOnly =
+      query.folderPath === undefined &&
+      (folderFilter === null ||
+        (folderFilter === undefined && !name && query.type !== "video"));
     const where: Prisma.LibraryFileWhereInput = {
       groupId,
       status: { not: "DELETED" },
       ...(!permissions.canHost ? { isPublished: true } : {}),
       ...(query.sessionId ? { sessionId: query.sessionId } : {}),
       ...(folderFilter !== undefined ? { folderId: folderFilter } : {}),
+      ...(rootOnly ? { folderId: null, folderPath: "" } : {}),
       ...(query.folderPath !== undefined
         ? name
           ? {

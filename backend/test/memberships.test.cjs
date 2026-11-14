@@ -123,15 +123,20 @@ test("shared resource permissions distinguish global admin and group roles and r
   );
 });
 
-test("T03 OpenAPI exports six HTTP operations, restricted roles and safe public user fields", async () => {
+test("T03 OpenAPI preserves six membership operations alongside chat, restricted roles and safe public user fields", async () => {
   const doc = await exportMembershipsOpenApi({ check: true });
-  assert.equal(Object.values(doc.paths).flatMap(Object.values).length, 6);
-  assert.deepEqual(Object.keys(doc.paths).sort(), [
+  const membershipPaths = Object.fromEntries(
+    Object.entries(doc.paths).filter(([path]) => !path.includes("/chat/")),
+  );
+  assert.equal(Object.values(membershipPaths).flatMap(Object.values).length, 6);
+  assert.deepEqual(Object.keys(membershipPaths).sort(), [
     "/api/v1/groups/{groupId}/members",
     "/api/v1/groups/{groupId}/members/{userId}",
     "/api/v1/groups/{groupId}/permissions/me",
     "/api/v1/users/lookup",
   ]);
+  assert.ok(doc.paths["/api/v1/groups/{groupId}/chat/messages"].get);
+  assert.ok(doc.paths["/api/v1/groups/{groupId}/chat/threads"].post);
   assert.deepEqual(doc.components.schemas.AddMemberDto.properties.role.enum, [
     "HOST",
     "VIEWER",

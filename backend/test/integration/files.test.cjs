@@ -529,9 +529,25 @@ test("T15 internal recording registration: group validation, concurrent dedup, n
     },
   });
   const recordingId = randomUUID();
+  // T13 requires an explicit source location when a recording becomes available.
+  // Register metadata only; this test makes no requests to storage.
+  const {
+    StorageLocationsService,
+  } = require("../../dist/modules/files/storage-locations.service");
+  const locations = new StorageLocationsService(
+    {
+      files: {
+        driver: "s3",
+        bucket: "recording-test-only",
+        region: "ap-southeast-1",
+      },
+    },
+    db,
+  );
   const input = {
     recordingId,
     groupId: group.id,
+    storageLocationId: await locations.current(),
     sourceObjectKey: `recordings/${recordingId}.mp4`,
     size: 2048,
     mimeType: "video/mp4",
@@ -569,11 +585,19 @@ test("T15 internal recording registration: group validation, concurrent dedup, n
     "FILE_IN_USE",
   );
   const doc = (await api(null, "GET", "/docs-files-json")).body;
-  assert.equal(
-    Object.entries(doc.paths)
-      .filter(([path]) => !path.includes("/uploads"))
-      .flatMap(([, p]) => Object.keys(p))
-      .filter((m) => ["get", "post", "patch", "delete"].includes(m)).length,
-    10,
-  );
+  // Check public operations individually as the document gains new APIs.
+  for (const [path, methods] of Object.entries({
+    "/groups/{groupId}/files": ["get"],
+    "/groups/{groupId}/files/folders": ["patch", "delete"],
+    "/groups/{groupId}/files/folders/download": ["post"],
+    "/files/{fileId}": ["get", "patch", "delete"],
+    "/files/{fileId}/download-url": ["post"],
+    "/files/{fileId}/publish": ["patch"],
+    "/files/{fileId}/preview-url": ["post"],
+    "/files/{fileId}/playback": ["post"],
+    "/files/{fileId}/transcript": ["get"],
+  })) {
+    for (const method of methods)
+      assert.ok(doc.paths[`/api/v1${path}`]?.[method], `${method} ${path}`);
+  }
 });
