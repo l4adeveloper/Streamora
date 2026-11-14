@@ -18,6 +18,8 @@ import { VideoPlaybackService } from "./video-playback.service";
 import type { FileListQueryDto } from "./files.dto";
 import { FolderUploadCancellation } from "./folder-upload-cancellation";
 import { presentFile as present, presentFolder } from "./file-presenter";
+import { enqueueVideo } from "../video-processing/video-processing.service";
+import { readSource, type VideoSource } from "../video-processing/video-policy";
 
 function cursorFor(file: DbFile, groupId: string, query: FileListQueryDto) {
   return Buffer.from(
@@ -105,9 +107,9 @@ export class FilesService {
         : {}),
       ...(name ? { name: { contains: name, mode: "insensitive" } } : {}),
       ...(query.type === "video"
-        ? { mimeType: { startsWith: "video/" } }
+        ? { mimeType: { in: ["video/mp4","video/webm","video/quicktime","application/vnd.apple.mpegurl"] } }
         : query.type === "document"
-          ? { NOT: { mimeType: { startsWith: "video/" } } }
+          ? { NOT: { OR: [{mimeType: { startsWith: "video/" }},{mimeType:"application/vnd.apple.mpegurl"}] } }
           : {}),
       ...(cursor
         ? {
@@ -322,7 +324,7 @@ export class FilesService {
     });
     if (!files.length)
       throw new ApiError(404, "FOLDER_NOT_FOUND", "Không tìm thấy thư mục.");
-    if (files.some((file) => file.status !== "AVAILABLE"))
+    if (files.some((file) => file.status !== "AVAILABLE" || file.mimeType === "application/vnd.apple.mpegurl"))
       throw new ApiError(
         409,
         "FILE_NOT_READY",
@@ -532,6 +534,8 @@ export class FilesService {
       userId,
       fileId,
       async (file) => {
+        if (file.mimeType === "application/vnd.apple.mpegurl")
+          throw new ApiError(409,"DOWNLOAD_UNAVAILABLE","Bản ghi này chỉ hỗ trợ xem trực tuyến.");
         if (preview && !PREVIEW_TYPES.has(file.mimeType))
           throw new ApiError(
             415,
@@ -621,6 +625,7 @@ export class FilesService {
     mimeType: string;
     status: Exclude<FileStatus, "DELETED">;
     storageLocationId?: string;
+    videoSource?: VideoSource;
   }) {
     if (
       !isUUID(input.recordingId) ||
@@ -628,7 +633,7 @@ export class FilesService {
       !Number.isSafeInteger(input.size) ||
       input.size < 0 ||
       !["PENDING", "AVAILABLE"].includes(input.status) ||
-      !/^video\/[a-zA-Z0-9.+-]+$/.test(input.mimeType) ||
+      (!/^video\/[a-zA-Z0-9.+-]+$/.test(input.mimeType) && !(input.videoSource?.kind === "HLS" && input.mimeType === "application/vnd.apple.mpegurl")) ||
       !input.sourceObjectKey ||
       input.sourceObjectKey.length > 1024 ||
       /[\x00-\x1f]/.test(input.sourceObjectKey)
@@ -640,6 +645,12 @@ export class FilesService {
       );
     const storageLocationId =
       input.storageLocationId ?? (await this.storage.currentLocationId());
+    if (input.videoSource) {
+      readSource(input.videoSource);
+      if (input.videoSource.storageLocationId !== storageLocationId ||
+        (input.videoSource.kind === "HLS" ? input.videoSource.masterKey : input.videoSource.key) !== input.sourceObjectKey)
+        throw new ApiError(400,"VALIDATION_ERROR","Nguồn bản ghi không khớp.");
+    }
     if (storageLocationId)
       await this.storage.locations.resolve(storageLocationId);
     return this.prisma.$transaction(async (tx) => {
@@ -684,12 +695,16 @@ export class FilesService {
               mimeType: input.mimeType,
             },
           });
+        if (input.status === "AVAILABLE") {
+          const ready = await tx.libraryFile.findUniqueOrThrow({where:{id:previous.id}});
+          await enqueueVideo(tx,ready,this.storage.locations.target.driver === "s3" ? "mediaconvert" : "ffmpeg",input.videoSource);
+        }
         return { fileId: previous.id };
       }
       const file = await tx.libraryFile.create({
         data: {
           groupId: input.groupId,
-          name: `${recording.session.title}.mp4`.slice(0, 255),
+          name: `${recording.session.title}.${input.videoSource?.kind === "HLS" ? "m3u8" : "mp4"}`.slice(0, 255),
           objectKey: input.sourceObjectKey,
           size: BigInt(input.size),
           mimeType: input.mimeType,
@@ -701,6 +716,7 @@ export class FilesService {
           storageLocationId,
         },
       });
+      await enqueueVideo(tx,file,this.storage.locations.target.driver === "s3" ? "mediaconvert" : "ffmpeg",input.videoSource);
       return { fileId: file.id };
     });
   }

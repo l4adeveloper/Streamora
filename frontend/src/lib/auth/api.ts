@@ -100,6 +100,7 @@ const messages: Record<string, string> = {
 };
 
 export interface AuthRequestOptions {
+  mediaOrigin?: string;
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   token?: string;
@@ -111,9 +112,23 @@ export async function authRequest<T>(
   path: string,
   options: AuthRequestOptions = {},
 ): Promise<T> {
-  const base = (
+  let base = (
     process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4000/api/v1"
   ).replace(/\/$/, "");
+  if (options.mediaOrigin) {
+    const origin = new URL(options.mediaOrigin);
+    if (
+      origin.protocol !== "https:" ||
+      origin.origin !== options.mediaOrigin ||
+      !/^\/files\/[a-f0-9-]{36}\/media-grant$/.test(path)
+    )
+      throw new AuthApiError(
+        400,
+        "VALIDATION_ERROR",
+        "Địa chỉ cấp quyền video không hợp lệ.",
+      );
+    base = origin.origin + "/api/v1";
+  }
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(),

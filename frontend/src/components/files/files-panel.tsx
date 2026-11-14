@@ -52,7 +52,7 @@ const sources = {
   CLOUD_RECORDING: "Bản ghi cloud",
 };
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const videoTypes = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const videoTypes = new Set(["video/mp4", "video/webm", "video/quicktime", "application/vnd.apple.mpegurl"]);
 const previewLabel = (file: LibraryFile) =>
   videoTypes.has(file.mimeType)
     ? "Xem trước video"
@@ -675,7 +675,7 @@ export function FilesPanel({
                     type="button"
                     title="Tải xuống"
                     aria-label={`Tải xuống ${file.name}`}
-                    disabled={busy || file.status !== "AVAILABLE"}
+                    disabled={busy || file.status !== "AVAILABLE" || file.canDownload === false}
                     onClick={() => void download(file)}
                   >
                     <Download size={16} />
@@ -808,7 +808,7 @@ export function FilesPanel({
                       className="preview-download"
                       title="Tải xuống tài liệu"
                       aria-label={`Tải xuống ${selected.name}`}
-                      disabled={busy || selected.status !== "AVAILABLE"}
+                      disabled={busy || selected.status !== "AVAILABLE" || selected.canDownload === false}
                       onClick={() => void download(selected)}
                     >
                       <Download size={16} />
@@ -981,7 +981,7 @@ export function FilesPanel({
                   <button
                     type="button"
                     className="button primary"
-                    disabled={busy || selected.status !== "AVAILABLE"}
+                    disabled={busy || selected.status !== "AVAILABLE" || selected.canDownload === false}
                     onClick={() => void download(selected)}
                   >
                     Tải xuống

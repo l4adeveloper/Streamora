@@ -318,17 +318,15 @@ test(
         .locator(".video-preview video")
         .getAttribute("src");
       local.options.ttlSeconds = ttl;
-      await page.waitForTimeout(1200);
-      assert.equal((await fetch(expiredUrl)).status, 403);
       const renewed = page.waitForResponse(
         (r) =>
           r.url().endsWith(`/files/${file.id}/playback`) &&
           r.request().method() === "POST",
       );
-      await page
-        .locator(".video-preview video")
-        .evaluate((video) => video.dispatchEvent(new Event("error")));
+      // T13 renews the grant proactively, before the next segment/seek fails.
       assert.equal((await renewed).status(), 200);
+      await page.waitForTimeout(1200);
+      assert.equal((await fetch(expiredUrl)).status, 403);
       await page.waitForFunction((previous) => {
         const video = document.querySelector(".video-preview video");
         return (

@@ -6,6 +6,7 @@ export class LibraryFileDto {
   @ApiProperty() folderPath!: string;
   @ApiProperty({ type: Number, minimum: 0 }) size!: number;
   @ApiProperty() mimeType!: string;
+  @ApiPropertyOptional() canDownload?: boolean;
   @ApiProperty({ enum: ["DOCUMENT", "LOCAL_RECORDING", "CLOUD_RECORDING"] })
   source!: string;
   @ApiProperty({ enum: ["PENDING", "AVAILABLE", "DELETED"] }) status!: string;
@@ -51,4 +52,7 @@ export class VideoPlaybackResponseDto {
   @ApiProperty({ format: "uuid" }) fileId!: string;
   @ApiProperty({ type: VideoProcessingDto }) processing!: VideoProcessingDto;
   @ApiProperty({ type: [VideoSourceDto] }) sources!: VideoSourceDto[];
+  @ApiPropertyOptional({ type: [Object] }) qualities?: object[];
+  @ApiPropertyOptional() thumbnail?: string;
+  @ApiPropertyOptional() grantUrl?: string;
 }

@@ -1,8 +1,13 @@
 import { loadEnvFile } from "node:process";
 import { resolve } from "node:path";
 import { AUTH_POLICY } from "./auth-policy";
+import {
+  readVideoConfig,
+  type VideoConfig,
+} from "../modules/video-processing/video-config";
 
 export interface EnvironmentConfig {
+  video?: VideoConfig;
   nodeEnv: "development" | "test" | "production";
   host: string;
   port: number;
@@ -248,6 +253,7 @@ export function readEnvironment(
   if (ivsWorker === "true" && (ivsEnabled !== "true" || !eventsQueueUrl))
     invalid("IVS_WORKER_ENABLED");
   return {
+    video: readVideoConfig(env, fileDriver, fileRegion),
     nodeEnv: nodeEnv as EnvironmentConfig["nodeEnv"],
     uploads: readUploadConfig(env),
     host,

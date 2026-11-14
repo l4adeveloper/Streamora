@@ -7,6 +7,7 @@ import type { LibraryFile, Prisma } from "../../generated/prisma/client";
 import { ApiError } from "../../common/api-error";
 import { FileStorageService } from "./file-storage.service";
 import { VideoRenditionCatalog } from "./video-rendition-catalog";
+import type { DeliveryCookie } from "../video-processing/video-delivery";
 
 export const VIDEO_TYPES = new Set([
   "video/mp4",
@@ -22,32 +23,43 @@ export class VideoPlaybackService {
   async manifest(
     file: LibraryFile,
     tx: Prisma.TransactionClient,
-  ): Promise<VideoPlaybackResponse> {
-    if (!VIDEO_TYPES.has(file.mimeType))
+  ): Promise<VideoPlaybackResponse & { deliveryCookies?: DeliveryCookie[] }> {
+    const snapshot = await this.catalog.read(file, tx);
+    if (
+      !VIDEO_TYPES.has(file.mimeType) &&
+      !["application/vnd.apple.mpegurl", "application/x-mpegURL"].includes(
+        file.mimeType,
+      ) &&
+      !snapshot.hls
+    )
       throw new ApiError(
         415,
         "VIDEO_PREVIEW_UNSUPPORTED",
         "Chỉ hỗ trợ xem trước video MP4, WebM và MOV tương thích trình duyệt.",
       );
-    const snapshot = await this.catalog.read(file, tx);
-    const source = await this.storage.download(
-      file.objectKey,
-      file.name,
-      true,
-      file.mimeType,
-      file.storageLocationId,
-    );
-    const sources: VideoPlaybackSource[] = [
-      {
-        id: "original",
-        label: "Bản gốc",
-        kind: "file",
-        mimeType: file.mimeType,
-        height: null,
-        bitrate: null,
-        ...source,
-      },
-    ];
+    const source =
+      snapshot.hasOriginal === false
+        ? undefined
+        : await this.storage.download(
+            file.objectKey,
+            file.name,
+            true,
+            file.mimeType,
+            file.storageLocationId,
+          );
+    const sources: VideoPlaybackSource[] = source
+      ? [
+          {
+            id: "original",
+            label: "Bản gốc",
+            kind: "file",
+            mimeType: file.mimeType,
+            height: null,
+            bitrate: null,
+            ...source,
+          },
+        ]
+      : [];
     const ids = new Set(["original", "adaptive"]);
     for (const rendition of snapshot.renditions.slice(0, 8)) {
       if (
@@ -90,7 +102,7 @@ export class VideoPlaybackService {
       });
     }
     if (snapshot.hls) {
-      const url = new URL(snapshot.hls.url);
+      const url = new URL(snapshot.hls.url, "http://localhost");
       if (
         (url.protocol !== "https:" &&
           !(
@@ -123,6 +135,12 @@ export class VideoPlaybackService {
         progressPercent: snapshot.progressPercent,
       },
       sources,
+      ...(snapshot.qualities ? { qualities: snapshot.qualities } : {}),
+      ...(snapshot.thumbnail ? { thumbnail: snapshot.thumbnail } : {}),
+      ...(snapshot.grantUrl ? { grantUrl: snapshot.grantUrl } : {}),
+      ...(snapshot.deliveryCookies
+        ? { deliveryCookies: snapshot.deliveryCookies }
+        : {}),
     };
   }
 }

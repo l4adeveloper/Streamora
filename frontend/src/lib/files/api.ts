@@ -130,3 +130,29 @@ export function publishFile(fileId: string, isPublished = true) {
     body: { isPublished },
   });
 }
+
+export function getVideoProcessing(fileId: string) {
+  return apiRequest<import("@streamora/contracts").VideoProcessingResponse>(
+    `/files/${fileId}/processing`,
+    { method: "GET" },
+  );
+}
+export async function acquireVideoGrant(
+  manifest: import("@streamora/contracts").VideoPlaybackResponse,
+) {
+  if (!manifest.grantUrl) return;
+  const url = new URL(manifest.grantUrl),
+    source = manifest.sources.find((s) => s.kind === "hls");
+  if (
+    !source ||
+    url.origin !== new URL(source.url).origin ||
+    url.pathname !== `/api/v1/files/${manifest.fileId}/media-grant` ||
+    url.search ||
+    url.hash
+  )
+    throw new Error("Invalid video grant");
+  await apiRequest(`/files/${manifest.fileId}/media-grant`, {
+    method: "POST",
+    mediaOrigin: url.origin,
+  });
+}

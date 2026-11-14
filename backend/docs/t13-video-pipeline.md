@@ -4,7 +4,22 @@ Cập nhật: 13/11/2026. Phụ trách: Cao Anh Đức; phối hợp Nguyễn H�
 
 T13 cung cấp chất lượng thật cho preview trong thư viện: **Tự động, 2160p (4K), 1080p, 720p, 360p**, hỗ trợ bật thêm 1440p/480p. Video upload và bản ghi buổi học dùng chung quản lý file, catalog và luồng xem lại. **Giữ FFmpeg để test toàn bộ pipeline local; dùng MediaConvert trên cloud; tận dụng HLS sẵn có từ IVS.**
 
-**Trạng thái:** đây là đặc tả đề xuất, chưa phải tính năng đã triển khai. Các bảng, script và cấu hình mới cần được lập trình. Lần cập nhật này chỉ sửa Markdown, không đổi ứng dụng hoặc database.
+**Trạng thái triển khai 14/11/2026:** đã thêm hai bảng/migration, job/lease/retry,
+transaction upload, worker FFmpeg, kiểm tra/publish HLS, catalog DB, API file/recording,
+grant media local và player HLS. Adapter MediaConvert/SQS/completion/reconcile,
+signed cookie CloudFront và CloudFormation đã có mã. Xem
+[hướng dẫn worker](../services/video-worker/README.md) và
+[triển khai AWS](../infra/aws/video/README.md).
+Migration chưa được áp vào database ứng dụng. AWS thực, T11 cloud recording-ended
+với mapping channel/phiên, LIVE ABR và native HLS thiết bị đích vẫn cần triển khai/
+nghiệm thu; chưa đánh dấu T13 hoàn tất toàn bộ.
+
+Bằng chứng local: 17 ca pipeline/DB/queue mô phỏng và 3 ca hồi quy preview đã qua;
+browser đã kiểm tra đổi 1080p → 360p → Auto tại giây 30, giữ pause/rate/volume,
+giữ mức manual qua refresh, và Auto xuống 360p khi giảm băng thông rồi tua ngoài
+buffer đã tải. Bộ preview browser cũ cũng đã qua với `TEST_DATABASE_MODE=embedded`.
+Build/typecheck và schema validation đã qua. Bộ backend rộng hơn còn lỗi snapshot
+OpenAPI T03 (route chat hiện có khác bản lưu), không phải lỗi pipeline T13.
 
 ## 0. T13 bản gốc là tiêu chí bắt buộc
 

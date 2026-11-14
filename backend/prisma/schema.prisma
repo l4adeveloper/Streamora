@@ -555,12 +555,58 @@ model LibraryFile {
   deletion    FileObjectDeletion?
   upload      UploadSession?
   classRecording ClassRecording?
+  videoAsset VideoAsset?
+  videoJobs VideoJob[]
   storageLocationId String? @map("storage_location_id") @db.Char(64)
   storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
   @@index([groupId, status, createdAt, id])
   @@index([groupId, folderId, status, createdAt, id])
   @@index([groupId, isPublished, status, createdAt, id])
   @@map("files")
+}
+
+model VideoAsset {
+  fileId String @id @map("file_id") @db.Uuid
+  source Json @db.JsonB
+  sourceMetadata Json? @map("source_metadata") @db.JsonB
+  currentJobId String? @map("current_job_id") @db.Uuid
+  publishedJobId String? @map("published_job_id") @db.Uuid
+  file LibraryFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  currentJob VideoJob? @relation("VideoCurrent", fields: [currentJobId, fileId], references: [id, fileId], onDelete: Restrict, onUpdate: NoAction)
+  publishedJob VideoJob? @relation("VideoPublished", fields: [publishedJobId, fileId], references: [id, fileId], onDelete: Restrict, onUpdate: NoAction)
+  @@map("video_assets")
+}
+
+model VideoJob {
+  id String @id @default(uuid()) @db.Uuid
+  fileId String @map("file_id") @db.Uuid
+  mode String @db.VarChar(16)
+  encoder String @db.VarChar(16)
+  state String @default("QUEUED") @db.VarChar(16)
+  policy Json? @db.JsonB
+  providerJobId String? @unique @map("provider_job_id") @db.VarChar(100)
+  attemptNo Int @default(0) @map("attempt_no")
+  leaseOwner String? @map("lease_owner") @db.Uuid
+  leaseUntil DateTime? @map("lease_until") @db.Timestamptz(3)
+  nextRunAt DateTime @default(now()) @map("next_run_at") @db.Timestamptz(3)
+  lastDispatchAt DateTime? @map("last_dispatch_at") @db.Timestamptz(3)
+  deliveryCount Int @default(0) @map("delivery_count")
+  errorCount Int @default(0) @map("error_count")
+  progressPercent Int? @map("progress_percent")
+  errorCode String? @map("error_code") @db.VarChar(64)
+  output Json? @db.JsonB
+  retryKeyHash String? @map("retry_key_hash") @db.Char(64)
+  retryActor String? @map("retry_actor") @db.Uuid
+  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  file LibraryFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  currentAssets VideoAsset[] @relation("VideoCurrent")
+  publishedAssets VideoAsset[] @relation("VideoPublished")
+  @@unique([id, fileId])
+  @@unique([fileId, retryActor, retryKeyHash])
+  @@index([state, nextRunAt, leaseUntil])
+  @@map("video_jobs")
 }
 
 model UploadSession {

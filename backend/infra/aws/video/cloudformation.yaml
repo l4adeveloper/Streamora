@@ -1,0 +1,322 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Streamora T13 video queues, MediaConvert, IVS STANDARD and private HLS delivery
+Parameters:
+  SourceBucket:
+    Type: String
+  WebOrigin:
+    Type: String
+    AllowedPattern: "https://[A-Za-z0-9.-]+"
+  ApiDomain:
+    Type: String
+    Description: HTTPS API origin hostname; no protocol or path
+  SigningSecretArn:
+    Type: String
+    Description: Existing Secrets Manager secret with keyPairId and RSA privateKey
+  PublicKeyPem:
+    Type: String
+    Description: RSA public key matching the signing secret
+Resources:
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: abandoned-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+  DispatchDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  CompletionDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  DispatchQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 60
+      ReceiveMessageWaitTimeSeconds: 10
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        { deadLetterTargetArn: !GetAtt DispatchDlq.Arn, maxReceiveCount: 20 }
+  CompletionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 60
+      ReceiveMessageWaitTimeSeconds: 10
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        { deadLetterTargetArn: !GetAtt CompletionDlq.Arn, maxReceiveCount: 20 }
+  CompletionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source: [aws.mediaconvert]
+        account: [!Ref AWS::AccountId]
+        region: [!Ref AWS::Region]
+        detail-type: [MediaConvert Job State Change]
+        detail:
+          status: [COMPLETE, ERROR, CANCELED, STATUS_UPDATE]
+          userMetadata: { project: [streamora] }
+      Targets: [{ Id: completion, Arn: !GetAtt CompletionQueue.Arn }]
+  CompletionQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref CompletionQueue]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sqs:SendMessage
+            Resource: !GetAtt CompletionQueue.Arn
+            Condition:
+              ArnEquals: { "aws:SourceArn": !GetAtt CompletionRule.Arn }
+              StringEquals: { "aws:SourceAccount": !Ref AWS::AccountId }
+  EncodeQueue:
+    Type: AWS::MediaConvert::Queue
+    Properties:
+      Description: Streamora explicit rendition jobs
+      PricingPlan: ON_DEMAND
+      Status: ACTIVE
+  EncodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          [
+            {
+              Effect: Allow,
+              Principal: { Service: mediaconvert.amazonaws.com },
+              Action: "sts:AssumeRole",
+            },
+          ]
+      Policies:
+        - PolicyName: media-objects
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${SourceBucket}/*"
+              - Effect: Allow
+                Action: [s3:PutObject]
+                Resource: !Sub "${OutputBucket.Arn}/*"
+              - Effect: Allow
+                Action: [s3:ListBucket, s3:GetBucketLocation]
+                Resource:
+                  [
+                    !Sub "arn:${AWS::Partition}:s3:::${SourceBucket}",
+                    !GetAtt OutputBucket.Arn,
+                  ]
+  WorkerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Attach to the existing T19 API/worker role; no new EC2 service
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              [
+                sqs:SendMessage,
+                sqs:ReceiveMessage,
+                sqs:DeleteMessage,
+                sqs:ChangeMessageVisibility,
+                sqs:GetQueueAttributes,
+              ]
+            Resource: [!GetAtt DispatchQueue.Arn, !GetAtt CompletionQueue.Arn]
+          - Effect: Allow
+            Action:
+              [
+                mediaconvert:CreateJob,
+                mediaconvert:GetJob,
+                mediaconvert:ListJobs,
+              ]
+            Resource: "*"
+          - Effect: Allow
+            Action: iam:PassRole
+            Resource: !GetAtt EncodeRole.Arn
+            Condition:
+              {
+                StringEquals:
+                  { "iam:PassedToService": mediaconvert.amazonaws.com },
+              }
+          - Effect: Allow
+            Action: [s3:GetObject]
+            Resource:
+              [
+                !Sub "arn:${AWS::Partition}:s3:::${SourceBucket}/*",
+                !Sub "${OutputBucket.Arn}/*",
+              ]
+          - Effect: Allow
+            Action: [s3:ListBucket]
+            Resource:
+              [
+                !Sub "arn:${AWS::Partition}:s3:::${SourceBucket}",
+                !GetAtt OutputBucket.Arn,
+              ]
+          - Effect: Allow
+            Action: [s3:DeleteObject]
+            Resource: !Sub "${OutputBucket.Arn}/groups/*/videos/*"
+          - Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Ref SigningSecretArn
+  RecordingConfiguration:
+    Type: AWS::IVS::RecordingConfiguration
+    DependsOn: OutputBucketPolicy
+    Properties:
+      DestinationConfiguration: { S3: { BucketName: !Ref OutputBucket } }
+      RenditionConfiguration: { RenditionSelection: ALL }
+      ThumbnailConfiguration:
+        { RecordingMode: INTERVAL, TargetIntervalSeconds: 60 }
+  LiveChannel:
+    Type: AWS::IVS::Channel
+    Properties:
+      Type: STANDARD
+      LatencyMode: LOW
+      RecordingConfigurationArn: !GetAtt RecordingConfiguration.Arn
+  OriginAccess:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-video"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+  PublicKey:
+    Type: AWS::CloudFront::PublicKey
+    Properties:
+      PublicKeyConfig:
+        CallerReference: !Sub "${AWS::StackName}-video"
+        Name: !Sub "${AWS::StackName}-video"
+        EncodedKey: !Ref PublicKeyPem
+  KeyGroup:
+    Type: AWS::CloudFront::KeyGroup
+    Properties:
+      KeyGroupConfig:
+        Name: !Sub "${AWS::StackName}-video"
+        Items: [!Ref PublicKey]
+  ApiOriginPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "${AWS::StackName}-grant"
+        CookiesConfig: { CookieBehavior: none }
+        QueryStringsConfig: { QueryStringBehavior: none }
+        HeadersConfig: { HeaderBehavior: allExcept, Headers: [Host] }
+  CorsPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${AWS::StackName}-cors"
+        CorsConfig:
+          AccessControlAllowCredentials: true
+          AccessControlAllowHeaders:
+            { Items: [Range, Authorization, Content-Type] }
+          AccessControlAllowMethods: { Items: [GET, HEAD, OPTIONS, POST] }
+          AccessControlAllowOrigins: { Items: [!Ref WebOrigin] }
+          AccessControlExposeHeaders:
+            { Items: [Content-Length, Content-Range, Accept-Ranges] }
+          OriginOverride: true
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+          - Id: objects
+            DomainName: !GetAtt OutputBucket.RegionalDomainName
+            OriginAccessControlId: !Ref OriginAccess
+            S3OriginConfig: { OriginAccessIdentity: "" }
+          - Id: api
+            DomainName: !Ref ApiDomain
+            CustomOriginConfig:
+              {
+                OriginProtocolPolicy: https-only,
+                OriginSSLProtocols: [TLSv1.2],
+              }
+        DefaultCacheBehavior:
+          TargetOriginId: objects
+          ViewerProtocolPolicy: https-only
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          # Managed CachingDisabled: grants last only 60s, and membership is checked at renewal.
+          CachePolicyId: 413f160f-4fd3-4a5c-9e78-c83d228e58ce
+          ResponseHeadersPolicyId: !Ref CorsPolicy
+          TrustedKeyGroups: [!Ref KeyGroup]
+          Compress: true
+        CacheBehaviors:
+          - PathPattern: "/api/v1/files/*/media-grant"
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 413f160f-4fd3-4a5c-9e78-c83d228e58ce
+            OriginRequestPolicyId: !Ref ApiOriginPolicy
+            ResponseHeadersPolicyId: !Ref CorsPolicy
+        ViewerCertificate: { CloudFrontDefaultCertificate: true }
+  OutputBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref OutputBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub "${OutputBucket.Arn}/*"
+            Condition:
+              {
+                StringEquals:
+                  {
+                    "AWS:SourceArn": !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}",
+                  },
+              }
+          - Effect: Allow
+            Principal: { Service: ivs.amazonaws.com }
+            Action: [s3:PutObject, s3:AbortMultipartUpload]
+            Resource: !Sub "${OutputBucket.Arn}/*"
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref AWS::AccountId }
+              ArnLike:
+                {
+                  "aws:SourceArn": !Sub "arn:${AWS::Partition}:ivs:${AWS::Region}:${AWS::AccountId}:recording-configuration/*",
+                }
+          - Effect: Allow
+            Principal: { Service: ivs.amazonaws.com }
+            Action: [s3:GetBucketLocation, s3:ListBucket]
+            Resource: !GetAtt OutputBucket.Arn
+            Condition:
+              { StringEquals: { "aws:SourceAccount": !Ref AWS::AccountId } }
+Outputs:
+  DispatchQueueUrl: { Value: !Ref DispatchQueue }
+  CompletionQueueUrl: { Value: !Ref CompletionQueue }
+  OutputBucketName: { Value: !Ref OutputBucket }
+  MediaConvertRoleArn: { Value: !GetAtt EncodeRole.Arn }
+  MediaConvertQueueArn: { Value: !GetAtt EncodeQueue.Arn }
+  MediaDomain: { Value: !GetAtt Distribution.DomainName }
+  KeyPairId: { Value: !Ref PublicKey }
+  WorkerPolicyArn: { Value: !Ref WorkerPolicy }
+  LiveChannelArn: { Value: !GetAtt LiveChannel.Arn }
+  RecordingConfigurationArn: { Value: !GetAtt RecordingConfiguration.Arn }

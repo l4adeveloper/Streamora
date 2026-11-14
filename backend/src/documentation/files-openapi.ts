@@ -2,6 +2,7 @@ import type { INestApplication } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { FilesModule } from "../modules/files/files.module";
 import { UploadsModule } from "../modules/uploads/uploads.module";
+import { VideoProcessingModule } from "../modules/video-processing/video-processing.module";
 import { API_PREFIX } from "../config/auth-policy";
 export function createFilesDocument(app: INestApplication) {
   const config = new DocumentBuilder()
@@ -13,7 +14,7 @@ export function createFilesDocument(app: INestApplication) {
     )
     .build();
   return SwaggerModule.createDocument(app, config, {
-    include: [FilesModule, UploadsModule],
+    include: [FilesModule, UploadsModule, VideoProcessingModule],
   });
 }
 export function setupFilesOpenApi(app: INestApplication) {
