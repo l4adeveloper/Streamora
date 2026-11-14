@@ -14,6 +14,7 @@ import type {
 } from "@streamora/contracts";
 import { ApiError } from "../../common/api-error";
 import { PrismaService } from "../../database/prisma.service";
+import { validClassLease } from "../../database/class-presence";
 import { GroupAccessService } from "../memberships/group-access.service";
 import { ClassSessionAccessService } from "./class-session-access.service";
 import { ClassSessionCommandsService } from "./class-session-commands.service";
@@ -510,6 +511,85 @@ export class ClassSessionsService {
             response,
           );
         return response;
+      },
+      { timeout: 10000 },
+    );
+  }
+
+  /**
+   * Automatically ends a LIVE session when it has had no active participants for the grace period.
+   * Atomically verifies the session is still LIVE and has 0 active participants before transitioning.
+   */
+  async endSessionBySystem(sessionId: string): Promise<ClassSessionResponse | null> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const row = await tx.classSession.findUnique({
+          where: { id: sessionId },
+        });
+        if (!row || row.status !== "LIVE") {
+          return null;
+        }
+
+        const [clock] = await tx.$queryRaw<
+          { now: Date }[]
+        >`SELECT clock_timestamp() AS now`;
+        const now = clock.now;
+
+        const leaseTtlMs = 30000;
+        const activeCount = await tx.classParticipation.count({
+          where: {
+            sessionId,
+            leftAt: null,
+            AND: [
+              {
+                OR: [
+                  {
+                    lastSeenAt: {
+                      gt: new Date(now.getTime() - leaseTtlMs),
+                    },
+                  },
+                  { leases: { some: validClassLease(now) } },
+                ],
+              },
+              {
+                OR: [
+                  { joinRequestId: null },
+                  { joinRequest: { status: "ACCEPTED" } },
+                ],
+              },
+            ],
+          },
+        });
+
+        if (activeCount > 0) {
+          return null;
+        }
+
+        const updated = await tx.classSession.update({
+          where: { id: sessionId },
+          data: {
+            status: "ENDED",
+            endedAt: now,
+          },
+        });
+
+        await tx.classJoinRequest.updateMany({
+          where: { sessionId, status: { in: ["PENDING", "ACCEPTED"] } },
+          data: { status: "EXPIRED", closedAt: now },
+        });
+
+        await tx.classParticipation.updateMany({
+          where: { sessionId, leftAt: null },
+          data: { leftAt: now, leaveReason: "SESSION_ENDED" },
+        });
+
+        // Allocate versions through commit, including ends of different sessions.
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(73004)::text`;
+        await tx.classSessionEndEvent.create({
+          data: { sessionId, endedAt: now },
+        });
+
+        return { session: toClassSession(updated) };
       },
       { timeout: 10000 },
     );
