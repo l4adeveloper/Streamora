@@ -821,6 +821,59 @@ test("T15/T16 folders: persist multipart paths, search nested files, ZIP, rename
   );
 });
 
+test("file browsing scopes root, legacy paths and folder IDs while search and videos span the group", async () => {
+  const listingGroup = await db.group.create({
+    data: { name: "Folder listing regression", ownerId: owner.id },
+  });
+  const folder = await db.folder.create({
+    data: { groupId: listingGroup.id, name: "Managed", createdBy: owner.id },
+  });
+  const rows = await Promise.all(
+    [
+      { name: "listing-root.txt", mimeType: "text/plain" },
+      {
+        name: "listing-legacy.mp4",
+        mimeType: "video/mp4",
+        folderPath: "Legacy/Sub",
+      },
+      {
+        name: "listing-managed.mp4",
+        mimeType: "video/mp4",
+        folderId: folder.id,
+      },
+    ].map((data) =>
+      db.libraryFile.create({
+        data: {
+          groupId: listingGroup.id,
+          createdBy: owner.id,
+          objectKey: `test/${randomUUID()}`,
+          size: 1n,
+          source: "DOCUMENT",
+          status: "AVAILABLE",
+          ...data,
+        },
+      }),
+    ),
+  );
+  const endpoint = `/groups/${listingGroup.id}/files`;
+  async function ids(query = "") {
+    const response = await api("GET", endpoint + query);
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    return response.body.items.map((file) => file.id).sort();
+  }
+  assert.deepEqual(await ids(), [rows[0].id]);
+  assert.deepEqual(await ids("?q=%20%20&type=document"), [rows[0].id]);
+  assert.deepEqual(await ids("?folderId=root"), [rows[0].id]);
+  assert.deepEqual(await ids("?folderPath=Legacy%2FSub"), [rows[1].id]);
+  assert.deepEqual(await ids(`?folderId=${folder.id}`), [rows[2].id]);
+  assert.deepEqual(
+    await ids("?q=listing-"),
+    rows.map((file) => file.id).sort(),
+  );
+  assert.deepEqual(await ids("?q=listing-&folderPath=Legacy"), [rows[1].id]);
+  assert.deepEqual(await ids("?type=video"), [rows[1].id, rows[2].id].sort());
+});
+
 test("Force folder changes cancel active uploads, preserve siblings and reject invalid force without side effects", async () => {
   const root = "Force-" + randomUUID();
   const one = await api("POST", "/uploads", {

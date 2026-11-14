@@ -11,6 +11,7 @@ import {
   Post,
   Query,
   StreamableFile,
+  Res,
 } from "@nestjs/common";
 import {
   ApiBearerAuth,
@@ -25,6 +26,9 @@ import { CurrentAuth, RequireAuth, UUIDParamPipe } from "../../common";
 import type { AuthenticatedIdentity } from "../../common";
 import { ApiErrors, ApiSuccess } from "../../documentation/api-decorators";
 import { FilesService } from "./files.service";
+import type { Response } from "express";
+import { applyPlaybackCookies } from "../video-processing/playback-cookies";
+
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
 import {
@@ -172,7 +176,11 @@ export class FilesController {
     @CurrentAuth() auth: AuthenticatedIdentity,
     @Param("fileId", UUIDParamPipe) fileId: string,
   ) {
-    return this.files.transcript(auth.user.id, fileId, !!this.config.azureSpeech);
+    return this.files.transcript(
+      auth.user.id,
+      fileId,
+      !!this.config.azureSpeech,
+    );
   }
 
   @Post(":fileId/playback")
@@ -190,11 +198,27 @@ export class FilesController {
     [415, "VIDEO_PREVIEW_UNSUPPORTED"],
     [503, "VIDEO_OUTPUT_INVALID", "STORAGE_UNAVAILABLE"],
   )
-  playback(
+  async playback(
     @CurrentAuth() auth: AuthenticatedIdentity,
     @Param("fileId", UUIDParamPipe) fileId: string,
+    @Res({ passthrough: true }) response: Response,
   ) {
-    return this.files.playback(auth.user.id, fileId);
+    const result = await this.files.playback(auth.user.id, fileId);
+    return applyPlaybackCookies(result, response, false);
+  }
+  @Post(":fileId/media-grant")
+  @HttpCode(200)
+  @ApiExcludeEndpoint()
+  async mediaGrant(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("fileId", UUIDParamPipe) fileId: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return applyPlaybackCookies(
+      await this.files.playback(auth.user.id, fileId),
+      response,
+      true,
+    );
   }
   @Get()
   @ApiExcludeEndpoint()
@@ -269,11 +293,7 @@ export class FilesController {
     @Param("fileId", UUIDParamPipe) fileId: string,
     @Body() dto: PublishFileDto,
   ) {
-    return this.files.publish(
-      auth.user.id,
-      fileId,
-      dto.isPublished ?? true,
-    );
+    return this.files.publish(auth.user.id, fileId, dto.isPublished ?? true);
   }
   @Post(":fileId/publish")
   @HttpCode(200)
@@ -283,11 +303,7 @@ export class FilesController {
     @Param("fileId", UUIDParamPipe) fileId: string,
     @Body() dto: PublishFileDto,
   ) {
-    return this.files.publish(
-      auth.user.id,
-      fileId,
-      dto.isPublished ?? true,
-    );
+    return this.files.publish(auth.user.id, fileId, dto.isPublished ?? true);
   }
   @Delete(":fileId")
   @HttpCode(204)
@@ -423,7 +439,9 @@ export class FoldersController {
 
   @Delete(":folderId")
   @HttpCode(204)
-  @ApiOperation({ summary: "Xóa thư mục (chuyển file bên trong về thư mục cha)" })
+  @ApiOperation({
+    summary: "Xóa thư mục (chuyển file bên trong về thư mục cha)",
+  })
   @ApiSuccess(204)
   @ApiErrors(
     [401, "UNAUTHENTICATED"],

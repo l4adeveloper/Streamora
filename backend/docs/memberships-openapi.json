@@ -1351,6 +1351,216 @@
         "summary": "T03-06 — Quyền hiệu lực của tôi",
         "tags": ["Memberships"]
       }
+    },
+    "/api/v1/groups/{groupId}/chat/messages": {
+      "get": {
+        "operationId": "chat_history",
+        "parameters": [
+          {
+            "name": "groupId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": ["Chat"]
+      }
+    },
+    "/api/v1/groups/{groupId}/chat/search": {
+      "get": {
+        "operationId": "chat_search",
+        "parameters": [
+          {
+            "name": "groupId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": ["Chat"]
+      }
+    },
+    "/api/v1/groups/{groupId}/chat/read-state": {
+      "get": {
+        "operationId": "chat_readState",
+        "parameters": [
+          {
+            "name": "groupId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": ["Chat"]
+      }
+    },
+    "/api/v1/groups/{groupId}/chat/read": {
+      "post": {
+        "operationId": "chat_markRead",
+        "parameters": [
+          {
+            "name": "groupId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkReadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": ["Chat"]
+      }
+    },
+    "/api/v1/groups/{groupId}/chat/threads": {
+      "get": {
+        "operationId": "chat_threads",
+        "parameters": [
+          {
+            "name": "groupId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": ["Chat"]
+      },
+      "post": {
+        "operationId": "chat_create",
+        "parameters": [
+          {
+            "name": "groupId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadTitleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": ["Chat"]
+      }
+    },
+    "/api/v1/groups/{groupId}/chat/threads/{threadId}": {
+      "get": {
+        "operationId": "chat_thread",
+        "parameters": [
+          {
+            "name": "groupId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "threadId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": ["Chat"]
+      },
+      "patch": {
+        "operationId": "chat_rename",
+        "parameters": [
+          {
+            "name": "groupId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "threadId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadTitleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": ["Chat"]
+      }
     }
   },
   "info": {
@@ -1566,6 +1776,14 @@
           "canUpload",
           "canViewRecordings"
         ]
+      },
+      "MarkReadDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ThreadTitleDto": {
+        "type": "object",
+        "properties": {}
       }
     }
   }

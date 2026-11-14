@@ -19,6 +19,7 @@ export interface LibraryFile {
   createdAt: string;
   isPublished: boolean;
   publishedAt: string | null;
+  canDownload?: boolean;
 }
 export interface PublishFileRequest {
   isPublished?: boolean;
@@ -94,4 +95,35 @@ export interface VideoPlaybackResponse {
   fileId: string;
   processing: { status: VideoProcessingStatus; progressPercent: number | null };
   sources: VideoPlaybackSource[];
+  qualities?: VideoQuality[];
+  thumbnail?: string;
+  grantUrl?: string;
+}
+export interface VideoQuality extends FileDownloadResponse {
+  id: string;
+  width: number;
+  height: number;
+  bitrate: number;
+  label: string;
+}
+export interface VideoProcessingResponse {
+  status: VideoProcessingStatus;
+  progressPercent: number | null;
+  renditions: { height: number; bitrate: number; status: "READY" }[];
+  thumbnailReady: boolean;
+  errorCode?: string;
+}
+/** SQS message attribute contract=video.finalize.v1; recording compatibility. */
+export interface VideoFinalizeMessage {
+  jobId: string;
+  recordingId: string;
+  sourceObjectKey: string;
+  outputVersion: string;
+  requestedAt: string;
+}
+export interface VideoFileFinalizeMessage {
+  type: "video.file.finalize.v1";
+  jobId: string;
+  fileId: string;
+  requestedAt: string;
 }

@@ -8,17 +8,12 @@ import {
   GroupFoldersController,
 } from "./files.controller";
 import { FilesService } from "./files.service";
-import { FileStorageService } from "./file-storage.service";
 import { FileCleanupService } from "./file-cleanup.service";
 import { LocalFileDownloadController } from "./local-file-download.controller";
 import { VideoPlaybackService } from "./video-playback.service";
-import { StorageLocationsService } from "./storage-locations.service";
-import {
-  VideoRenditionCatalog,
-  SourceOnlyVideoCatalog,
-} from "./video-rendition-catalog";
+import { VideoProcessingModule } from "../video-processing/video-processing.module";
 @Module({
-  imports: [MembershipsModule],
+  imports: [MembershipsModule, VideoProcessingModule],
   controllers: [
     FilesController,
     FoldersController,
@@ -29,12 +24,9 @@ import {
   providers: [
     FolderUploadCancellation,
     FilesService,
-    FileStorageService,
     FileCleanupService,
-    StorageLocationsService,
     VideoPlaybackService,
-    { provide: VideoRenditionCatalog, useClass: SourceOnlyVideoCatalog },
   ],
-  exports: [FilesService, FileStorageService, FolderUploadCancellation],
+  exports: [FilesService, VideoProcessingModule, FolderUploadCancellation],
 })
 export class FilesModule {}

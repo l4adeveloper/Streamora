@@ -160,8 +160,17 @@ test(
         ).map((value) => value.trim()),
         ["Bản gốc"],
       );
+      // A submenu removes its trigger, briefly returning focus to the dialog.
+      // Escape must dismiss the menu even before focus reaches a menu item.
+      await page.locator("dialog[open]").evaluate((dialog) => dialog.focus());
       await page.keyboard.press("Escape");
       assert.equal(await page.locator("dialog[open]").count(), 1);
+      assert.equal(
+        await page
+          .getByRole("menu", { name: "Chất lượng video", exact: true })
+          .count(),
+        0,
+      );
       await page
         .getByRole("button", { name: "Phát video", exact: true })
         .click();
@@ -318,17 +327,15 @@ test(
         .locator(".video-preview video")
         .getAttribute("src");
       local.options.ttlSeconds = ttl;
-      await page.waitForTimeout(1200);
-      assert.equal((await fetch(expiredUrl)).status, 403);
       const renewed = page.waitForResponse(
         (r) =>
           r.url().endsWith(`/files/${file.id}/playback`) &&
           r.request().method() === "POST",
       );
-      await page
-        .locator(".video-preview video")
-        .evaluate((video) => video.dispatchEvent(new Event("error")));
+      // T13 renews the grant proactively, before the next segment/seek fails.
       assert.equal((await renewed).status(), 200);
+      await page.waitForTimeout(1200);
+      assert.equal((await fetch(expiredUrl)).status, 403);
       await page.waitForFunction((previous) => {
         const video = document.querySelector(".video-preview video");
         return (

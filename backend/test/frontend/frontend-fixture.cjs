@@ -68,8 +68,10 @@ async function createFrontendFixture({
     const port = await freePort();
     const webOrigin = `http://127.0.0.1:${port}`;
     const uploadApiPort = localUploads ? await freePort() : 0;
-    database = await createTestDatabase();
-    prisma = new PrismaService(database.url);
+    database = process.env.TEST_DATABASE_MODE === "embedded"
+      ? await require("../integration/embedded-database-fixture.cjs").createEmbeddedTestDatabase()
+      : await createTestDatabase();
+    prisma = database.client ?? new PrismaService(database.url);
     await prisma.onModuleInit();
     const config = {
       ...database.config,
@@ -100,7 +102,12 @@ async function createFrontendFixture({
         },
       },
     };
-    app = await NestFactory.create(AppModule.forRoot(config), {
+    const rootModule = AppModule.forRoot(config);
+    if (database.client) {
+      const databaseModule = rootModule.imports.find(module => module.providers?.includes(PrismaService));
+      databaseModule.providers = databaseModule.providers.map(provider => provider === PrismaService ? {provide:PrismaService,useValue:database.client} : provider);
+    }
+    app = await NestFactory.create(rootModule, {
       logger: false,
     });
     configureApplication(app, config, { requestLog: () => {} });

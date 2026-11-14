@@ -3,6 +3,11 @@ import type { VideoProcessingStatus } from "@streamora/contracts";
 import type { LibraryFile, Prisma } from "../../generated/prisma/client";
 
 export interface VideoProcessingSnapshot {
+  hasOriginal?: boolean;
+  qualities?: import("@streamora/contracts").VideoQuality[];
+  thumbnail?: string;
+  grantUrl?: string;
+  deliveryCookies?: import("../video-processing/video-delivery").DeliveryCookie[];
   status: VideoProcessingStatus;
   progressPercent: number | null;
   // AWS encoder outputs (wired by T13 later). Only fully published objects are ready.

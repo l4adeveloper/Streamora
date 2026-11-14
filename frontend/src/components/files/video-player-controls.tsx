@@ -156,7 +156,17 @@ export function VideoPlayerControls({
     const outside = (event: PointerEvent) => {
       if (!settings.current?.contains(event.target as Node)) setMenu(null);
     };
+    // Changing submenu removes the focused button before the next focus timer.
+    // Keep Escape scoped to the open menu during that gap, including in a dialog.
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setMenu(null);
+      gear.current?.focus();
+    };
     document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", dismiss, true);
     const focus = setTimeout(() => {
       const selected =
         menuRef.current?.querySelector<HTMLElement>('[aria-checked="true"]') ??
@@ -166,6 +176,7 @@ export function VideoPlayerControls({
     }, 0);
     return () => {
       document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", dismiss, true);
       clearTimeout(focus);
     };
   }, [menu, menuHeight]);

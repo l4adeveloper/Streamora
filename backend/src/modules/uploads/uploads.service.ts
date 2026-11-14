@@ -20,6 +20,8 @@ import { ApiError } from "../../common/api-error";
 import { safeErrorCode } from "../../common/safe-error-code";
 import { MultipartStorageService } from "./multipart-storage.service";
 import type { CreateUploadDto, CompleteUploadDto } from "./uploads.dto";
+import { enqueueVideo } from "../video-processing/video-processing.service";
+import { sniffVideo } from "../video-processing/video-sniff";
 
 const ALLOWED_TYPES = new Set([
   "application/pdf",
@@ -477,6 +479,16 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
         }
         if (size !== Number(upload.size))
           fail(409, "SIZE_MISMATCH", "Kích thước file không khớp.");
+        const detectedVideo =
+          !upload.mimeType.startsWith("video/") &&
+          !upload.mimeType.startsWith("audio/")
+            ? await sniffVideo(
+                await this.files.read(
+                  upload.objectKey,
+                  upload.storageLocationId,
+                ),
+              )
+            : undefined;
         upload = await this.locked(userId, id, async (current, tx) => {
           if (
             current.status !== "COMPLETING" ||
@@ -491,7 +503,7 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
               name: current.filename,
               folderPath: current.folderPath,
               size: current.size,
-              mimeType: current.mimeType,
+              mimeType: detectedVideo ?? current.mimeType,
               source: current.source,
               sessionId: current.sessionId,
               objectKey: current.objectKey,
@@ -501,6 +513,12 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
               publishedAt: current.isPublished ? new Date() : null,
             },
           });
+          await enqueueVideo(
+            tx,
+            file,
+            this.config.video?.mode === "aws" ? "mediaconvert" : "ffmpeg",
+          );
+
           if (file.source === "DOCUMENT" && VIDEO_TYPES.has(file.mimeType))
             await tx.videoTranscript.create({ data: { fileId: file.id } });
           return tx.uploadSession.update({

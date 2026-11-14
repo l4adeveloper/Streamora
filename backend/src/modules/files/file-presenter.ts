@@ -20,6 +20,7 @@ export function presentFile(
     folderPath: file.folderPath,
     size: Number(file.size),
     mimeType: file.mimeType,
+    canDownload: file.mimeType !== "application/vnd.apple.mpegurl",
     source: file.source,
     status: file.status,
     sessionId: file.sessionId,

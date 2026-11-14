@@ -4,7 +4,11 @@ import { Captions, AlignLeft } from "lucide-react";
 import type Hls from "hls.js";
 import type { VideoPlaybackResponse } from "@streamora/contracts";
 import { asApiError } from "@/lib/api";
-import { getVideoPlayback } from "@/lib/files/api";
+import {
+  getVideoPlayback,
+  getVideoProcessing,
+  acquireVideoGrant,
+} from "@/lib/files/api";
 import { VideoPlayerControls } from "./video-player-controls";
 import {
   RecordingCaptionTrack,
@@ -22,7 +26,20 @@ export function VideoPreview({
 }) {
   const [manifest, setManifest] = useState<VideoPlaybackResponse>();
   const [sourceId, setSourceId] = useState("");
-  const [levels, setLevels] = useState<{ index: number; height: number }[]>([]);
+  const [levels, setLevels] = useState<
+    { index: number; width: number; height: number; bitrate: number }[]
+  >([]);
+  const [activeQuality, setActiveQuality] = useState("");
+  const [nativeQuality, setNativeQuality] = useState("");
+  const [nativeHls, setNativeHls] = useState(false);
+  const nativeManual = useRef<{ width: number; height: number } | null>(null);
+  const manual = useRef<{
+    width: number;
+    height: number;
+    bitrate: number;
+  } | null>(null);
+  const pausedFrame = useRef<{ time: number; level: number } | null>(null);
+  const denied = useRef(false);
   const [level, setLevel] = useState(-1);
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
@@ -35,7 +52,13 @@ export function VideoPreview({
   const cues = transcript?.status === "READY" ? transcript.cues : undefined;
   const hasCaptions = !!cues?.length;
   const engine = useRef<Hls | null>(null);
-  const bookmark = useRef({ time: 0, paused: true, rate: 1 });
+  const bookmark = useRef({
+    time: 0,
+    paused: true,
+    rate: 1,
+    volume: 1,
+    muted: false,
+  });
   const sequence = useRef(0);
   const automaticRefreshAt = useRef(0);
   const remember = useCallback(() => {
@@ -45,27 +68,41 @@ export function VideoPreview({
         time: element.currentTime,
         paused: element.paused,
         rate: element.playbackRate,
+        volume: element.volume,
+        muted: element.muted,
       };
   }, []);
   const refresh = useCallback(
-    async (preferred = "") => {
+    async (preferred = "", renewOnly = false) => {
       const request = ++sequence.current;
       remember();
-      setLoading(true);
+      if (!renewOnly) setLoading(true);
       setError("");
       try {
         const response = await getVideoPlayback(fileId);
+        await acquireVideoGrant(response);
         if (request !== sequence.current) return;
+        denied.current = false;
+        if (nativeManual.current) {
+          const preference = nativeManual.current;
+          const selected = response.qualities?.find(
+            (q) =>
+              q.width === preference.width && q.height === preference.height,
+          );
+          if (!selected) throw new Error("Selected quality unavailable");
+          setNativeQuality(selected.id);
+        }
         const source =
           response.sources.find((item) => item.id === preferred) ??
           response.sources.find((item) => item.kind === "hls") ??
           response.sources[0];
-        if (!source) throw new Error("Missing playback source");
         setManifest(response);
-        setSourceId(source.id);
-        setRevision((value) => value + 1);
+        setSourceId(source?.id ?? "");
+        if (!source) setLoading(false);
+        if (!renewOnly) setRevision((value) => value + 1);
       } catch (cause) {
         if (request === sequence.current) {
+          if (asApiError(cause).status === 403) denied.current = true;
           video.current?.pause();
           setManifest(undefined);
           setError(asApiError(cause).message);
@@ -76,6 +113,7 @@ export function VideoPreview({
     [fileId, remember],
   );
   useEffect(() => {
+    denied.current = false;
     void refresh();
     return () => {
       sequence.current++;
@@ -83,11 +121,54 @@ export function VideoPreview({
   }, [refresh]);
   const source = manifest?.sources.find((item) => item.id === sourceId);
   useEffect(() => {
+    if (
+      !manifest ||
+      denied.current ||
+      !["QUEUED", "PROCESSING"].includes(manifest.processing.status)
+    )
+      return;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      void getVideoProcessing(fileId)
+        .then((status) => {
+          if (cancelled) return;
+          setManifest((previous) =>
+            previous ? { ...previous, processing: status } : previous,
+          );
+          if (status.status === "READY") void refresh();
+          else if (status.status === "FAILED") void refresh(sourceId);
+        })
+        .catch((cause) => {
+          if (!cancelled && asApiError(cause).status === 403) {
+            denied.current = true;
+            video.current?.pause();
+            setManifest(undefined);
+            setError(asApiError(cause).message);
+          }
+        });
+    }, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [fileId, manifest?.processing.status, refresh, sourceId]);
+  useEffect(() => {
+    if (!source || denied.current) return;
+    const timer = setTimeout(
+      () => {
+        if (!denied.current) void refresh(sourceId, true);
+      },
+      Math.max(1000, Date.parse(source.expiresAt) - Date.now() - 15000),
+    );
+    return () => clearTimeout(timer);
+  }, [source?.expiresAt, sourceId, refresh]);
+  useEffect(() => {
     const element = video.current;
     if (!element || !source) return;
     let cancelled = false;
     let instance: Hls | undefined;
     setLevels([]);
+    setNativeHls(false);
     setLevel(-1);
     setLoading(true);
     function failure() {
@@ -109,6 +190,8 @@ export function VideoPreview({
     function restore() {
       const saved = bookmark.current;
       element!.playbackRate = saved.rate;
+      element!.volume = saved.volume;
+      element!.muted = saved.muted;
       if (saved.time > 0) {
         const time = Number.isFinite(element!.duration)
           ? Math.min(saved.time, Math.max(0, element!.duration - 0.05))
@@ -132,23 +215,87 @@ export function VideoPreview({
         .then(({ default: Hls }) => {
           if (cancelled) return;
           if (Hls.isSupported()) {
-            instance = new Hls({ maxBufferLength: 30, backBufferLength: 30 });
+            instance = new Hls({
+              maxBufferLength: 30,
+              maxMaxBufferLength: 30,
+              backBufferLength: 30,
+              xhrSetup: (xhr) => {
+                xhr.withCredentials = true;
+              },
+              fetchSetup: (context, init) =>
+                new Request(context.url, { ...init, credentials: "include" }),
+            });
             engine.current = instance;
             instance.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
               if (!cancelled)
                 setLevels(
                   data.levels
-                    .map((item, index) => ({ index, height: item.height }))
-                    .filter((item) => item.height > 0),
+                    .map((item, index) => ({
+                      index,
+                      width: item.width,
+                      height: item.height,
+                      bitrate: item.bitrate,
+                    }))
+                    .filter((item) => item.height > 0)
+                    .sort(
+                      (a, b) =>
+                        Math.min(b.width, b.height) -
+                        Math.min(a.width, a.height),
+                    ),
                 );
+              const preference = manual.current;
+              if (preference) {
+                const index = data.levels.findIndex(
+                  (l) =>
+                    l.width === preference.width &&
+                    l.height === preference.height,
+                );
+                if (index >= 0) {
+                  instance!.currentLevel = index;
+                  setLevel(index);
+                } else {
+                  instance!.stopLoad();
+                  element.pause();
+                  setLoading(false);
+                  setError(
+                    "Mức chất lượng đã chọn không còn khả dụng. Hãy chọn lại chất lượng.",
+                  );
+                }
+              }
+            });
+            instance.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+              const l = instance!.levels[data.level];
+              if (l && !cancelled) setActiveQuality(label(l.width, l.height));
+            });
+            instance.on(Hls.Events.FRAG_BUFFERED, (_event, data) => {
+              const frame = pausedFrame.current;
+              if (frame && data.frag.level === frame.level && element.paused) {
+                // Refresh the decoded still frame after the old buffer was replaced.
+                element.currentTime = Math.min(
+                  frame.time + 0.001,
+                  Math.max(0, element.duration - 0.01),
+                );
+                pausedFrame.current = null;
+              }
             });
             instance.on(Hls.Events.ERROR, (_event, data) => {
+              if (data.response?.code === 403) {
+                denied.current = true;
+                instance?.stopLoad();
+                element.pause();
+                setError("Quyền xem video đã hết hiệu lực. Hãy mở lại video.");
+                setLoading(false);
+                return;
+              }
               if (data.fatal) failure();
             });
             instance.attachMedia(element);
             instance.loadSource(source.url);
           } else if (element.canPlayType("application/vnd.apple.mpegurl")) {
-            element.src = source.url;
+            setNativeHls(true);
+            element.src =
+              manifest?.qualities?.find((q) => q.id === nativeQuality)?.url ??
+              source.url;
             element.load();
           } else failure();
         })
@@ -167,14 +314,7 @@ export function VideoPreview({
       element.removeAttribute("src");
       element.load();
     };
-  }, [
-    source?.url,
-    source?.kind,
-    source?.id,
-    source?.expiresAt,
-    revision,
-    refresh,
-  ]);
+  }, [source?.url, source?.kind, source?.id, nativeQuality, revision, refresh]);
 
   function toggleTranscript() {
     if (!transcriptOpen && document.fullscreenElement)
@@ -186,13 +326,40 @@ export function VideoPreview({
     if (value.startsWith("level:")) {
       const index = Number(value.slice(6));
       if (engine.current && levels.some((item) => item.index === index)) {
+        const selected = levels.find((item) => item.index === index)!;
+        manual.current = {
+          width: selected.width,
+          height: selected.height,
+          bitrate: selected.bitrate,
+        };
+        if (video.current?.paused)
+          pausedFrame.current = {
+            time: video.current.currentTime,
+            level: index,
+          };
         engine.current.currentLevel = index;
         setLevel(index);
       }
+    } else if (value.startsWith("variant:")) {
+      const selected = manifest?.qualities?.find(
+        (q) => q.id === value.slice(8),
+      );
+      if (!selected) return;
+      nativeManual.current = { width: selected.width, height: selected.height };
+      remember();
+      setNativeQuality(value.slice(8));
     } else if (value === sourceId && source?.kind === "hls") {
+      manual.current = null;
+      nativeManual.current = null;
+      setNativeQuality("");
       if (engine.current) engine.current.currentLevel = -1;
       setLevel(-1);
     } else if (value !== sourceId) void refresh(value);
+  }
+  function label(width: number, height: number) {
+    const short = Math.min(width, height),
+      long = Math.max(width, height);
+    return short >= 2160 && long >= 3840 ? "2160p (4K)" : `${short}p`;
   }
   return (
     <div className="video-preview">
@@ -204,7 +371,13 @@ export function VideoPreview({
             <VideoPlayerControls
               videoRef={video}
               loading={loading}
-              quality={level >= 0 ? `level:${level}` : sourceId}
+              quality={
+                nativeQuality
+                  ? `variant:${nativeQuality}`
+                  : level >= 0
+                    ? `level:${level}`
+                    : sourceId
+              }
               qualities={[
                 ...manifest.sources
                   .filter(
@@ -213,11 +386,26 @@ export function VideoPreview({
                       item.id === "original" ||
                       item.kind === "hls",
                   )
-                  .map((item) => ({ value: item.id, label: item.label })),
+                  .map((item) => ({
+                    value: item.id,
+                    label:
+                      item.kind === "hls" &&
+                      level < 0 &&
+                      !nativeQuality &&
+                      activeQuality
+                        ? `Tự động · ${activeQuality}`
+                        : item.label,
+                  })),
                 ...levels.map((item) => ({
                   value: `level:${item.index}`,
-                  label: `${item.height}p`,
+                  label: label(item.width, item.height),
                 })),
+                ...(nativeHls && source?.kind === "hls"
+                  ? (manifest.qualities ?? []).map((q) => ({
+                      value: `variant:${q.id}`,
+                      label: q.label,
+                    }))
+                  : []),
               ]}
               onQualityChange={changeQuality}
               onRefresh={() => void refresh(sourceId)}
@@ -254,6 +442,8 @@ export function VideoPreview({
               <video
                 ref={video}
                 playsInline
+                crossOrigin="use-credentials"
+                poster={manifest.thumbnail}
                 preload="metadata"
                 aria-label={`Xem trước video: ${name}`}
               >
