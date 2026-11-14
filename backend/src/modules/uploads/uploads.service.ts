@@ -15,6 +15,7 @@ import { GroupAccessService } from "../memberships/group-access.service";
 import { FileStorageService } from "../files/file-storage.service";
 import { FolderUploadCancellation } from "../files/folder-upload-cancellation";
 import { presentFile } from "../files/file-presenter";
+import { VIDEO_TYPES } from "../files/video-playback.service";
 import { ApiError } from "../../common/api-error";
 import { safeErrorCode } from "../../common/safe-error-code";
 import { MultipartStorageService } from "./multipart-storage.service";
@@ -500,6 +501,8 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
               publishedAt: current.isPublished ? new Date() : null,
             },
           });
+          if (file.source === "DOCUMENT" && VIDEO_TYPES.has(file.mimeType))
+            await tx.videoTranscript.create({ data: { fileId: file.id } });
           return tx.uploadSession.update({
             where: { id },
             data: {
