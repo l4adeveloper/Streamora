@@ -25,7 +25,7 @@ import {
 
 type Quality = { value: string; label: string };
 const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-function timestamp(value: number) {
+export function timestamp(value: number) {
   const total = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
   const hours = Math.floor(total / 3600),
     minutes = Math.floor(total / 60) % 60,
@@ -41,6 +41,7 @@ export function VideoPlayerControls({
   onQualityChange,
   onRefresh,
   loading,
+  transcriptControls,
 }: {
   videoRef: RefObject<HTMLVideoElement | null>;
   children: ReactNode;
@@ -49,6 +50,7 @@ export function VideoPlayerControls({
   onQualityChange(value: string): void;
   onRefresh(): void;
   loading: boolean;
+  transcriptControls?: ReactNode;
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const settings = useRef<HTMLDivElement>(null);
@@ -154,7 +156,17 @@ export function VideoPlayerControls({
     const outside = (event: PointerEvent) => {
       if (!settings.current?.contains(event.target as Node)) setMenu(null);
     };
+    // Changing submenu removes the focused button before the next focus timer.
+    // Keep Escape scoped to the open menu during that gap, including in a dialog.
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setMenu(null);
+      gear.current?.focus();
+    };
     document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", dismiss, true);
     const focus = setTimeout(() => {
       const selected =
         menuRef.current?.querySelector<HTMLElement>('[aria-checked="true"]') ??
@@ -164,6 +176,7 @@ export function VideoPlayerControls({
     }, 0);
     return () => {
       document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", dismiss, true);
       clearTimeout(focus);
     };
   }, [menu, menuHeight]);
@@ -394,6 +407,7 @@ export function VideoPlayerControls({
             {timestamp(time)} <span>/ {timestamp(media.duration)}</span>
           </span>
           <div className="video-control-spacer" />
+          {transcriptControls}
           <div ref={settings} className="video-settings">
             {menu && (
               <div

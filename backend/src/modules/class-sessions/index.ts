@@ -14,3 +14,4 @@ export {
   ClassSessionEventsService,
   type ClassSessionEndedHandler,
 } from "./class-session-events.service";
+export { ClassSessionAutoCloseService } from "./class-session-auto-close.service";

@@ -308,26 +308,24 @@ test(
     await db.recordingAsset.create({
       data: { id: recordingId, sessionId: session.id },
     });
-    const registered = await f.app
-      .get(FilesService)
-      .registerRecording({
-        recordingId,
-        groupId: group.id,
-        sourceObjectKey: output.masterKey,
-        size: 0,
-        mimeType: "application/vnd.apple.mpegurl",
-        status: "AVAILABLE",
+    const registered = await f.app.get(FilesService).registerRecording({
+      recordingId,
+      groupId: group.id,
+      sourceObjectKey: output.masterKey,
+      size: 0,
+      mimeType: "application/vnd.apple.mpegurl",
+      status: "AVAILABLE",
+      storageLocationId: row.storageLocationId,
+      videoSource: {
+        kind: "HLS",
         storageLocationId: row.storageLocationId,
-        videoSource: {
-          kind: "HLS",
-          storageLocationId: row.storageLocationId,
-          prefix: output.prefix,
-          masterKey: output.masterKey,
-          channelType: "STANDARD",
-          renditionSelection: "ALL",
-          expectedHeights: [1080, 720, 360],
-        },
-      });
+        prefix: output.prefix,
+        masterKey: output.masterKey,
+        channelType: "STANDARD",
+        renditionSelection: "ALL",
+        expectedHeights: [1080, 720, 360],
+      },
+    });
     const asset = await db.videoAsset.findUnique({
       where: { fileId: registered.fileId },
     });
@@ -425,7 +423,7 @@ test(
   },
   { timeout: 180000 },
 );
-test("multipart completion detects video content for DOCUMENT and atomically enqueues exactly one job", async () => {
+test("multipart completion detects video content and atomically enqueues processing and transcription once", async () => {
   const bytes = await readFile(clip);
   const multipart = f.app.get(
     require("../../dist/modules/uploads/multipart-storage.service")
@@ -478,5 +476,39 @@ test("multipart completion detects video content for DOCUMENT and atomically enq
   assert.equal(
     await db.videoJob.count({ where: { fileId: upload.fileId } }),
     1,
+  );
+  assert.equal(
+    await db.videoTranscript.count({ where: { fileId: upload.fileId } }),
+    1,
+  );
+  const transcript = await db.videoTranscript.findUnique({
+    where: { fileId: upload.fileId },
+  });
+  assert.equal(transcript.transcriptStatus, "PENDING");
+  // Saved captions remain readable when the speech worker is disabled locally.
+  const cues = [{ startMs: 0, endMs: 1500, text: "Video pipeline transcript" }];
+  await db.videoTranscript.update({
+    where: { fileId: upload.fileId },
+    data: { transcriptStatus: "READY", transcriptCues: cues },
+  });
+  const response = await f.api(
+    owner,
+    "GET",
+    `/files/${upload.fileId}/transcript`,
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { status: "READY", cues });
+  assert.equal(
+    (await f.api(outsider, "GET", `/files/${upload.fileId}/transcript`)).status,
+    403,
+  );
+  await worker.once(asset.currentJobId);
+  assert.equal(
+    (await db.videoJob.findUnique({ where: { id: asset.currentJobId } })).state,
+    "READY",
+  );
+  assert.deepEqual(
+    (await f.api(owner, "GET", `/files/${upload.fileId}/transcript`)).body,
+    { status: "READY", cues },
   );
 });

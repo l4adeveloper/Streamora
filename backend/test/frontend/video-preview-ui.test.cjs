@@ -160,8 +160,17 @@ test(
         ).map((value) => value.trim()),
         ["Bản gốc"],
       );
+      // A submenu removes its trigger, briefly returning focus to the dialog.
+      // Escape must dismiss the menu even before focus reaches a menu item.
+      await page.locator("dialog[open]").evaluate((dialog) => dialog.focus());
       await page.keyboard.press("Escape");
       assert.equal(await page.locator("dialog[open]").count(), 1);
+      assert.equal(
+        await page
+          .getByRole("menu", { name: "Chất lượng video", exact: true })
+          .count(),
+        0,
+      );
       await page
         .getByRole("button", { name: "Phát video", exact: true })
         .click();

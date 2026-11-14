@@ -66,6 +66,54 @@ Database dùng chung cả nhóm: migration chạy một lần là mọi người
 insert từ máy này hiện ngay ở máy khác. Test integration/UI tạo rồi xóa database
 `streamora_test_*` tạm trên cùng server, nên user trong `DATABASE_URL` cần quyền CREATEDB.
 
+## Phụ đề cho video thư viện và bản ghi buổi học
+
+1. [Cài các dependency bằng npm trên máy chạy API](#cài-ffmpeg).
+2. Dùng tài nguyên Azure AI Speech hiện có ở East Asia (hỗ trợ Free F0) hoặc
+   vùng hỗ trợ Speech to Text thời gian thực. Điền mã vùng và khóa của cùng một tài
+   nguyên trong `backend/.env`.
+
+   ```dotenv
+   AZURE_SPEECH_REGION=eastasia
+   AZURE_SPEECH_KEY=<khóa của tài nguyên Speech ở East Asia>
+   AZURE_SPEECH_LOCALES=vi-VN,en-US
+   ```
+
+3. Dừng API đang chạy, áp dụng `npm run db:migrate` rồi khởi động lại API.
+   Mở video trong thư viện rồi chọn **Phụ đề (CC)** hoặc **Bản chép lời**.
+
+Video MP4, WebM và MOV tải lên thư viện tự vào hàng đợi khi tải xong. Migration
+cũng đưa video thư viện hiện có vào hàng đợi và chuyển phụ đề đã tạo của các bản
+ghi buổi học sang bảng phụ đề của video. Worker dùng FFmpeg để tách âm thanh rồi
+gửi luồng PCM đến Azure Speech SDK. Phụ đề xuất hiện khi nhận dạng xong.
+Thời gian xử lý có thể gần bằng độ dài bản ghi, và mỗi lần xử lý dùng hạn mức
+Speech to Text của tài nguyên Azure. Streamora hỗ trợ bản ghi ngắn hơn hai giờ.
+Với nhiều giá trị trong `AZURE_SPEECH_LOCALES`, Azure dò ngôn ngữ chính ở đầu
+bản ghi. Dùng một giá trị như `vi-VN` nếu đã biết ngôn ngữ của buổi học. Kết quả
+nằm trong PostgreSQL và dùng quyền truy cập của video trong thư viện.
+[Xem tài liệu Azure Speech SDK](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/how-to-recognize-speech?pivots=programming-language-javascript).
+
+### Cài FFmpeg
+
+Chạy lệnh sau từ thư mục gốc của dự án trên máy chạy API, kể cả trên EC2.
+Dependency `ffmpeg-static` tải bản FFmpeg phù hợp từ GitHub trong lúc cài đặt.
+
+```bash
+npm ci
+node -e 'require("node:child_process").execFileSync(require("ffmpeg-static"), ["-version"], { stdio: "inherit" })'
+npm run build --workspace=@streamora/api
+```
+
+Để trống hoặc xóa `RECORDING_FFMPEG_PATH` trong `backend/.env` và biến môi trường
+triển khai để dùng bản FFmpeg từ npm. Nếu bản này không có trên máy, API tìm
+`ffmpeg` trong `PATH`. Đặt đường dẫn tuyệt đối nếu muốn dùng bản cài riêng.
+Khởi động lại API sau khi cập nhật cấu hình hoặc build.
+
+```dotenv
+# Ví dụ trên Windows sau khi giải nén FFmpeg vào C:\ffmpeg
+RECORDING_FFMPEG_PATH=C:/ffmpeg/bin/ffmpeg.exe
+```
+
 ## Cấu trúc và trách nhiệm
 
 ```text

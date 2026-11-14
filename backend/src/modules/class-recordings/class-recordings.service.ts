@@ -312,6 +312,7 @@ export class ClassRecordingsService {
           version: { increment: 1 },
         },
       });
+      await tx.videoTranscript.create({ data: { fileId } });
       await recordingChanged(tx, sessionId);
       return { recording: await this.view(tx, saved) };
     });

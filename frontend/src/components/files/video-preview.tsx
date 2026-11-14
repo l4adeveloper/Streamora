@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Captions, AlignLeft } from "lucide-react";
 import type Hls from "hls.js";
 import type { VideoPlaybackResponse } from "@streamora/contracts";
 import { asApiError } from "@/lib/api";
@@ -9,6 +10,12 @@ import {
   acquireVideoGrant,
 } from "@/lib/files/api";
 import { VideoPlayerControls } from "./video-player-controls";
+import {
+  RecordingCaptionTrack,
+  RecordingTranscriptPanel,
+  recordingTranscriptStatus,
+  useRecordingTranscript,
+} from "./recording-transcript";
 
 export function VideoPreview({
   fileId,
@@ -38,6 +45,12 @@ export function VideoPreview({
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
   const video = useRef<HTMLVideoElement>(null);
+  const transcriptId = useId();
+  const [captionsOn, setCaptionsOn] = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const { transcript, requestFailed, retry } = useRecordingTranscript(fileId);
+  const cues = transcript?.status === "READY" ? transcript.cues : undefined;
+  const hasCaptions = !!cues?.length;
   const engine = useRef<Hls | null>(null);
   const bookmark = useRef({
     time: 0,
@@ -303,6 +316,12 @@ export function VideoPreview({
     };
   }, [source?.url, source?.kind, source?.id, nativeQuality, revision, refresh]);
 
+  function toggleTranscript() {
+    if (!transcriptOpen && document.fullscreenElement)
+      void document.exitFullscreen().catch(() => {});
+    setTranscriptOpen((previous) => !previous);
+  }
+
   function changeQuality(value: string) {
     if (value.startsWith("level:")) {
       const index = Number(value.slice(6));
@@ -346,57 +365,104 @@ export function VideoPreview({
     <div className="video-preview">
       {manifest && (
         <>
-          <VideoPlayerControls
-            videoRef={video}
-            loading={loading}
-            quality={
-              nativeQuality
-                ? `variant:${nativeQuality}`
-                : level >= 0
-                  ? `level:${level}`
-                  : sourceId
-            }
-            qualities={[
-              ...manifest.sources
-                .filter(
-                  (item) =>
-                    levels.length === 0 ||
-                    item.id === "original" ||
-                    item.kind === "hls",
-                )
-                .map((item) => ({
-                  value: item.id,
-                  label:
-                    item.kind === "hls" &&
-                    level < 0 &&
-                    !nativeQuality &&
-                    activeQuality
-                      ? `Tự động · ${activeQuality}`
-                      : item.label,
-                })),
-              ...levels.map((item) => ({
-                value: `level:${item.index}`,
-                label: label(item.width, item.height),
-              })),
-              ...(nativeHls && source?.kind === "hls"
-                ? (manifest.qualities ?? []).map((q) => ({
-                    value: `variant:${q.id}`,
-                    label: q.label,
-                  }))
-                : []),
-            ]}
-            onQualityChange={changeQuality}
-            onRefresh={() => void refresh(sourceId)}
+          <div
+            className={`video-preview-layout${transcriptOpen ? " transcript-open" : ""}`}
           >
-            <video
-              ref={video}
-              playsInline
-              crossOrigin="use-credentials"
-              poster={manifest.thumbnail}
-              preload="metadata"
-              aria-label={`Xem trước video: ${name}`}
-            />
-          </VideoPlayerControls>
+            <VideoPlayerControls
+              videoRef={video}
+              loading={loading}
+              quality={
+                nativeQuality
+                  ? `variant:${nativeQuality}`
+                  : level >= 0
+                    ? `level:${level}`
+                    : sourceId
+              }
+              qualities={[
+                ...manifest.sources
+                  .filter(
+                    (item) =>
+                      levels.length === 0 ||
+                      item.id === "original" ||
+                      item.kind === "hls",
+                  )
+                  .map((item) => ({
+                    value: item.id,
+                    label:
+                      item.kind === "hls" &&
+                      level < 0 &&
+                      !nativeQuality &&
+                      activeQuality
+                        ? `Tự động · ${activeQuality}`
+                        : item.label,
+                  })),
+                ...levels.map((item) => ({
+                  value: `level:${item.index}`,
+                  label: label(item.width, item.height),
+                })),
+                ...(nativeHls && source?.kind === "hls"
+                  ? (manifest.qualities ?? []).map((q) => ({
+                      value: `variant:${q.id}`,
+                      label: q.label,
+                    }))
+                  : []),
+              ]}
+              onQualityChange={changeQuality}
+              onRefresh={() => void refresh(sourceId)}
+              transcriptControls={
+                <>
+                  <button
+                    type="button"
+                    className="video-control-button"
+                    aria-label="Phụ đề (CC)"
+                    title={
+                      recordingTranscriptStatus(transcript, requestFailed) ||
+                      "Phụ đề (CC)"
+                    }
+                    aria-pressed={hasCaptions && captionsOn}
+                    disabled={!hasCaptions}
+                    onClick={() => setCaptionsOn((previous) => !previous)}
+                  >
+                    <Captions size={22} />
+                  </button>
+                  <button
+                    type="button"
+                    className="video-control-button"
+                    aria-label="Bản chép lời"
+                    title="Bản chép lời"
+                    aria-expanded={transcriptOpen}
+                    aria-controls={transcriptOpen ? transcriptId : undefined}
+                    onClick={toggleTranscript}
+                  >
+                    <AlignLeft size={22} />
+                  </button>
+                </>
+              }
+            >
+              <video
+                ref={video}
+                playsInline
+                crossOrigin="use-credentials"
+                poster={manifest.thumbnail}
+                preload="metadata"
+                aria-label={`Xem trước video: ${name}`}
+              >
+                {!!cues?.length && (
+                  <RecordingCaptionTrack cues={cues} visible={captionsOn} />
+                )}
+              </video>
+            </VideoPlayerControls>
+            {transcriptOpen && (
+              <RecordingTranscriptPanel
+                id={transcriptId}
+                videoRef={video}
+                transcript={transcript}
+                requestFailed={requestFailed}
+                retry={retry}
+                loading={loading}
+              />
+            )}
+          </div>
           {manifest.processing.status === "NOT_REQUESTED" &&
             manifest.sources.length === 1 && (
               <p className="video-preview-note">

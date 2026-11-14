@@ -7,6 +7,7 @@ import type {
   FolderListResponse,
   FolderResponse,
   VideoPlaybackResponse,
+  RecordingTranscriptResponse,
 } from "@streamora/contracts";
 import { apiRequest } from "@/lib/api";
 export function listFiles(groupId: string, query: FileListQuery = {}) {
@@ -52,6 +53,12 @@ export function getVideoPlayback(fileId: string) {
   return apiRequest<VideoPlaybackResponse>(`/files/${fileId}/playback`, {
     method: "POST",
     body: {},
+  });
+}
+
+export function getRecordingTranscript(fileId: string) {
+  return apiRequest<RecordingTranscriptResponse>(`/files/${fileId}/transcript`, {
+    method: "GET",
   });
 }
 

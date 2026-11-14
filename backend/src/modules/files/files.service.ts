@@ -2,7 +2,15 @@ import { ZipArchive } from "archiver";
 import { Readable } from "node:stream";
 import { Injectable, Optional } from "@nestjs/common";
 import { isUUID } from "class-validator";
-import type { FileResponse, FileStatus, FolderBreadcrumb, FolderListResponse, FolderResponse } from "@streamora/contracts";
+import type {
+  FileResponse,
+  FileStatus,
+  FolderBreadcrumb,
+  FolderListResponse,
+  FolderResponse,
+  RecordingTranscriptCue,
+  RecordingTranscriptResponse,
+} from "@streamora/contracts";
 import type {
   Folder as DbFolder,
   LibraryFile as DbFile,
@@ -14,7 +22,7 @@ import { ApiError } from "../../common/api-error";
 import { safeErrorCode } from "../../common/safe-error-code";
 import { FileStorageService } from "./file-storage.service";
 import { PREVIEW_TYPES } from "./file-preview";
-import { VideoPlaybackService } from "./video-playback.service";
+import { VIDEO_TYPES, VideoPlaybackService } from "./video-playback.service";
 import type { FileListQueryDto } from "./files.dto";
 import { FolderUploadCancellation } from "./folder-upload-cancellation";
 import { presentFile as present, presentFolder } from "./file-presenter";
@@ -566,6 +574,30 @@ export class FilesService {
       this.video.manifest(file, tx),
     );
   }
+  transcript(
+    userId: string,
+    fileId: string,
+    enabled: boolean,
+  ): Promise<RecordingTranscriptResponse> {
+    return this.withReadableFile(userId, fileId, async (file, db) => {
+      if (!VIDEO_TYPES.has(file.mimeType)) return { status: "UNAVAILABLE" };
+      const transcript = await db.videoTranscript.findUnique({
+        where: { fileId: file.id },
+        select: { transcriptStatus: true, transcriptCues: true },
+      });
+      if (!transcript) return { status: "UNAVAILABLE" };
+      if (transcript.transcriptStatus === "READY") {
+        return Array.isArray(transcript.transcriptCues)
+          ? {
+              status: "READY",
+              cues: transcript.transcriptCues as unknown as RecordingTranscriptCue[],
+            }
+          : { status: "FAILED" };
+      }
+      return { status: enabled ? transcript.transcriptStatus : "UNAVAILABLE" };
+    });
+  }
+
   private async withReadableFile<T>(
     userId: string,
     fileId: string,

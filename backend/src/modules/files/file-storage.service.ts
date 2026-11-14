@@ -130,7 +130,12 @@ export class FileStorageService implements OnModuleDestroy {
       );
     }
   }
-  async read(objectKey: string, locationId?: string | null): Promise<Readable> {
+  async read(
+    objectKey: string,
+    locationId?: string | null,
+    signal?: AbortSignal,
+  ): Promise<Readable> {
+    signal?.throwIfAborted();
     const backend = await this.backend(locationId);
     if (backend.local) {
       const grant = await backend.local.download(objectKey, "download");
@@ -145,6 +150,7 @@ export class FileStorageService implements OnModuleDestroy {
         Bucket: this.bucket(backend.target),
         Key: objectKey,
       }),
+      { abortSignal: signal },
     );
     return result.Body as Readable;
   }

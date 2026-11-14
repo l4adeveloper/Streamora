@@ -83,14 +83,14 @@ Hỏi đáp có cột chủ đề 304px, ô lọc ở đầu và nút dấu cộ
 
 Tất cả đều yêu cầu Bearer token và quyền truy cập group hiện tại. Runtime validation từ chối field lạ, UUID sai và giới hạn không hợp lệ.
 
-| Method | Path sau `/api/v1` | Đầu vào | Kết quả |
-|---|---|---|---|
-| GET | `/groups/{groupId}/chat/messages` | `channel?`, `cursor?`, `limit?` | `{items:GroupChatMessage[],nextCursor}`; mỗi trang tăng dần theo thời gian, trang tiếp theo là các tin cũ hơn |
-| GET | `/groups/{groupId}/chat/search` | `q` dài 1–100, `cursor?`, `limit?` | `{items:GroupChatMessage[],nextCursor}` |
-| GET | `/groups/{groupId}/chat/threads` | `cursor?`, `limit?` | `{items:GroupChatThread[],nextCursor}` |
-| GET | `/groups/{groupId}/chat/threads/{threadId}` | UUID | `{thread}` |
-| POST | `/groups/{groupId}/chat/threads` | `{title:string}` dài 1–120 sau trim | 201 `{thread}` |
-| PATCH | `/groups/{groupId}/chat/threads/{threadId}` | `{title:string}` dài 1–120, không để trống | 200 `{thread}`; người tạo chủ đề hoặc OWNER/ADMIN |
+| Method | Path sau `/api/v1`                          | Đầu vào                                    | Kết quả                                                                                                       |
+| ------ | ------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| GET    | `/groups/{groupId}/chat/messages`           | `channel?`, `cursor?`, `limit?`            | `{items:GroupChatMessage[],nextCursor}`; mỗi trang tăng dần theo thời gian, trang tiếp theo là các tin cũ hơn |
+| GET    | `/groups/{groupId}/chat/search`             | `q` dài 1–100, `cursor?`, `limit?`         | `{items:GroupChatMessage[],nextCursor}`                                                                       |
+| GET    | `/groups/{groupId}/chat/threads`            | `cursor?`, `limit?`                        | `{items:GroupChatThread[],nextCursor}`                                                                        |
+| GET    | `/groups/{groupId}/chat/threads/{threadId}` | UUID                                       | `{thread}`                                                                                                    |
+| POST   | `/groups/{groupId}/chat/threads`            | `{title:string}` dài 1–120 sau trim        | 201 `{thread}`                                                                                                |
+| PATCH  | `/groups/{groupId}/chat/threads/{threadId}` | `{title:string}` dài 1–120, không để trống | 200 `{thread}`; người tạo chủ đề hoặc OWNER/ADMIN                                                             |
 
 `GroupChatThread={id,groupId,title,createdById,createdAt}`. Nội dung của thread dùng channel nội bộ `thread:{threadId}`; server xác nhận thread thuộc group trước khi join/gửi/đọc. Không thể dùng ID thread của nhóm khác.
 
@@ -130,14 +130,14 @@ Lựa chọn mở/đóng panel bên phải được lưu trong localStorage theo
 
 Một table có partition key `pk` (String), sort key `sk` (String), PAY_PER_REQUEST. Mọi dữ liệu được phân vùng bằng `pk=GROUP#{groupId}`:
 
-| Prefix sort key | Mục đích |
-|---|---|
-| `M#{channel}#{createdAt}#{id}` | Nội dung tin nhắn, revision cho cập nhật có điều kiện |
-| `ID#{id}` | Tra cứu ID sang khóa tin nhắn |
-| `CLIENT#{channel}#{senderId}#{clientId}` | Chống tạo trùng khi gửi lại, kể cả gửi đồng thời |
-| `T#{createdAt}#{id}` | Danh sách chủ đề |
-| `THREAD#{id}` | Tra cứu và xác nhận quyền sở hữu group của thread |
-| `E#{createdAt}#{eventId}` | Outbox sự kiện, TTL `expiresAt` sau 24 giờ |
+| Prefix sort key                          | Mục đích                                              |
+| ---------------------------------------- | ----------------------------------------------------- |
+| `M#{channel}#{createdAt}#{id}`           | Nội dung tin nhắn, revision cho cập nhật có điều kiện |
+| `ID#{id}`                                | Tra cứu ID sang khóa tin nhắn                         |
+| `CLIENT#{channel}#{senderId}#{clientId}` | Chống tạo trùng khi gửi lại, kể cả gửi đồng thời      |
+| `T#{createdAt}#{id}`                     | Danh sách chủ đề                                      |
+| `THREAD#{id}`                            | Tra cứu và xác nhận quyền sở hữu group của thread     |
+| `E#{createdAt}#{eventId}`                | Outbox sự kiện, TTL `expiresAt` sau 24 giờ            |
 
 Tin nhắn và outbox được ghi trong cùng DynamoDB transaction. Sửa/xóa kiểm tra revision tránh ghi đè khi cạnh tranh. Xóa mềm giữ nội dung trong database, loại khỏi lịch sử và tìm kiếm; chưa có tác vụ purge nội dung. Khi xóa group trong PostgreSQL, quyền bị chặn ngay nhưng dữ liệu DynamoDB chưa tự purge.
 

@@ -3,7 +3,9 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
+  Inject,
   Param,
   Patch,
   Post,
@@ -26,6 +28,9 @@ import { ApiErrors, ApiSuccess } from "../../documentation/api-decorators";
 import { FilesService } from "./files.service";
 import type { Response } from "express";
 import { applyPlaybackCookies } from "../video-processing/playback-cookies";
+
+import { APP_CONFIG } from "../../config/configuration.module";
+import type { EnvironmentConfig } from "../../config/environment";
 import {
   CreateFolderDto,
   FileListQueryDto,
@@ -43,6 +48,7 @@ import {
   FileListResponseDto,
   FileResponseDto,
   VideoPlaybackResponseDto,
+  RecordingTranscriptResponseDto,
 } from "./files.models";
 
 @Controller("groups/:groupId/files")
@@ -151,7 +157,32 @@ export class GroupFilesController {
 @RequireAuth()
 @ApiParam({ name: "fileId", format: "uuid" })
 export class FilesController {
-  constructor(private readonly files: FilesService) {}
+  constructor(
+    private readonly files: FilesService,
+    @Inject(APP_CONFIG) private readonly config: EnvironmentConfig,
+  ) {}
+
+  @Get(":fileId/transcript")
+  @Header("Cache-Control", "no-store")
+  @ApiOperation({ summary: "Phụ đề có mốc thời gian của video" })
+  @ApiSuccess(200, RecordingTranscriptResponseDto)
+  @ApiErrors(
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FILE_NOT_FOUND"],
+    [409, "FILE_NOT_READY", "FILE_CHANGED"],
+  )
+  transcript(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("fileId", UUIDParamPipe) fileId: string,
+  ) {
+    return this.files.transcript(
+      auth.user.id,
+      fileId,
+      !!this.config.azureSpeech,
+    );
+  }
+
   @Post(":fileId/playback")
   @HttpCode(200)
   @ApiOperation({

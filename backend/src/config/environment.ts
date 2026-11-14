@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
 import { resolve } from "node:path";
 import { AUTH_POLICY } from "./auth-policy";
@@ -15,6 +16,12 @@ export interface EnvironmentConfig {
   webOrigin: string;
   databaseUrl: string;
   azureRealtime?: { secretId: string; region: string };
+  azureSpeech?: {
+    region: string;
+    key: string;
+    locales: string[];
+    ffmpegPath: string;
+  };
   ivs?: {
     enabled: boolean;
     region: string;
@@ -264,6 +271,7 @@ export function readEnvironment(
     ...(realtimeProvider === "azure" && realtimeSecretId
       ? { azureRealtime: { secretId: realtimeSecretId, region: ivsRegion } }
       : {}),
+    azureSpeech: readAzureSpeechConfig(env),
     ivs: {
       enabled: ivsEnabled === "true",
       region: ivsRegion,
@@ -351,5 +359,41 @@ function readUploadConfig(env: NodeJS.ProcessEnv) {
     maxActivePerGroup,
     maxActiveBytesPerUser,
     maxActiveBytesPerGroup,
+  };
+}
+
+function readAzureSpeechConfig(
+  env: NodeJS.ProcessEnv,
+): EnvironmentConfig["azureSpeech"] {
+  const region = env.AZURE_SPEECH_REGION?.trim();
+  const key = env.AZURE_SPEECH_KEY?.trim();
+  if (!region && !key) return undefined;
+  if (!region || !/^[a-z][a-z0-9]+$/.test(region)) invalid("AZURE_SPEECH_REGION");
+  if (!key) invalid("AZURE_SPEECH_KEY");
+
+  const locales = (env.AZURE_SPEECH_LOCALES ?? "vi-VN,en-US")
+    .split(",")
+    .map((locale) => locale.trim());
+  if (locales.length > 4 || locales.includes(""))
+    invalid("AZURE_SPEECH_LOCALES");
+  let canonical: string[];
+  try {
+    canonical = Intl.getCanonicalLocales(locales);
+    const languages = new Set(canonical.map((locale) => new Intl.Locale(locale).language));
+    if (languages.size !== locales.length) invalid("AZURE_SPEECH_LOCALES");
+  } catch {
+    invalid("AZURE_SPEECH_LOCALES");
+  }
+  const override = env.RECORDING_FFMPEG_PATH?.trim();
+  const bundledPath = override
+    ? null
+    : (require("ffmpeg-static") as string | null);
+  return {
+    region,
+    key,
+    locales: canonical,
+    ffmpegPath:
+      override ||
+      (bundledPath && existsSync(bundledPath) ? bundledPath : "ffmpeg"),
   };
 }

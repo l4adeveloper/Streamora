@@ -33,7 +33,7 @@ async function quality(page, name) {
     .click();
 }
 test(
-  "real HLS player switches 1080p to 360p and Auto at 30s, preserves playback settings and manual selection across grant refresh",
+  "real HLS player preserves captions, transcript seeking and playback settings across quality changes and grant refresh",
   { timeout: 240000 },
   async () => {
     let fixture, browser, path;
@@ -119,6 +119,16 @@ test(
         where: { id: jobId },
       });
       assert.equal(job.state, "READY", job.errorCode);
+      await fixture.prisma.videoTranscript.create({
+        data: {
+          fileId: file.id,
+          transcriptStatus: "READY",
+          transcriptCues: [
+            { startMs: 10000, endMs: 20000, text: "First caption" },
+            { startMs: 30000, endMs: 45000, text: "Caption after seeking" },
+          ],
+        },
+      });
       await page.goto(fixture.webOrigin + "/login");
       await page.getByLabel("Email", { exact: true }).fill(email);
       await page.getByLabel("Mật khẩu", { exact: true }).fill(password);
@@ -131,6 +141,43 @@ test(
       await page.waitForFunction(
         () => document.querySelector(".video-preview video")?.readyState >= 2,
       );
+      await page
+        .getByRole("button", { name: "Phụ đề (CC)", exact: true })
+        .click();
+      async function captionsShowing() {
+        await page.waitForFunction(() => {
+          const tracks = document.querySelector(
+            ".video-preview video",
+          )?.textTracks;
+          return (
+            tracks &&
+            Array.from(tracks).some(
+              (track) => track.mode === "showing" && track.cues?.length === 2,
+            )
+          );
+        });
+      }
+      await captionsShowing();
+      await page
+        .getByRole("button", { name: "Bản chép lời", exact: true })
+        .click();
+      await page
+        .locator(".recording-transcript button")
+        .filter({ hasText: "Caption after seeking" })
+        .click();
+      await page.waitForFunction(() => {
+        const video = document.querySelector(".video-preview video");
+        return video && Math.abs(video.currentTime - 30) < 1;
+      });
+      assert.equal(
+        await page
+          .locator(".recording-transcript button[aria-current='true']")
+          .textContent(),
+        "0:30Caption after seeking",
+      );
+      await page
+        .getByRole("button", { name: "Bản chép lời", exact: true })
+        .click();
       await page.locator(".video-preview video").evaluate((v) => {
         v.pause();
         v.currentTime = 30;
@@ -181,6 +228,7 @@ test(
       assert.equal(before.paused, true);
       assert.equal(before.rate, 1.5);
       assert.ok(Math.abs(before.volume - 0.4) < 0.01);
+      await captionsShowing();
       await page
         .getByRole("button", { name: "Cài đặt video", exact: true })
         .click();
@@ -191,6 +239,7 @@ test(
         () =>
           document.querySelector(".video-preview video")?.videoHeight === 360,
       );
+      await captionsShowing();
       await quality(page, /^Tự động/);
       await page
         .getByRole("button", { name: "Phát video", exact: true })
