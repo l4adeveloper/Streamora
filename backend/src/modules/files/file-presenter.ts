@@ -26,6 +26,8 @@ export function presentFile(
     recordingId: file.recordingId,
     createdBy: file.createdBy,
     createdAt: file.createdAt.toISOString(),
+    isPublished: file.isPublished,
+    publishedAt: file.publishedAt ? file.publishedAt.toISOString() : null,
   };
 }
 

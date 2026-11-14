@@ -6,6 +6,7 @@ const { createValidationPipe } = require("../dist/common/validation");
 const {
   FileListQueryDto,
   RenameFileDto,
+  PublishFileDto,
 } = require("../dist/modules/files/files.dto");
 const {
   FileStorageService,
@@ -181,3 +182,84 @@ test("T15 cleanup retains failed jobs and retries successfully", async () => {
   await worker.tick();
   assert.equal(completed, true);
 });
+
+test("T15 draft files: members cannot see or access unpublished files until admin publishes", async () => {
+  const validated = await validate(PublishFileDto, { isPublished: true });
+  assert.equal(validated.isPublished, true);
+
+  const groupId = randomUUID();
+  const hostId = randomUUID();
+  const memberId = randomUUID();
+  const fileId = randomUUID();
+
+  const mockFile = {
+    id: fileId,
+    groupId,
+    folderId: null,
+    folderPath: "",
+    name: "Tai_lieu_chuan_bi.pdf",
+    size: 1024n,
+    mimeType: "application/pdf",
+    source: "DOCUMENT",
+    status: "AVAILABLE",
+    sessionId: null,
+    recordingId: null,
+    createdBy: hostId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    isPublished: false,
+    publishedAt: null,
+  };
+
+  let capturedWhere = null;
+  const db = {
+    libraryFile: {
+      findMany: async ({ where }) => {
+        capturedWhere = where;
+        return where.isPublished === true ? [] : [mockFile];
+      },
+      findUnique: async () => mockFile,
+      update: async ({ data }) => ({ ...mockFile, ...data, publishedAt: data.publishedAt ?? new Date() }),
+    },
+    $queryRaw: async () => [],
+  };
+  const prisma = { ...db, $transaction: async (fn) => fn(db) };
+
+  const access = {
+    require: async (userId) => ({
+      role: userId === hostId ? "HOST" : "VIEWER",
+      canHost: userId === hostId,
+      canUpload: true,
+      canManageMembers: userId === hostId,
+    }),
+  };
+
+  const filesService = new FilesService(prisma, access, {}, {});
+
+  // 1. Regular member listing files -> isPublished: true filter applied
+  const memberList = await filesService.list(memberId, groupId, { limit: 20 });
+  assert.equal(capturedWhere.isPublished, true);
+  assert.equal(memberList.items.length, 0);
+
+  // 2. Host listing files -> isPublished filter NOT applied, sees unpublished draft
+  const hostList = await filesService.list(hostId, groupId, { limit: 20 });
+  assert.equal(capturedWhere.isPublished, undefined);
+  assert.equal(hostList.items.length, 1);
+  assert.equal(hostList.items[0].isPublished, false);
+
+  // 3. Member cannot detail unpublished file
+  await assert.rejects(
+    filesService.detail(memberId, fileId),
+    (err) => err.status === 403,
+  );
+
+  // 4. Host can detail unpublished file
+  const hostDetail = await filesService.detail(hostId, fileId);
+  assert.equal(hostDetail.file.id, fileId);
+
+  // 5. Host publishes file
+  const published = await filesService.publish(hostId, fileId, true);
+  assert.equal(published.file.isPublished, true);
+  assert.ok(published.file.publishedAt);
+});
+

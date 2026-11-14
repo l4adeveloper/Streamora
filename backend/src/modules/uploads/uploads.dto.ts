@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -45,6 +46,10 @@ export class CreateUploadDto {
   )
   @IsUUID()
   folderId?: string;
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  isPublished?: boolean;
 }
 export class SignPartsDto {
   @ApiProperty({ type: [Number] })

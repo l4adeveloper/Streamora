@@ -8,6 +8,7 @@ import {
   Folder,
   FolderInput,
   FolderPlus,
+  Globe,
   Home,
   ImageIcon,
   Pencil,
@@ -34,6 +35,7 @@ import {
   listFiles,
   listFolders,
   moveFile,
+  publishFile,
   renameFile,
   renameFolder,
 } from "@/lib/files/api";
@@ -393,6 +395,27 @@ export function FilesPanel({
       if (alive.current) setBusy(false);
     }
   }
+
+  async function handlePublish(file: LibraryFile, publish = true) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await publishFile(file.id, publish);
+      notify(
+        publish
+          ? `Đã công bố tài liệu "${file.name}" cho tất cả thành viên.`
+          : `Đã chuyển tài liệu "${file.name}" về trạng thái chờ.`,
+        { tone: "success" },
+      );
+      void load();
+      void loadFolders();
+    } catch (cause) {
+      notify(asApiError(cause).message, { tone: "error" });
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+
   return (
     <div className="files-page">
       {permissions.canUpload && (
@@ -400,6 +423,7 @@ export function FilesPanel({
           key={`${groupId}:${userId}:${currentFolderId ?? "root"}`}
           groupId={groupId}
           folderId={currentFolderId}
+          canHost={permissions.canHost}
           onUploaded={() => {
             void load();
             void loadFolders();
@@ -580,6 +604,14 @@ export function FilesPanel({
                       {file.status === "AVAILABLE"
                         ? "Sẵn sàng"
                         : "Đang chuẩn bị"}
+                      {file.isPublished === false && (
+                        <span
+                          className="file-draft-badge"
+                          title="Tài liệu đang ở trạng thái chờ, chỉ quản trị viên mới nhìn thấy"
+                        >
+                          Chờ công bố
+                        </span>
+                      )}
                     </small>
                   </span>
                 </button>
@@ -650,6 +682,28 @@ export function FilesPanel({
                   </button>
                   {canManage(file) && (
                     <>
+                      {file.isPublished === false ? (
+                        <button
+                          type="button"
+                          className="action-publish"
+                          title="Công bố tài liệu cho toàn bộ thành viên"
+                          aria-label={`Công bố ${file.name}`}
+                          disabled={busy || file.status !== "AVAILABLE"}
+                          onClick={() => void handlePublish(file, true)}
+                        >
+                          <Globe size={16} />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          title="Chuyển về trạng thái chờ (ẩn với thành viên)"
+                          aria-label={`Ẩn ${file.name}`}
+                          disabled={busy || file.status !== "AVAILABLE"}
+                          onClick={() => void handlePublish(file, false)}
+                        >
+                          <Globe size={16} style={{ opacity: 0.5 }} />
+                        </button>
+                      )}
                       <button
                         type="button"
                         title="Di chuyển vào thư mục"

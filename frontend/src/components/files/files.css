@@ -86,6 +86,50 @@
   font-size: 13px;
   color: var(--text-muted, #a1a1aa);
 }
+.file-draft-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 9999px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.upload-draft-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted, #a1a1aa);
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--surface-container, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  transition: all 0.15s ease;
+}
+.upload-draft-toggle:hover {
+  color: var(--text, #f4f4fc);
+  background: var(--hover, rgba(255, 255, 255, 0.08));
+}
+.upload-draft-toggle input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #f59e0b;
+}
+.library-actions button.action-publish {
+  color: #f59e0b;
+}
+.library-actions button.action-publish:hover {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.4);
+}
 .library-actions {
   display: flex !important;
   gap: 8px;
@@ -372,7 +416,51 @@
   .library-file-row > span:nth-child(4) {
     display: none;
   }
-  .library-file-row .library-actions {
+  .library-file-row .file-draft-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 9999px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.upload-draft-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted, #a1a1aa);
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--surface-container, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  transition: all 0.15s ease;
+}
+.upload-draft-toggle:hover {
+  color: var(--text, #f4f4fc);
+  background: var(--hover, rgba(255, 255, 255, 0.08));
+}
+.upload-draft-toggle input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #f59e0b;
+}
+.library-actions button.action-publish {
+  color: #f59e0b;
+}
+.library-actions button.action-publish:hover {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+.library-actions {
     display: flex !important;
     min-width: auto;
   }

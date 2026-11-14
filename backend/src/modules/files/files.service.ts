@@ -71,7 +71,7 @@ export class FilesService {
   ) {}
 
   async list(userId: string, groupId: string, query: FileListQueryDto) {
-    await this.access.require(userId, groupId);
+    const permissions = await this.access.require(userId, groupId);
     const cursor = readCursor(groupId, query);
     // Escape LIKE metacharacters: searching for '%' must not match every file.
     const name = (query.q ?? "").replace(/[\\%_]/g, "\\$&");
@@ -86,6 +86,8 @@ export class FilesService {
     const where: Prisma.LibraryFileWhereInput = {
       groupId,
       status: { not: "DELETED" },
+      ...(!permissions.canHost ? { isPublished: true } : {}),
+      ...(query.sessionId ? { sessionId: query.sessionId } : {}),
       ...(folderFilter !== undefined ? { folderId: folderFilter } : {}),
       ...(query.folderPath !== undefined
         ? name
@@ -134,6 +136,7 @@ export class FilesService {
             where: {
               groupId,
               status: { not: "DELETED" },
+              ...(!permissions.canHost ? { isPublished: true } : {}),
               folderPath: { startsWith: prefix },
             },
             select: { folderPath: true },
@@ -425,7 +428,15 @@ export class FilesService {
     return { file, permissions };
   }
   async detail(userId: string, fileId: string): Promise<FileResponse> {
-    return { file: present((await this.authorized(userId, fileId)).file) };
+    const { file, permissions } = await this.authorized(userId, fileId);
+    if (
+      !file.isPublished &&
+      !permissions.canHost &&
+      file.createdBy !== userId
+    ) {
+      throw new ApiError(403, "FORBIDDEN", "Tài liệu chưa được công bố.");
+    }
+    return { file: present(file) };
   }
   private async mutationAccess(
     tx: Prisma.TransactionClient,
@@ -582,7 +593,14 @@ export class FilesService {
           throw new ApiError(404, "FILE_NOT_FOUND", "Không tìm thấy tài liệu.");
         await tx.$queryRaw`SELECT id FROM groups WHERE id = ${target.groupId}::uuid FOR SHARE`;
         await tx.$queryRaw`SELECT id FROM files WHERE id = ${fileId}::uuid FOR SHARE`;
-        const { file } = await this.authorized(userId, fileId, tx);
+        const { file, permissions } = await this.authorized(userId, fileId, tx);
+        if (
+          !file.isPublished &&
+          !permissions.canHost &&
+          file.createdBy !== userId
+        ) {
+          throw new ApiError(403, "FORBIDDEN", "Tài liệu chưa được công bố.");
+        }
         if (file.status !== "AVAILABLE")
           throw new ApiError(
             409,
@@ -692,14 +710,18 @@ export class FilesService {
     groupId: string,
     parentId?: string | null,
   ): Promise<FolderListResponse> {
-    await this.access.require(userId, groupId);
+    const permissions = await this.access.require(userId, groupId);
+    const fileCountWhere = {
+      status: { not: "DELETED" as const },
+      ...(!permissions.canHost ? { isPublished: true } : {}),
+    };
     if (parentId === "all") {
       const all = await this.prisma.folder.findMany({
         where: { groupId, deletedAt: null },
         include: {
           _count: {
             select: {
-              files: { where: { status: { not: "DELETED" } } },
+              files: { where: fileCountWhere },
               children: { where: { deletedAt: null } },
             },
           },
@@ -726,7 +748,7 @@ export class FilesService {
       include: {
         _count: {
           select: {
-            files: { where: { status: { not: "DELETED" } } },
+            files: { where: fileCountWhere },
             children: { where: { deletedAt: null } },
           },
         },
@@ -953,6 +975,42 @@ export class FilesService {
         },
       });
 
+      return { file: present(updated) };
+    });
+  }
+
+  async publish(
+    userId: string,
+    fileId: string,
+    isPublished = true,
+  ): Promise<FileResponse> {
+    return this.prisma.$transaction(async (tx) => {
+      const file = await this.mutationAccess(tx, userId, fileId);
+      const permissions = await this.access.require(
+        userId,
+        file.groupId,
+        undefined,
+        tx,
+      );
+      if (!permissions.canHost && file.createdBy !== userId) {
+        throw new ApiError(
+          403,
+          "FORBIDDEN",
+          "Chỉ quản trị viên hoặc người tải lên mới có quyền thay đổi trạng thái công bố.",
+        );
+      }
+      const updated = await tx.libraryFile.update({
+        where: { id: fileId },
+        data: {
+          isPublished,
+          publishedAt: isPublished ? (file.publishedAt ?? new Date()) : null,
+        },
+        include: {
+          folder: {
+            select: { id: true, name: true },
+          },
+        },
+      });
       return { file: present(updated) };
     });
   }

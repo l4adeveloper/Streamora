@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Video, X } from "lucide-react";
+import { CalendarDays, Video, X } from "lucide-react";
 import type { ClassSession } from "@streamora/contracts";
 import {
   createGroupSession,
@@ -24,6 +24,7 @@ export function CreateGroupMeeting({
   const saved = useRef<ClassSession | null>(null);
   const startKey = useRef<string | null>(null);
   const [created, setCreated] = useState<ClassSession | null>(null);
+  const [mode, setMode] = useState<"instant" | "scheduled">("instant");
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -43,8 +44,14 @@ export function CreateGroupMeeting({
       >
         <header className="class-toolbar">
           <div className="class-row">
-            <Video size={22} />
-            <h2 id="create-group-meeting-title">Tạo cuộc họp</h2>
+            {mode === "scheduled" ? (
+              <CalendarDays size={22} />
+            ) : (
+              <Video size={22} />
+            )}
+            <h2 id="create-group-meeting-title">
+              {mode === "scheduled" ? "Lên lịch buổi học" : "Tạo cuộc họp"}
+            </h2>
           </div>
           <button
             type="button"
@@ -55,18 +62,60 @@ export function CreateGroupMeeting({
             <X size={20} />
           </button>
         </header>
+
+        {!created && (
+          <div
+            className="class-row"
+            style={{
+              marginTop: "12px",
+              gap: "8px",
+              borderBottom: "1px solid var(--border)",
+              paddingBottom: "12px",
+            }}
+          >
+            <button
+              type="button"
+              className={`button ${mode === "instant" ? "primary" : "secondary"} compact`}
+              style={{ flex: 1 }}
+              onClick={() => setMode("instant")}
+            >
+              <Video size={15} /> Họp ngay
+            </button>
+            <button
+              type="button"
+              className={`button ${mode === "scheduled" ? "primary" : "secondary"} compact`}
+              style={{ flex: 1 }}
+              onClick={() => setMode("scheduled")}
+            >
+              <CalendarDays size={15} /> Lên lịch buổi học
+            </button>
+          </div>
+        )}
+
         <p className="meeting-group-context">
           Trong lớp <strong>{groupName}</strong>
+          {mode === "scheduled" && (
+            <span> · Lên lịch trước và chuẩn bị tài liệu</span>
+          )}
         </p>
         {created && (
           <InlineNotice>
-            Đã tạo {created.title}. Bấm tiếp tục để hoàn tất mở phòng.
+            {created.scheduledAt
+              ? `Đã lên lịch "${created.title}". Bạn có thể tải tài liệu lên trước ở trạng thái chờ cho buổi học này.`
+              : `Đã tạo "${created.title}". Bấm tiếp tục để hoàn tất mở phòng.`}
           </InlineNotice>
         )}
         <SessionForm
+          key={mode}
           group
-          meeting
-          label={created ? "Tiếp tục mở phòng" : "Tạo cuộc họp"}
+          meeting={mode === "instant"}
+          label={
+            created
+              ? "Tiếp tục mở phòng"
+              : mode === "scheduled"
+                ? "Lên lịch buổi học"
+                : "Tạo cuộc họp"
+          }
           locked={!!created}
           onSave={async (body, key) => {
             if (!saved.current) {

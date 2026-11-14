@@ -1316,7 +1316,11 @@ export function Workspace({
                       openRoom(room);
                     }}
                   >
-                    <Video size={19} />
+                    {room.status === "SCHEDULED" ? (
+                      <CalendarDays size={18} />
+                    ) : (
+                      <Video size={19} />
+                    )}
                     <span className="workspace-meeting-name">{room.title}</span>
                     <span
                       className={`workspace-meeting-status ${room.status.toLowerCase()}`}
@@ -1325,7 +1329,7 @@ export function Workspace({
                         ? "Đang kết nối"
                         : room.status === "LIVE"
                           ? "Trực tiếp"
-                          : "Sắp tới"}
+                          : "Đã lên lịch"}
                     </span>
                   </button>
                 );
@@ -1379,8 +1383,17 @@ export function Workspace({
                 onClick={openMeetingCreation}
                 className={`channel ${!membersView && view === "meet" ? "selected" : ""}`}
               >
-                <Video size={19} /> Tạo cuộc họp <Plus size={14} />
+                <Video size={19} /> Tạo cuộc họp / Lên lịch <Plus size={14} />
               </button>
+            )}
+            {workspaceGroup.groupId && (
+              <Link
+                href={`/groups/${workspaceGroup.groupId}/sessions`}
+                className="channel"
+                title="Xem toàn bộ lịch học của nhóm"
+              >
+                <CalendarDays size={18} /> Lịch học của nhóm
+              </Link>
             )}
           </div>
           <div className="channel-section">

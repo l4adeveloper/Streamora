@@ -537,6 +537,8 @@ model LibraryFile {
   mimeType    String     @map("mime_type") @db.VarChar(255)
   source      FileSource
   status      FileStatus @default(PENDING)
+  isPublished Boolean    @default(true) @map("is_published")
+  publishedAt DateTime?  @map("published_at") @db.Timestamptz(3)
   objectKey   String     @unique @map("object_key") @db.VarChar(1024)
   sessionId   String?    @map("session_id") @db.Uuid
   recordingId String?    @unique @map("recording_id") @db.Uuid
@@ -557,6 +559,7 @@ model LibraryFile {
   storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
   @@index([groupId, status, createdAt, id])
   @@index([groupId, folderId, status, createdAt, id])
+  @@index([groupId, isPublished, status, createdAt, id])
   @@map("files")
 }
 
@@ -572,6 +575,7 @@ model UploadSession {
   fingerprint   String @db.VarChar(200)
   source        FileSource
   sessionId     String? @map("session_id") @db.Uuid
+  isPublished   Boolean @default(true) @map("is_published")
   objectKey     String @unique @map("object_key") @db.VarChar(1024)
   storageId     String @map("storage_id") @db.Text
   driver        String @db.VarChar(10)
