@@ -45,6 +45,7 @@ export function VideoPreview({
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
   const video = useRef<HTMLVideoElement>(null);
+  const layout = useRef<HTMLDivElement>(null);
   const transcriptId = useId();
   const [captionsOn, setCaptionsOn] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
@@ -218,7 +219,10 @@ export function VideoPreview({
             instance = new Hls({
               maxBufferLength: 30,
               maxMaxBufferLength: 30,
-              backBufferLength: 30,
+              // Keep visited ranges when seeking in either direction. The browser
+              // and hls.js quota recovery can evict media under memory pressure.
+              backBufferLength: Infinity,
+              frontBufferFlushThreshold: Infinity,
               xhrSetup: (xhr) => {
                 xhr.withCredentials = true;
               },
@@ -269,6 +273,11 @@ export function VideoPreview({
             });
             instance.on(Hls.Events.FRAG_BUFFERED, (_event, data) => {
               const frame = pausedFrame.current;
+              if (frame && Math.abs(element.currentTime - frame.time) > 0.1) {
+                // A newer user seek takes precedence over a pending quality change.
+                pausedFrame.current = null;
+                return;
+              }
               if (frame && data.frag.level === frame.level && element.paused) {
                 // Refresh the decoded still frame after the old buffer was replaced.
                 element.currentTime = Math.min(
@@ -317,8 +326,6 @@ export function VideoPreview({
   }, [source?.url, source?.kind, source?.id, nativeQuality, revision, refresh]);
 
   function toggleTranscript() {
-    if (!transcriptOpen && document.fullscreenElement)
-      void document.exitFullscreen().catch(() => {});
     setTranscriptOpen((previous) => !previous);
   }
 
@@ -366,10 +373,12 @@ export function VideoPreview({
       {manifest && (
         <>
           <div
+            ref={layout}
             className={`video-preview-layout${transcriptOpen ? " transcript-open" : ""}`}
           >
             <VideoPlayerControls
               videoRef={video}
+              fullscreenRef={layout}
               loading={loading}
               quality={
                 nativeQuality

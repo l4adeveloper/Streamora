@@ -36,6 +36,7 @@ export function timestamp(value: number) {
 
 export function VideoPlayerControls({
   videoRef,
+  fullscreenRef,
   children,
   qualities,
   quality,
@@ -45,6 +46,7 @@ export function VideoPlayerControls({
   transcriptControls,
 }: {
   videoRef: RefObject<HTMLVideoElement | null>;
+  fullscreenRef?: RefObject<HTMLDivElement | null>;
   children: ReactNode;
   qualities: Quality[];
   quality: string;
@@ -61,12 +63,12 @@ export function VideoPlayerControls({
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
-  const dragging = useRef(false);
+  const dragging = useRef<number | null>(null);
   const [media, setMedia] = useState({
     playing: false,
     time: 0,
     duration: 0,
-    buffered: 0,
+    buffered: [] as { start: number; end: number }[],
     volume: 1,
     muted: false,
     rate: 1,
@@ -154,10 +156,13 @@ export function VideoPlayerControls({
         : element.seekable.length
           ? element.seekable.end(element.seekable.length - 1)
           : 0;
-      let buffered = 0;
-      for (let i = 0; i < element.buffered.length; i++)
-        if (element.buffered.start(i) <= element.currentTime + 0.1)
-          buffered = element.buffered.end(i);
+      const buffered = Array.from(
+        { length: element.buffered.length },
+        (_, i) => ({
+          start: element.buffered.start(i),
+          end: element.buffered.end(i),
+        }),
+      );
       setMedia({
         playing: !element.paused && !element.ended,
         time: element.currentTime || 0,
@@ -167,6 +172,10 @@ export function VideoPlayerControls({
         muted: element.muted,
         rate: element.playbackRate,
       });
+    };
+    const seeking = () => {
+      update();
+      setBuffering(element.readyState < HTMLMediaElement.HAVE_FUTURE_DATA);
     };
     const ready = () => setBuffering(false),
       waiting = () => setBuffering(true);
@@ -183,23 +192,32 @@ export function VideoPlayerControls({
       "seeked",
     ];
     events.forEach((event) => element.addEventListener(event, update));
-    ["playing", "canplay", "loadeddata", "error"].forEach((event) =>
-      element.addEventListener(event, ready),
-    );
+    const readyEvents = [
+      "playing",
+      "canplay",
+      "loadeddata",
+      "seeked",
+      "error",
+      "emptied",
+    ];
+    readyEvents.forEach((event) => element.addEventListener(event, ready));
+    element.addEventListener("seeking", seeking);
     element.addEventListener("waiting", waiting);
     const changed = () =>
-      setFullscreen(document.fullscreenElement === frame.current);
+      setFullscreen(
+        document.fullscreenElement ===
+          (fullscreenRef?.current ?? frame.current),
+      );
     document.addEventListener("fullscreenchange", changed);
     update();
     return () => {
       events.forEach((event) => element.removeEventListener(event, update));
-      ["playing", "canplay", "loadeddata", "error"].forEach((event) =>
-        element.removeEventListener(event, ready),
-      );
+      readyEvents.forEach((event) => element.removeEventListener(event, ready));
+      element.removeEventListener("seeking", seeking);
       element.removeEventListener("waiting", waiting);
       document.removeEventListener("fullscreenchange", changed);
     };
-  }, [videoRef]);
+  }, [videoRef, fullscreenRef]);
   useEffect(() => {
     if (!menu) return;
     const outside = (event: PointerEvent) => {
@@ -258,20 +276,31 @@ export function VideoPlayerControls({
   }
   function changeTime(time: number) {
     const element = videoRef.current;
-    if (element && media.duration > 0)
-      element.currentTime = Math.max(0, Math.min(time, media.duration));
+    if (!element || loading || media.duration <= 0) return;
+    const target = Math.max(0, Math.min(time, media.duration));
+    element.currentTime = target;
+    // Do not fall back to the old time while a cold seek waits for media events.
+    setMedia((previous) => ({ ...previous, time: target }));
   }
-  function commitSeek(value: string) {
-    changeTime(Number(value));
-    dragging.current = false;
+  function pointerTime(element: HTMLInputElement, clientX: number) {
+    const bounds = element.getBoundingClientRect();
+    // The thumb is 12px wide; its centre travels between the two 6px insets.
+    const fraction =
+      (clientX - bounds.left - 6) / Math.max(1, bounds.width - 12);
+    return Math.max(0, Math.min(1, fraction)) * media.duration;
+  }
+  function commitSeek(time: number) {
+    changeTime(time);
+    dragging.current = null;
     setSeek(null);
   }
   async function toggleFullscreen() {
+    const container = fullscreenRef?.current ?? frame.current;
     try {
-      if (document.fullscreenElement === frame.current)
+      if (document.fullscreenElement === container)
         await document.exitFullscreen();
-      else if (frame.current?.requestFullscreen)
-        await frame.current.requestFullscreen();
+      else if (container?.requestFullscreen)
+        await container.requestFullscreen();
       else
         (
           videoRef.current as
@@ -285,12 +314,23 @@ export function VideoPlayerControls({
   const currentQuality =
     qualities.find((item) => item.value === quality)?.label ?? "Bản gốc";
   const time = seek ?? media.time;
-  const played =
-    media.duration > 0 ? Math.min(100, (time / media.duration) * 100) : 0;
-  const buffered =
+  const percent = (seconds: number) =>
     media.duration > 0
-      ? Math.min(100, (media.buffered / media.duration) * 100)
+      ? Math.max(0, Math.min(100, (seconds / media.duration) * 100))
       : 0;
+  const played = percent(time);
+  // A seek can leave gaps between downloaded ranges. Paint every range rather
+  // than hiding previously loaded data beyond the current contiguous buffer.
+  const buffered = [
+    "#ffffff40 0%",
+    ...media.buffered.flatMap(({ start, end }) => [
+      `#ffffff40 ${percent(start)}%`,
+      `#ffffff88 ${percent(start)}%`,
+      `#ffffff88 ${percent(end)}%`,
+      `#ffffff40 ${percent(end)}%`,
+    ]),
+    "#ffffff40 100%",
+  ].join(", ");
   return (
     <div
       ref={frame}
@@ -299,7 +339,11 @@ export function VideoPlayerControls({
       aria-label="Trình phát video"
       tabIndex={0}
       onPointerMove={wake}
-      onPointerDown={wake}
+      onPointerDown={(event) => {
+        wake();
+        if (event.target === videoRef.current)
+          event.currentTarget.focus({ preventScroll: true });
+      }}
       onFocusCapture={wake}
       onClick={(event) => {
         if (event.target === videoRef.current) void togglePlay();
@@ -314,11 +358,25 @@ export function VideoPlayerControls({
           closeMenu();
           return;
         }
-        if ((event.target as HTMLElement).closest("button,input,[role=menu]"))
+        const target = event.target as HTMLElement;
+        if (
+          event.defaultPrevented ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.nativeEvent.isComposing ||
+          menu ||
+          target.closest(
+            'textarea,select,[contenteditable]:not([contenteditable="false"]),[role=menu]',
+          ) ||
+          (target.closest("input") && !target.matches(".video-timeline"))
+        )
           return;
         const element = videoRef.current;
         if (!element) return;
         const key = event.key.toLowerCase();
+        const arrowSeek = key === "arrowleft" || key === "arrowright";
+        if (target.closest("button,input") && !arrowSeek) return;
         if (
           ![
             " ",
@@ -398,24 +456,45 @@ export function VideoPlayerControls({
           style={
             {
               "--played": `${played}%`,
-              "--buffered": `${buffered}%`,
+              "--buffered-ranges": `linear-gradient(to right, ${buffered})`,
             } as CSSProperties
           }
-          onPointerDown={() => {
-            dragging.current = true;
+          title="Tua video (←/→: 5 giây)"
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            // Own the gesture so native range stepping cannot fight React updates.
+            event.preventDefault();
+            event.currentTarget.focus({ preventScroll: true });
+            event.currentTarget.setPointerCapture(event.pointerId);
+            const time = pointerTime(event.currentTarget, event.clientX);
+            dragging.current = time;
+            setSeek(time);
+          }}
+          onPointerMove={(event) => {
+            if (dragging.current === null) return;
+            const time = pointerTime(event.currentTarget, event.clientX);
+            dragging.current = time;
+            setSeek(time);
           }}
           onChange={(event) => {
-            const value = Number(event.target.value);
-            if (dragging.current) setSeek(value);
-            else changeTime(value);
+            if (dragging.current === null)
+              changeTime(Number(event.target.value));
           }}
-          onPointerUp={(event) => commitSeek(event.currentTarget.value)}
+          onPointerUp={(event) => {
+            if (dragging.current === null) return;
+            commitSeek(pointerTime(event.currentTarget, event.clientX));
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }}
           onPointerCancel={() => {
-            dragging.current = false;
+            dragging.current = null;
             setSeek(null);
           }}
-          onBlur={(event) => {
-            if (dragging.current) commitSeek(event.currentTarget.value);
+          onLostPointerCapture={() => {
+            dragging.current = null;
+            setSeek(null);
+          }}
+          onBlur={() => {
+            if (dragging.current !== null) commitSeek(dragging.current);
           }}
         />
         <div className="video-control-row">

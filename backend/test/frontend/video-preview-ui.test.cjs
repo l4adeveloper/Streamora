@@ -218,7 +218,7 @@ test(
         .getByRole("button", { name: "Toàn màn hình", exact: true })
         .click();
       await page.waitForFunction(() =>
-        document.fullscreenElement?.classList.contains("video-player"),
+        document.fullscreenElement?.classList.contains("video-preview-layout"),
       );
       await page
         .getByRole("button", { name: "Thoát toàn màn hình", exact: true })

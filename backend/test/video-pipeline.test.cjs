@@ -392,6 +392,79 @@ test("AWS infrastructure contains independent DLQs, restricted completion events
     true,
   );
 });
+test("IAM-user deployment adds VOD resources and attaches runtime permissions without duplicating existing services", () => {
+  const yaml = require("js-yaml");
+  const schema = new yaml.Schema([
+    ...yaml.CORE_SCHEMA.tags,
+    ...["Ref", "GetAtt", "Sub"].map((tag) =>
+      yaml.defineScalarTag("!" + tag, {
+        resolve: (value) => ({ [tag]: value }),
+        identify: () => false,
+      }),
+    ),
+  ]);
+  const t = yaml.load(
+    require("node:fs").readFileSync(
+      require("node:path").join(
+        __dirname,
+        "../infra/aws/video/cloudformation-iam-user.yaml",
+      ),
+      "utf8",
+    ),
+    { schema },
+  );
+  assert.equal(t.Parameters.SourceBucket.Default, "streamora-file-storage");
+  assert.equal(t.Parameters.RuntimeUserName.Default, "streamora-developer");
+  assert.equal(
+    t.Parameters.WebOrigin.Default,
+    "https://18-138-205-52.sslip.io",
+  );
+  assert.deepEqual(t.Resources.WorkerPolicy.Properties.Users, [
+    { Ref: "RuntimeUserName" },
+  ]);
+  assert.ok(
+    Object.values(t.Resources).every(
+      (r) => !/^AWS::(EC2|RDS|IVS|DynamoDB)::/.test(r.Type),
+    ),
+  );
+  const passRole =
+    t.Resources.WorkerPolicy.Properties.PolicyDocument.Statement.find(
+      (s) => s.Action === "iam:PassRole",
+    );
+  assert.deepEqual(passRole.Resource, { GetAtt: "EncodeRole.Arn" });
+  assert.equal(
+    passRole.Condition.StringEquals["iam:PassedToService"],
+    "mediaconvert.amazonaws.com",
+  );
+  assert.equal(
+    t.Resources.OutputBucketPolicy.Properties.PolicyDocument.Statement.length,
+    1,
+  );
+  assert.equal(
+    t.Resources.Distribution.Properties.DistributionConfig.DefaultCacheBehavior
+      .TrustedKeyGroups.length,
+    1,
+  );
+  assert.deepEqual(t.Outputs.MediaDomain.Value, {
+    GetAtt: "Distribution.DomainName",
+  });
+  // Removing the IVS resources must not leave dangling references anywhere.
+  function checkRefs(value) {
+    if (!value || typeof value !== "object") return;
+    if (value.Ref)
+      assert.ok(
+        value.Ref.startsWith("AWS::") ||
+          value.Ref in t.Resources ||
+          value.Ref in t.Parameters,
+        value.Ref,
+      );
+    if (value.GetAtt)
+      assert.ok(value.GetAtt.split(".")[0] in t.Resources, value.GetAtt);
+    for (const child of Object.values(value)) checkRefs(child);
+  }
+  checkRefs(t);
+});
+
 test("scratch quota is checked before encode and only stale generated directories are removed", async () => {
   const {
     mkdtemp,

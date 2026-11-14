@@ -812,15 +812,13 @@
   background: transparent;
   box-shadow: none;
   cursor: pointer;
+  touch-action: none;
 }
 .video-timeline::-webkit-slider-runnable-track {
   height: 4px;
-  background: linear-gradient(
-    to right,
-    #ff3434 0 var(--played),
-    #ffffff88 var(--played) var(--buffered),
-    #ffffff40 var(--buffered) 100%
-  );
+  background:
+    linear-gradient(to right, #ff3434 0 var(--played), transparent var(--played) 100%),
+    var(--buffered-ranges);
   border-radius: 3px;
   transition: height var(--motion-fast) var(--ease-standard);
 }
@@ -849,12 +847,9 @@
 }
 .video-timeline::-moz-range-track {
   height: 4px;
-  background: linear-gradient(
-    to right,
-    #ff3434 0 var(--played),
-    #ffffff88 var(--played) var(--buffered),
-    #ffffff40 var(--buffered) 100%
-  );
+  background:
+    linear-gradient(to right, #ff3434 0 var(--played), transparent var(--played) 100%),
+    var(--buffered-ranges);
 }
 .video-timeline::-moz-range-thumb {
   width: 12px;
@@ -1546,6 +1541,22 @@
 .video-preview-layout > .video-player {
   flex: 1 1 0;
   min-width: 0;
+}
+.video-preview-layout:fullscreen {
+  width: 100vw;
+  height: 100dvh;
+  padding: 0;
+  gap: 0;
+  background: #000;
+}
+.video-preview-layout:fullscreen > .video-player {
+  height: auto;
+  max-height: none;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.video-preview-layout:fullscreen > .recording-transcript {
+  border-radius: 0;
 }
 .video-control-button[aria-label="Phụ đề (CC)"][aria-pressed="true"],
 .video-control-button[aria-label="Bản chép lời"][aria-expanded="true"] {

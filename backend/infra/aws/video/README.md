@@ -1,5 +1,11 @@
 # Triển khai AWS cho T13
 
+**EC2 ở tài khoản khác, dùng IAM user hiện có:** xem
+[hướng dẫn theo cấu hình streamora-developer](../../../docs/t13-aws-iam-user-setup.md)
+và dùng `cloudformation-iam-user.yaml`. Bản này gắn runtime policy vào user, tạo
+pipeline upload VOD và CloudFront, dùng bucket nguồn hiện có; không tạo lại IVS,
+DynamoDB, EC2 hoặc RDS. Vẫn cần quyền triển khai IAM/CloudFormation tương ứng.
+
 `cloudformation.yaml` chuẩn bị hai queue dispatch/completion và hai DLQ,
 MediaConvert queue/role, IVS STANDARD với recording ALL, S3 private, CloudFront
 OAC/key group và IAM policy gắn vào role EC2/API/worker hiện có. Stack chưa deploy.

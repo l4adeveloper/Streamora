@@ -135,12 +135,245 @@ test(
       await page.locator('button[type="submit"]').click();
       await page.waitForURL("**/workspace");
       await page.goto(`${fixture.webOrigin}/files?groupId=${group.id}`);
+      const segments = /\/video-media\/.*\.ts(?:\?|$)/;
+      const downloadedSegments = new Set();
+      page.on("response", (response) => {
+        if (segments.test(response.url()) && response.ok())
+          downloadedSegments.add(response.url());
+      });
       await page
         .getByRole("button", { name: "Xem trước HLS real.mp4", exact: true })
         .click();
       await page.waitForFunction(
         () => document.querySelector(".video-preview video")?.readyState >= 2,
       );
+      // Lock quality so returning to a buffered range cannot trigger an ABR upgrade.
+      await quality(page, "360p");
+      await page.waitForFunction(() => {
+        const v = document.querySelector(".video-preview video");
+        return (
+          v.videoHeight === 360 &&
+          Array.from(
+            { length: v.buffered.length },
+            (_, i) => v.buffered.start(i) <= 10 && v.buffered.end(i) > 12,
+          ).some(Boolean)
+        );
+      });
+      // A cold seek must keep its requested position visible while the segment loads.
+      await page.route(segments, async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        await route.continue();
+      });
+      const timeline = page.getByRole("slider", {
+        name: "Tua video",
+        exact: true,
+      });
+      const timelineBox = await timeline.boundingBox();
+      await page.locator(".video-preview video").evaluate((v) => {
+        v.requestVideoFrameCallback((_now, frame) => {
+          window.seekFrame = frame.mediaTime;
+        });
+      });
+      await timeline.click({
+        position: { x: timelineBox.width * 0.73, y: timelineBox.height / 2 },
+      });
+      const seeking = await timeline.evaluate((slider) => {
+        const video = document.querySelector(".video-preview video");
+        return {
+          shown: Number(slider.value),
+          actual: video.currentTime,
+          seeking: video.seeking,
+        };
+      });
+      assert.ok(
+        seeking.actual > 64 && seeking.actual < 68,
+        JSON.stringify(seeking),
+      );
+      assert.ok(
+        Math.abs(seeking.shown - seeking.actual) < 0.1,
+        JSON.stringify(seeking),
+      );
+      await page.waitForFunction(
+        () => {
+          const v = document.querySelector(".video-preview video");
+          return (
+            !v.seeking &&
+            v.readyState >= 2 &&
+            v.currentTime > 64 &&
+            window.seekFrame > 64
+          );
+        },
+        null,
+        { timeout: 5000 },
+      );
+      await page.unrouteAll({ behavior: "wait" });
+      await page.waitForFunction(() => {
+        const v = document.querySelector(".video-preview video");
+        return Array.from({ length: v.buffered.length }, (_, i) =>
+          v.buffered.end(i),
+        ).some((end) => end > 89);
+      });
+      const retained = await page
+        .locator(".video-preview video")
+        .evaluate((v) =>
+          Array.from({ length: v.buffered.length }, (_, i) => [
+            v.buffered.start(i),
+            v.buffered.end(i),
+          ]),
+        );
+      assert.ok(
+        retained.some(([start, end]) => start <= 10 && end > 12),
+        `Earlier buffer was discarded: ${JSON.stringify(retained)}`,
+      );
+      const mediaSource = await page
+        .locator(".video-preview video")
+        .evaluate((v) => v.src);
+      const repeatedSegments = [];
+      await page.route(segments, async (route) => {
+        if (downloadedSegments.has(route.request().url())) {
+          repeatedSegments.push(route.request().url());
+          await route.abort();
+        } else await route.continue();
+      });
+      // Refuse repeated downloads: both disjoint ranges must still render from MSE.
+      const timelineDuration = Number(await timeline.getAttribute("max"));
+      for (const target of [10, 66, 10, 66]) {
+        await timeline.click({
+          position: {
+            x: 6 + ((timelineBox.width - 12) * target) / timelineDuration,
+            y: timelineBox.height / 2,
+          },
+        });
+        await page.waitForFunction(
+          (target) => {
+            const v = document.querySelector(".video-preview video");
+            return (
+              !v.seeking &&
+              v.readyState >= 2 &&
+              v.paused &&
+              Math.abs(v.currentTime - target) < 0.2
+            );
+          },
+          target,
+          { timeout: 3000 },
+        );
+      }
+      assert.equal(
+        await page.locator(".video-preview video").evaluate((v) => v.src),
+        mediaSource,
+      );
+      assert.deepEqual(
+        repeatedSegments,
+        [],
+        "A buffered segment was requested again",
+      );
+      const bufferPaint = await timeline.evaluate((slider) =>
+        slider.style.getPropertyValue("--buffered-ranges"),
+      );
+      assert.ok(
+        (bufferPaint.match(/#ffffff88/g) ?? []).length >= 4,
+        "Timeline must show both buffered islands",
+      );
+      await page.unrouteAll({ behavior: "wait" });
+      // Arrow shortcuts must work after clicking play/pause and the timeline.
+      const playButton = page.getByRole("button", {
+        name: "Phát video",
+        exact: true,
+      });
+      await playButton.focus();
+      const beforeArrow = await page
+        .locator(".video-preview video")
+        .evaluate((v) => v.currentTime);
+      await page.keyboard.press("ArrowLeft");
+      assert.ok(
+        Math.abs(
+          (await page
+            .locator(".video-preview video")
+            .evaluate((v) => v.currentTime)) -
+            (beforeArrow - 5),
+        ) < 0.1,
+      );
+      await timeline.focus();
+      await page.keyboard.press("ArrowRight");
+      assert.ok(
+        Math.abs(
+          (await page
+            .locator(".video-preview video")
+            .evaluate((v) => v.currentTime)) - beforeArrow,
+        ) < 0.1,
+      );
+      // Rapid clicks use the latest destination; dragging keeps a preview without
+      // issuing intermediate seeks and still commits when released outside the bar.
+      for (const fraction of [0.2, 0.85, 0.48]) {
+        await timeline.click({
+          position: {
+            x: timelineBox.width * fraction,
+            y: timelineBox.height / 2,
+          },
+        });
+      }
+      await page.waitForFunction(() => {
+        const v = document.querySelector(".video-preview video");
+        return (
+          !v.seeking && v.readyState >= 2 && Math.abs(v.currentTime - 43.2) < 1
+        );
+      });
+      const dragStart = await page
+        .locator(".video-preview video")
+        .evaluate((v) => v.currentTime);
+      await page.mouse.move(
+        timelineBox.x + timelineBox.width * 0.48,
+        timelineBox.y + timelineBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        timelineBox.x + timelineBox.width * 0.25,
+        timelineBox.y + timelineBox.height + 25,
+        { steps: 5 },
+      );
+      assert.equal(
+        await page
+          .locator(".video-preview video")
+          .evaluate((v) => v.currentTime),
+        dragStart,
+      );
+      await page.mouse.up();
+      await page.waitForFunction(() => {
+        const v = document.querySelector(".video-preview video");
+        return (
+          !v.seeking &&
+          v.readyState >= 2 &&
+          Math.abs(v.currentTime - 22.5) < 1 &&
+          v.paused
+        );
+      });
+      // Native volume keys remain volume controls, and menu navigation never seeks.
+      const volume = page.getByRole("slider", {
+        name: "Âm lượng",
+        exact: true,
+      });
+      await volume.focus();
+      const beforeVolume = await page
+        .locator(".video-preview video")
+        .evaluate((v) => v.currentTime);
+      await page.keyboard.press("ArrowLeft");
+      assert.equal(
+        await page
+          .locator(".video-preview video")
+          .evaluate((v) => v.currentTime),
+        beforeVolume,
+      );
+      await page
+        .getByRole("button", { name: "Cài đặt video", exact: true })
+        .click();
+      await page.keyboard.press("ArrowRight");
+      assert.equal(
+        await page
+          .locator(".video-preview video")
+          .evaluate((v) => v.currentTime),
+        beforeVolume,
+      );
+      await page.keyboard.press("Escape");
       await page
         .getByRole("button", { name: "Phụ đề (CC)", exact: true })
         .click();
@@ -159,8 +392,27 @@ test(
       }
       await captionsShowing();
       await page
+        .getByRole("button", { name: "Toàn màn hình", exact: true })
+        .click();
+      await page.waitForFunction(() => !!document.fullscreenElement);
+      await page
         .getByRole("button", { name: "Bản chép lời", exact: true })
         .click();
+      await page.waitForFunction(() => {
+        const panel = document.querySelector(".recording-transcript");
+        const bounds = panel?.getBoundingClientRect();
+        const player = document
+          .querySelector(".video-player")
+          .getBoundingClientRect();
+        return (
+          document.fullscreenElement?.contains(panel) &&
+          bounds.width > 0 &&
+          bounds.height > 0 &&
+          bounds.right <= window.innerWidth &&
+          bounds.bottom <= window.innerHeight &&
+          player.right <= bounds.left
+        );
+      });
       await page
         .locator(".recording-transcript button")
         .filter({ hasText: "Caption after seeking" })
@@ -178,6 +430,38 @@ test(
       await page
         .getByRole("button", { name: "Bản chép lời", exact: true })
         .click();
+      assert.equal(await page.locator(".recording-transcript").count(), 0);
+      assert.equal(
+        await page.evaluate(() => !!document.fullscreenElement),
+        true,
+      );
+      await page
+        .getByRole("button", { name: "Bản chép lời", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Thoát toàn màn hình", exact: true })
+        .click();
+      await page.waitForFunction(() => !document.fullscreenElement);
+      assert.equal(
+        await page.locator(".recording-transcript").isVisible(),
+        true,
+      );
+      // Entering fullscreen with the panel already open must retain it too.
+      await page
+        .getByRole("button", { name: "Toàn màn hình", exact: true })
+        .click();
+      await page.waitForFunction(() =>
+        document.fullscreenElement?.contains(
+          document.querySelector(".recording-transcript"),
+        ),
+      );
+      await page
+        .getByRole("button", { name: "Bản chép lời", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Thoát toàn màn hình", exact: true })
+        .click();
+      await page.waitForFunction(() => !document.fullscreenElement);
       await page.locator(".video-preview video").evaluate((v) => {
         v.pause();
         v.currentTime = 30;

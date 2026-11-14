@@ -66,6 +66,53 @@ Vẫn giữ lease, chống trùng, retry giới hạn, kiểm tra quyền và b�
 - Đang encode: phát original nếu trình duyệt hỗ trợ và được phép; không có nguồn phù hợp thì hiện đang xử lý, không tạo menu chất lượng giả.
 - Tốc độ phát thuộc player, không cần thêm rendition. Một mức vẫn phát được; không bắt buộc ít nhất hai mức với nguồn rất nhỏ.
 
+**Cập nhật tua video 14/11/2026:** đã tái hiện trường hợp bấm tới giây 65,91
+nhưng timeline trở về giây 0 trong lúc HLS tải segment. Player cập nhật vị trí
+ngay khi xác nhận tua và đồng bộ cả sự kiện `seeking`/`seeked`, không chờ
+`timeupdate` mới vẽ lại thanh tua. Gesture dùng pointer capture: kéo chỉ xem trước
+vị trí, thả chuột/chạm mới tua một lần; thả ngoài thanh vẫn nhận đúng vị trí,
+hủy gesture thì bỏ vị trí xem trước. Khi đang đổi chất lượng ở trạng thái pause,
+khung hình chờ tải không được ghi đè một lần tua mới hơn.
+
+Phím **←/→ tua 5 giây**, chặn tại đầu/cuối video; dùng được khi focus ở khung
+player, timeline hoặc các nút điều khiển sau khi bấm. Slider âm lượng và menu
+cài đặt vẫn nhận phím theo chức năng riêng. Đoạn đã có trong buffer dùng lại dữ
+liệu; đoạn chưa có cần tải segment trước khi hiển thị khung hình, nên thời gian
+đợi thực tế vẫn phụ thuộc mạng và chất lượng đang chọn. Không tải lại manifest
+hoặc tạo lại HLS engine cho mỗi lần tua.
+
+Kiểm chứng bản sửa: typecheck frontend, 3 test `video-preview.test.cjs`, browser
+`video-preview-ui.test.cjs` với `TEST_DATABASE_MODE=embedded`, và browser HLS thật
+`video-pipeline-ui.test.cjs` đều qua. Ca HLS thêm độ trễ 700 ms khi tải segment,
+kiểm tra timeline ngay sau click và khung hình đã giải mã tại điểm tua trong
+ngưỡng 5 giây; đây là ngưỡng kiểm thử local, không phải cam kết độ trễ mạng thật.
+
+**Bản chép lời trong toàn màn hình:** fullscreen dùng khung
+`video-preview-layout` chứa cả player và panel, thay vì chỉ `.video-player`.
+Nút **Bản chép lời** mở/đóng panel mà không thoát fullscreen; bấm câu vẫn tua
+video tại mốc tương ứng. Bảng đã mở được giữ khi vào/thoát fullscreen. Màn hình
+rộng đặt bảng bên phải, màn hình hẹp dùng bố cục dọc hiện có. Không di chuyển
+hoặc tạo lại thẻ video khi bật bảng/fullscreen, nên giữ phiên phát và HLS buffer.
+Browser HLS đã kiểm tra panel nằm trong vùng fullscreen, bấm câu tua tới giây
+30, đóng/mở panel vẫn giữ fullscreen và giữ panel khi vào/thoát fullscreen.
+
+**Giữ buffer khi tua qua lại:** bỏ giới hạn `backBufferLength: 30` vốn xóa
+vùng đã tải cách vị trí hiện tại hơn 30 giây. VOD dùng `backBufferLength: Infinity`
+và `frontBufferFlushThreshold: Infinity` để giữ cả các vùng rời nhau trước/sau
+playhead; vẫn chỉ tải trước khoảng 30 giây với `maxBufferLength` và
+`maxMaxBufferLength` hiện có, không tự tải toàn bộ video. Khi thiếu bộ nhớ,
+trình duyệt/MSE và cơ chế phục hồi quota của hls.js vẫn có thể thu hồi buffer.
+Đây là dữ liệu trong phiên xem, không phải cache lâu dài trên đĩa; đóng player,
+tải lại nguồn hoặc đổi chất lượng có thể cần tải dữ liệu tương ứng lại.
+
+Timeline vẽ toàn bộ `video.buffered` thay vì chỉ một mốc kết thúc phía trước
+playhead, nên tua lùi vẫn thấy các vùng đã tải ở xa và khoảng trống giữa chúng.
+Không thay đổi grant 60 giây, kiểm tra quyền hoặc chính sách HTTP `no-store`.
+Ca hồi quy dùng video 90 giây: tải vùng đầu, tua tới giây 66, xác nhận vùng đầu
+còn trong MSE; tua 10 → 66 → 10 → 66 khi chặn mọi request tải lại segment đã nhận,
+và kiểm tra timeline có cả hai vùng buffer.
+Ca HLS này, browser video bản gốc và typecheck frontend đều đã qua sau bản sửa.
+
 | Nguồn ngang 16:9 | Menu khi hoàn tất, cấu hình mặc định |
 | --- | --- |
 | 3840×2160 | Auto, 2160p (4K), 1080p, 720p, 360p |
@@ -332,6 +379,7 @@ Probe S3 dùng URL backend sinh cho nguồn tin cậy; giới hạn protocol/red
 | Nguồn 4K, cap 2160 | Output 2160 thật, menu 4K và mức mặc định phù hợp |
 | 1080/720, nguồn nhỏ, dọc/rotation | Không upscale, nhãn đúng, giữ tỷ lệ; một mức vẫn phát |
 | Đổi 1080 → 360 → Auto tại giây 30 | Sai lệch playhead tối đa 1 giây sau ổn định, giữ pause/rate/volume; throttle mạng thấy Auto đổi mức |
+| Tua HLS và bàn phím | Timeline giữ vị trí mới trong lúc tải segment; khung hình tới đúng điểm; bấm liên tiếp lấy vị trí cuối, kéo/thả ngoài thanh vẫn nhận; ←/→ 5 giây sau khi focus nút hoặc timeline, không ảnh hưởng menu/âm lượng |
 | IVS HLS đủ | Import mức thực tế, không có MediaConvert dư |
 | Nguồn đủ chất lượng | VOD có ít nhất hai mức thật; manifest không tham chiếu object thiếu |
 | ABR LIVE và VOD | Hai ca riêng: thay băng thông làm player tự chuyển rendition; LIVE dùng Channel STANDARD và ghi đủ rendition |
