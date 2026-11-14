@@ -107,6 +107,16 @@ Hỏi đáp giữ tin nhắn dưới tiêu đề, rộng cùng cột với ô tr
 
 Chuyển giữa các kênh chat, tài liệu và bản ghi trong cùng nhóm dùng chung trạng thái điều hướng, giữ Workspace/sidebar đang mount, cập nhật URL bằng History API và hỗ trợ Back/Forward. `type=recordings` chọn bộ lọc bản ghi; bỏ tham số này quay về tất cả tài liệu. Không để trạng thái chọn chat cũ che màn hình thư viện. Danh sách kênh được giữ theo nhóm trong khi chờ ACK kênh mới; đổi nhóm không hiển thị kênh của nhóm cũ và bỏ qua phản hồi tạo kênh cũ đến muộn. Link mở tab mới vẫn giữ `groupId`. Khi đang trong cuộc họp, chuyển sang thư viện vẫn phải rời phòng thành công trước.
 
+### Panel, chưa đọc và thứ tự chủ đề
+
+Lựa chọn mở/đóng panel bên phải được lưu trong localStorage theo tài khoản (`streamora-workspace-panel:{userId}`). Thao tác tự ẩn panel khi vào hỏi đáp hoặc màn hình nhỏ không ghi đè lựa chọn này; thao tác tự mở khi khôi phục cuộc họp tôn trọng lựa chọn đóng trước đó.
+
+`GET /groups/{groupId}/chat/read-state` trả `{unread:Record<channel,number>,threadActivity:Record<threadChannel,ISO8601>}`. `POST /groups/{groupId}/chat/read` nhận `{channel,messageId}` và lưu mốc đọc theo tài khoản đã xác thực; không nhận userId từ client. Mốc chỉ tiến lên, không lùi khi tab/phản hồi cũ đến trễ. Không tính tin do chính người đọc gửi hoặc đã xóa. Trò chuyện chung hiện số của kênh; hỏi đáp cộng các chủ đề và có badge riêng từng chủ đề. Chỉ xác nhận đã đọc khi cuộc trò chuyện hiển thị, tab đang hoạt động và người dùng xem tới cuối cửa sổ lịch sử mới nhất; mở thư viện, đọc tin cũ hoặc mở chủ đề khác không xóa số đếm.
+
+`READ#{userId}#{channel}` lưu mốc trong cùng bảng DynamoDB, không cần migration PostgreSQL hay tạo bảng mới. API đọc metadata tin nhắn (không tải nội dung) theo partition nhóm để tính chính xác số chưa đọc và thời gian hoạt động. Chi phí đọc tăng theo lịch sử nhóm; khi quy mô lớn cần chỉ mục/tổng hợp riêng. Client gộp thông báo realtime trước khi cập nhật badge và làm mới khi quay lại tab/kết nối lại.
+
+`GET /chat/threads` sắp xếp theo tin gửi mới nhất, dùng ngày tạo cho chủ đề chưa có tin, rồi ID để phân trang ổn định. Chủ đề cũ có tin mới được đưa lên đầu cả ở server và giao diện, kể cả khi trước đó nằm ngoài trang đầu; phản hồi danh sách cũ không ghi đè danh sách vừa làm mới. Chỉnh sửa tin không làm đổi ngày gửi.
+
 ## Cấu trúc lưu trữ
 
 Một table có partition key `pk` (String), sort key `sk` (String), PAY_PER_REQUEST. Mọi dữ liệu được phân vùng bằng `pk=GROUP#{groupId}`:

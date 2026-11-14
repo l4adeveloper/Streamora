@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Hash,
   MessageCircle,
@@ -18,6 +18,8 @@ const chatTimeFormat = new Intl.DateTimeFormat("vi-VN", {
   hour: "2-digit",
   minute: "2-digit",
 });
+const EMPTY_COUNTS: Record<string, number> = {};
+const EMPTY_ACTIVITY: Record<string, string> = {};
 
 type ThreadSend = ChatMessage & {
   id: string;
@@ -31,15 +33,26 @@ export function WorkspaceThreads({
   userId,
   targetMessageId,
   targetThreadId,
+  unread = EMPTY_COUNTS,
+  threadActivity = EMPTY_ACTIVITY,
+  onRead,
 }: {
   groupId: string;
   userId?: string;
   targetMessageId?: string;
   targetThreadId?: string;
+  unread?: Record<string, number>;
+  threadActivity?: Record<string, string>;
+  onRead?: (threadId: string, messageId: string) => Promise<boolean>;
 }) {
   const [threads, setThreads] = useState<GroupChatThread[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<GroupChatThread | null>(null);
+  const markSelectedRead = useCallback(
+    (id: string) =>
+      selected && onRead ? onRead(selected.id, id) : Promise.resolve(false),
+    [selected?.id, onRead],
+  );
   const [filter, setFilter] = useState("");
   const createInput = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
@@ -52,26 +65,35 @@ export function WorkspaceThreads({
   const activeThread = useRef(selected?.id);
   activeThread.current = selected?.id;
   const [replyId, setReplyId] = useState<string>();
+  const loadVersion = useRef(0);
   const chat = useGroupChat(
     selected ? groupId : null,
     selected ? `thread:${selected.id}` : "hỏi-đáp",
     selected?.id === targetThreadId ? targetMessageId : undefined,
   );
   async function load(next?: string) {
+    const version = ++loadVersion.current;
     setBusy(true);
     try {
       const page = await apiRequest<CursorPage<GroupChatThread>>(
         `/groups/${groupId}/chat/threads?${new URLSearchParams(next ? { cursor: next } : {})}`,
       );
-      setThreads((current) =>
-        next ? [...current, ...page.items] : page.items,
-      );
+      if (version !== loadVersion.current) return;
+      setThreads((current) => [
+        ...new Map(
+          (next ? [...current, ...page.items] : page.items).map((item) => [
+            item.id,
+            item,
+          ]),
+        ).values(),
+      ]);
       setCursor(page.nextCursor);
       setError("");
     } catch {
-      setError("Không thể tải chủ đề. Vui lòng thử lại.");
+      if (version === loadVersion.current)
+        setError("Không thể tải chủ đề. Vui lòng thử lại.");
     } finally {
-      setBusy(false);
+      if (version === loadVersion.current) setBusy(false);
     }
   }
   useEffect(() => {
@@ -80,8 +102,10 @@ export function WorkspaceThreads({
       if ((event as CustomEvent).detail?.groupId === groupId) void load();
     };
     window.addEventListener("streamora:threads-changed", refresh);
-    return () =>
+    return () => {
+      loadVersion.current++;
       window.removeEventListener("streamora:threads-changed", refresh);
+    };
   }, [groupId]);
   useEffect(() => {
     const threadId = targetThreadId;
@@ -100,12 +124,30 @@ export function WorkspaceThreads({
       active = false;
     };
   }, [groupId, targetThreadId]);
-  const visibleThreads = threads.filter((thread) =>
-    thread.title
-      .normalize("NFC")
-      .toLocaleLowerCase("vi")
-      .includes(filter.trim().normalize("NFC").toLocaleLowerCase("vi")),
-  );
+  const activityKey = JSON.stringify(threadActivity);
+  const previousActivityKey = useRef(activityKey);
+  useEffect(() => {
+    if (previousActivityKey.current === activityKey) return;
+    previousActivityKey.current = activityKey;
+    void load();
+  }, [activityKey]);
+  const visibleThreads = threads
+    .filter((thread) =>
+      thread.title
+        .normalize("NFC")
+        .toLocaleLowerCase("vi")
+        .includes(filter.trim().normalize("NFC").toLocaleLowerCase("vi")),
+    )
+    .sort(
+      (a, b) =>
+        (
+          threadActivity[`thread:${b.id}`] ??
+          b.lastMessageAt ??
+          b.createdAt
+        ).localeCompare(
+          threadActivity[`thread:${a.id}`] ?? a.lastMessageAt ?? a.createdAt,
+        ) || b.id.localeCompare(a.id),
+    );
   const confirmed = useMemo<ChatMessage[]>(
     () =>
       chat.messages.map((m) => ({
@@ -312,6 +354,14 @@ export function WorkspaceThreads({
                   })}
                 </small>
               </span>
+              {(unread[`thread:${thread.id}`] ?? 0) > 0 && (
+                <span
+                  className="channel-unread-count"
+                  aria-label={`${unread[`thread:${thread.id}`]} tin nhắn chưa đọc`}
+                >
+                  {unread[`thread:${thread.id}`]}
+                </span>
+              )}
               <ChevronRight size={15} className="qa-thread-arrow" />
             </button>
           ))}
@@ -380,6 +430,7 @@ export function WorkspaceThreads({
               historyReady={chat.historyReady}
               latestVersion={chat.latestVersion}
               onJumpToLatest={chat.loadLatest}
+              onRead={onRead ? markSelectedRead : undefined}
               currentUserId={userId}
               draft={draft}
               onDraftChange={setDraft}

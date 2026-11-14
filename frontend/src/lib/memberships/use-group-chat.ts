@@ -162,14 +162,14 @@ export function useGroupChat(
     socket.on("meeting.created", meetingsChanged);
     socket.on("meeting.updated", meetingsChanged);
 
+    const activity = () =>
+      window.dispatchEvent(
+        new CustomEvent("streamora:chat-activity", { detail: { groupId } }),
+      );
     const receive = (value: unknown) => {
-      if (
-        !active ||
-        !isMessage(value) ||
-        value.groupId !== groupId ||
-        value.channel !== channel
-      )
-        return;
+      if (!active || !isMessage(value) || value.groupId !== groupId) return;
+      activity();
+      if (value.channel !== channel) return;
       setMessages((current) =>
         newerCursorRef.current && !current.some((item) => item.id === value.id)
           ? current
@@ -186,6 +186,8 @@ export function useGroupChat(
         value.channel !== channel
       )
         return;
+      activity();
+      if (value.channel !== channel) return;
       setMessages((current) =>
         current.filter((message) => message.id !== value.id),
       );
@@ -255,6 +257,7 @@ export function useGroupChat(
           setError(null);
           setStatus("connected");
           meetingsChanged({ groupId });
+          activity();
         },
       );
     });
@@ -470,6 +473,11 @@ export function useGroupChat(
             clearTimeout(timer);
             if (ack?.ok) {
               retryIds.current.delete(retryKey);
+              window.dispatchEvent(
+                new CustomEvent("streamora:chat-activity", {
+                  detail: { groupId },
+                }),
+              );
               // After composing from an old search window, resume at the latest
               // history so the confirmed message is visible without leaving a gap.
               if (context.current === sendContext && newerCursorRef.current) {

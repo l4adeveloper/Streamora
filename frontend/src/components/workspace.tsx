@@ -69,6 +69,8 @@ import { getClassSession, listClassSessions } from "@/lib/class-sessions/api";
 import { useWorkspaceGroup } from "@/lib/memberships/use-workspace-group";
 import { useGroupPermissions } from "@/lib/memberships/use-group-permissions";
 import { useGroupChat } from "@/lib/memberships/use-group-chat";
+import { useWorkspacePanel } from "@/lib/memberships/use-workspace-panel";
+import { useChatUnread } from "@/lib/memberships/use-chat-unread";
 
 import { LivePlayer } from "./live-player";
 import { WorkspaceChat } from "./workspace-chat";
@@ -459,7 +461,20 @@ export function Workspace({
     };
   }, [user?.id]);
   const [membersView, setMembersView] = useState(false);
-  const [panel, setPanel] = useState(view !== "files" && view !== "meetings");
+  const { panel, setPanel, setPanelPreference } = useWorkspacePanel(
+    user?.id,
+    view !== "files" && view !== "meetings",
+  );
+  const chatRead = useChatUnread(workspaceGroup.groupId, user?.id);
+  const markChannelRead = useCallback(
+    (id: string) => chatRead.markRead(channel, id),
+    [channel, chatRead.markRead],
+  );
+  const markThreadRead = useCallback(
+    (threadId: string, id: string) =>
+      chatRead.markRead(`thread:${threadId}`, id),
+    [chatRead.markRead],
+  );
   const [panelTab, setPanelTab] = useState<"chat" | "members">(
     view === "chat" ? "members" : "chat",
   );
@@ -1033,6 +1048,7 @@ export function Workspace({
   }
 
   const chatProps = {
+    onRead: view === "chat" && !membersView ? markChannelRead : undefined,
     historyReady: !workspaceGroup.groupId || groupChat.historyReady,
     latestVersion: groupChat.latestVersion,
     onJumpToLatest: groupChat.loadLatest,
@@ -1183,7 +1199,7 @@ export function Workspace({
               className={`channel ${membersView ? "selected" : ""}`}
               onClick={() => {
                 if (activeMeetingId) {
-                  setPanel(true);
+                  setPanelPreference(true);
                   setPanelTab("members");
                   return;
                 }
@@ -1217,7 +1233,14 @@ export function Workspace({
               className={`channel ${!membersView && view === "chat" && channel === "trò-chuyện-chung" ? "selected" : ""}`}
             >
               <Hash size={19} /> trò-chuyện-chung{" "}
-              <span className="unread-dot" />
+              {(chatRead.unread["trò-chuyện-chung"] ?? 0) > 0 && (
+                <span
+                  className="channel-unread-count"
+                  aria-label={`${chatRead.unread["trò-chuyện-chung"]} tin nhắn chưa đọc`}
+                >
+                  {chatRead.unread["trò-chuyện-chung"]}
+                </span>
+              )}
             </Link>
             <Link
               className={`channel ${channel === "hỏi-đáp" ? "selected" : ""}`}
@@ -1225,6 +1248,14 @@ export function Workspace({
               onClick={navigateWorkspace}
             >
               <Hash size={19} /> hỏi-đáp
+              {chatRead.questionsUnread > 0 && (
+                <span
+                  className="channel-unread-count"
+                  aria-label={`${chatRead.questionsUnread} tin nhắn chưa đọc`}
+                >
+                  {chatRead.questionsUnread}
+                </span>
+              )}
             </Link>
             <Link
               className={`channel ${!membersView && view === "chat" && channel === "thông-báo" ? "selected" : ""}`}
@@ -1464,7 +1495,7 @@ export function Workspace({
               <IconButton
                 label={panel ? "Đóng bảng bên" : "Mở trò chuyện và thành viên"}
                 active={panel}
-                onClick={() => setPanel(!panel)}
+                onClick={() => setPanelPreference(!panel)}
               >
                 <Users size={18} />
               </IconButton>
@@ -1546,11 +1577,11 @@ export function Workspace({
                       onExit={returnToChat}
                       onState={reportRoomState}
                       onOpenPeople={() => {
-                        setPanel(true);
+                        setPanelPreference(true);
                         setPanelTab("members");
                       }}
                       onOpenChat={() => {
-                        setPanel(true);
+                        setPanelPreference(true);
                         setPanelTab("chat");
                       }}
                     />
@@ -1834,6 +1865,9 @@ export function Workspace({
                       targetMessageId={targetMessageId}
                       targetThreadId={targetThreadId}
                       userId={user?.id}
+                      unread={chatRead.unread}
+                      threadActivity={chatRead.threadActivity}
+                      onRead={markThreadRead}
                     />
                   )}
                 {view === "chat" &&
@@ -2057,7 +2091,7 @@ export function Workspace({
                   </button>
                   <IconButton
                     label="Đóng bảng bên"
-                    onClick={() => setPanel(false)}
+                    onClick={() => setPanelPreference(false)}
                   >
                     <X size={16} />
                   </IconButton>
@@ -2118,7 +2152,11 @@ export function Workspace({
                   groupId={workspaceGroup.groupId}
                   permissions={permissions}
                   revision={groupAccess.membershipRevision}
-                  onClose={view === "chat" ? () => setPanel(false) : undefined}
+                  onClose={
+                    view === "chat"
+                      ? () => setPanelPreference(false)
+                      : undefined
+                  }
                 />
               ) : null}
             </aside>

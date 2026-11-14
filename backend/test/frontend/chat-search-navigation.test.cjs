@@ -377,6 +377,7 @@ test("channel list survives chat changes and ignores late responses from another
       connectClassroom: () => {
         const handlers = {};
         const socket = {
+          handlers,
           connected: true,
           on(event, fn) {
             handlers[event] = fn;
@@ -412,6 +413,30 @@ test("channel list survives chat changes and ignores late responses from another
       }),
     );
     const original = state.channels;
+    let activityGroup;
+    window.addEventListener(
+      "streamora:chat-activity",
+      (event) => {
+        activityGroup = event.detail.groupId;
+      },
+      { once: true },
+    );
+    await React.act(async () =>
+      sockets[0].handlers["chat:message"]({
+        ...message("off-channel"),
+        channel: "thread:topic",
+      }),
+    );
+    assert.equal(
+      activityGroup,
+      "group",
+      "off-channel messages must refresh unread state",
+    );
+    assert.equal(
+      state.messages.length,
+      0,
+      "off-channel messages must not enter the current conversation",
+    );
     for (const chat of ["hỏi-đáp", "thông-báo", "general"]) {
       await React.act(async () =>
         env.root.render(React.createElement(Probe, { chat })),
@@ -446,14 +471,12 @@ test("channel list survives chat changes and ignores late responses from another
       "new group must not display previous group channels",
     );
     await React.act(async () =>
-      joins
-        .at(-1)
-        .ack({
-          ok: true,
-          messages: [],
-          channels: [channel("custom-b", "other-group")],
-          nextCursor: null,
-        }),
+      joins.at(-1).ack({
+        ok: true,
+        messages: [],
+        channels: [channel("custom-b", "other-group")],
+        nextCursor: null,
+      }),
     );
     await React.act(async () => {
       oldJoin.ack({
@@ -469,6 +492,86 @@ test("channel list survives chat changes and ignores late responses from another
       state.channels.map((item) => item.name),
       ["custom-b"],
     );
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test("panel preference is account scoped and automatic opens respect an explicit close", async () => {
+  const env = setup();
+  global.localStorage = window.localStorage;
+  global.matchMedia = () => ({ matches: false });
+  let state;
+  const { useWorkspacePanel } = loadSource(
+    "lib/memberships/use-workspace-panel.ts",
+  );
+  function Probe({ user = "one", open = true }) {
+    state = useWorkspacePanel(user, open);
+    return null;
+  }
+  try {
+    await React.act(async () => env.root.render(React.createElement(Probe)));
+    assert.equal(state.panel, true);
+    await React.act(() => state.setPanelPreference(false));
+    await React.act(() => state.setPanel(true));
+    assert.equal(state.panel, false);
+    await React.act(async () =>
+      env.root.render(React.createElement(Probe, { user: "two" })),
+    );
+    assert.equal(state.panel, true);
+    await React.act(async () =>
+      env.root.render(React.createElement(Probe, { user: "one" })),
+    );
+    assert.equal(state.panel, false);
+    await React.act(() => state.setPanelPreference(true));
+    assert.equal(state.panel, true);
+    await React.act(async () =>
+      env.root.render(React.createElement(Probe, { user: "one", open: false })),
+    );
+    assert.equal(state.panel, true);
+    assert.equal(localStorage.getItem("streamora-workspace-panel:one"), "open");
+  } finally {
+    await env.cleanup();
+    delete global.localStorage;
+    delete global.matchMedia;
+  }
+});
+
+test("unread state ignores a late response from another group and aggregates thread counts", async () => {
+  const env = setup();
+  const requests = [];
+  let state;
+  const { useChatUnread } = loadSource("lib/memberships/use-chat-unread.ts", {
+    "@/lib/api": {
+      apiRequest: (url) =>
+        new Promise((resolve) => requests.push({ url, resolve })),
+    },
+  });
+  function Probe({ group = "one" }) {
+    state = useChatUnread(group, "reader");
+    return null;
+  }
+  try {
+    await React.act(async () => env.root.render(React.createElement(Probe)));
+    await React.act(async () =>
+      env.root.render(React.createElement(Probe, { group: "two" })),
+    );
+    assert.equal(state.questionsUnread, 0);
+    await React.act(async () =>
+      requests[1].resolve({
+        unread: { "trò-chuyện-chung": 4, "thread:a": 2, "thread:b": 3 },
+        threadActivity: {},
+      }),
+    );
+    assert.equal(state.questionsUnread, 5);
+    await React.act(async () =>
+      requests[0].resolve({
+        unread: { "thread:foreign": 99 },
+        threadActivity: {},
+      }),
+    );
+    assert.equal(state.questionsUnread, 5);
+    assert.equal(state.unread["trò-chuyện-chung"], 4);
   } finally {
     await env.cleanup();
   }
