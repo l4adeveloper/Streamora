@@ -43,6 +43,7 @@ import { useToast } from "../common/toast-provider";
 import { LoadingState, RequestError } from "../common/feedback";
 import "./files.css";
 import { FileUploader } from "./file-uploader";
+import { FileActionsMenu } from "./file-actions-menu";
 import { FolderTree } from "./folder-tree";
 import { VideoPreview } from "./video-preview";
 
@@ -52,7 +53,12 @@ const sources = {
   CLOUD_RECORDING: "Bản ghi cloud",
 };
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const videoTypes = new Set(["video/mp4", "video/webm", "video/quicktime", "application/vnd.apple.mpegurl"]);
+const videoTypes = new Set([
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "application/vnd.apple.mpegurl",
+]);
 const previewLabel = (file: LibraryFile) =>
   videoTypes.has(file.mimeType)
     ? "Xem trước video"
@@ -524,21 +530,24 @@ export function FilesPanel({
                     title={`Mở thư mục ${folder.name}`}
                   >
                     <span className="folder-icon-wrapper">
-                      <Folder size={24} />
+                      <Folder
+                        size={24}
+                        fill="currentColor"
+                        fillOpacity={0.16}
+                      />
                     </span>
                     <div className="folder-card-info">
                       <span className="folder-name">{folder.name}</span>
-                      <span className="folder-meta">
-                        {folder.fileCount ?? 0} tài liệu
-                        {(folder.folderCount ?? 0) > 0 &&
-                          ` · ${folder.folderCount} thư mục con`}
-                      </span>
                     </div>
                   </button>
                   {canManageFolder(folder) && (
-                    <div className="folder-actions">
+                    <FileActionsMenu
+                      label={`Thao tác thư mục ${folder.name}`}
+                      disabled={folderBusy}
+                    >
                       <button
                         type="button"
+                        role="menuitem"
                         title="Đổi tên"
                         aria-label={`Đổi tên ${folder.name}`}
                         onClick={(e) => {
@@ -549,10 +558,12 @@ export function FilesPanel({
                           setFolderAction("rename");
                         }}
                       >
-                        <Pencil size={15} />
+                        <Pencil size={18} /> Đổi tên
                       </button>
                       <button
                         type="button"
+                        role="menuitem"
+                        className="menu-item-danger"
                         title="Xóa thư mục"
                         aria-label={`Xóa ${folder.name}`}
                         onClick={(e) => {
@@ -562,9 +573,9 @@ export function FilesPanel({
                           setFolderAction("delete");
                         }}
                       >
-                        <Trash2 size={15} />
+                        <Trash2 size={18} /> Xóa thư mục
                       </button>
-                    </div>
+                    </FileActionsMenu>
                   )}
                 </div>
               ))}
@@ -574,9 +585,9 @@ export function FilesPanel({
             <div className="file-table-heading">
               <span>Tên tài liệu</span>
               <span>Thư mục</span>
-              <span>Dung lượng</span>
+              <span className="library-column-size">Dung lượng</span>
               <span>Được thêm</span>
-              <span>Thao tác</span>
+              <span className="library-column-actions">Thao tác</span>
             </div>
             {items.map((file) => (
               <div className="file-row library-file-row" key={file.id}>
@@ -629,7 +640,8 @@ export function FilesPanel({
                     file.folderName ||
                     (file.folderId ? folderMap.get(file.folderId) : null) ||
                     (file.folderPath && file.folderPath !== "/"
-                      ? (file.folderPath.split("/").filter(Boolean).pop() ?? null)
+                      ? (file.folderPath.split("/").filter(Boolean).pop() ??
+                        null)
                       : null);
 
                   return (
@@ -655,7 +667,9 @@ export function FilesPanel({
                     </span>
                   );
                 })()}
-                <span className="library-file-size">{sizeLabel(file.size)}</span>
+                <span className="library-file-size">
+                  {sizeLabel(file.size)}
+                </span>
                 <span className="library-file-date">
                   {new Date(file.createdAt).toLocaleDateString("vi-VN")}
                 </span>
@@ -671,68 +685,87 @@ export function FilesPanel({
                       <Eye size={16} />
                     </button>
                   )}
-                  <button
-                    type="button"
-                    title="Tải xuống"
-                    aria-label={`Tải xuống ${file.name}`}
-                    disabled={busy || file.status !== "AVAILABLE" || file.canDownload === false}
-                    onClick={() => void download(file)}
+                  <FileActionsMenu
+                    label={`Thao tác ${file.name}`}
+                    disabled={busy}
                   >
-                    <Download size={16} />
-                  </button>
-                  {canManage(file) && (
-                    <>
-                      {file.isPublished === false ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      title="Tải xuống"
+                      aria-label={`Tải xuống ${file.name}`}
+                      disabled={
+                        busy ||
+                        file.status !== "AVAILABLE" ||
+                        file.canDownload === false
+                      }
+                      onClick={() => void download(file)}
+                    >
+                      <Download size={18} /> Tải xuống
+                    </button>
+                    {canManage(file) && (
+                      <>
+                        {file.isPublished === false ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            title="Công bố tài liệu cho toàn bộ thành viên"
+                            aria-label={`Công bố ${file.name}`}
+                            disabled={busy || file.status !== "AVAILABLE"}
+                            onClick={() => void handlePublish(file, true)}
+                          >
+                            <Globe size={18} /> Công bố
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            title="Chuyển về trạng thái chờ (ẩn với thành viên)"
+                            aria-label={`Ẩn ${file.name}`}
+                            disabled={busy || file.status !== "AVAILABLE"}
+                            onClick={() => void handlePublish(file, false)}
+                          >
+                            <Globe size={18} /> Chuyển về trạng thái chờ
+                          </button>
+                        )}
                         <button
                           type="button"
-                          className="action-publish"
-                          title="Công bố tài liệu cho toàn bộ thành viên"
-                          aria-label={`Công bố ${file.name}`}
-                          disabled={busy || file.status !== "AVAILABLE"}
-                          onClick={() => void handlePublish(file, true)}
+                          role="menuitem"
+                          title="Di chuyển vào thư mục"
+                          aria-label={`Di chuyển ${file.name}`}
+                          disabled={busy}
+                          onClick={() => void openMoveDialog(file)}
                         >
-                          <Globe size={16} />
+                          <FolderInput size={18} /> Di chuyển
                         </button>
-                      ) : (
                         <button
                           type="button"
-                          title="Chuyển về trạng thái chờ (ẩn với thành viên)"
-                          aria-label={`Ẩn ${file.name}`}
-                          disabled={busy || file.status !== "AVAILABLE"}
-                          onClick={() => void handlePublish(file, false)}
+                          role="menuitem"
+                          title="Đổi tên"
+                          aria-label={`Đổi tên ${file.name}`}
+                          disabled={busy}
+                          onClick={() => void open(file, "rename")}
                         >
-                          <Globe size={16} style={{ opacity: 0.5 }} />
+                          <Pencil size={18} /> Đổi tên
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        title="Di chuyển vào thư mục"
-                        aria-label={`Di chuyển ${file.name}`}
-                        disabled={busy}
-                        onClick={() => void openMoveDialog(file)}
-                      >
-                        <FolderInput size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        title="Đổi tên"
-                        aria-label={`Đổi tên ${file.name}`}
-                        disabled={busy}
-                        onClick={() => void open(file, "rename")}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        title="Xóa tài liệu"
-                        aria-label={`Xóa ${file.name}`}
-                        disabled={busy}
-                        onClick={() => void open(file, "delete")}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </>
-                  )}
+                        <div
+                          role="separator"
+                          className="library-menu-divider"
+                        />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="menu-item-danger"
+                          title="Xóa tài liệu"
+                          aria-label={`Xóa ${file.name}`}
+                          disabled={busy}
+                          onClick={() => void open(file, "delete")}
+                        >
+                          <Trash2 size={18} /> Xóa tài liệu
+                        </button>
+                      </>
+                    )}
+                  </FileActionsMenu>
                 </span>
               </div>
             ))}
@@ -808,7 +841,11 @@ export function FilesPanel({
                       className="preview-download"
                       title="Tải xuống tài liệu"
                       aria-label={`Tải xuống ${selected.name}`}
-                      disabled={busy || selected.status !== "AVAILABLE" || selected.canDownload === false}
+                      disabled={
+                        busy ||
+                        selected.status !== "AVAILABLE" ||
+                        selected.canDownload === false
+                      }
                       onClick={() => void download(selected)}
                     >
                       <Download size={16} />
@@ -981,7 +1018,11 @@ export function FilesPanel({
                   <button
                     type="button"
                     className="button primary"
-                    disabled={busy || selected.status !== "AVAILABLE" || selected.canDownload === false}
+                    disabled={
+                      busy ||
+                      selected.status !== "AVAILABLE" ||
+                      selected.canDownload === false
+                    }
                     onClick={() => void download(selected)}
                   >
                     Tải xuống

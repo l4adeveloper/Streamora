@@ -99,7 +99,6 @@ export function FileUploader({
   onUploaded: () => void;
 }) {
   const { user } = useAuth();
-  const [uploadAsDraft, setUploadAsDraft] = useState(defaultDraft);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [collapsed, setCollapsed] = useState(false);
   const currentJobs = useRef(jobs);
@@ -291,8 +290,7 @@ export function FileUploader({
         folderId: folderId ?? undefined,
         folderPath: job.folderPath ?? folderPath,
         sessionId: sessionId ?? undefined,
-        isPublished:
-          job.isPublished ?? (canHost && uploadAsDraft ? false : true),
+        isPublished: job.isPublished ?? !(canHost && defaultDraft),
         runPart: limit.current,
         resumeId: job.resumeId,
         fileHandle: job.fileHandle,
@@ -460,7 +458,7 @@ export function FileUploader({
           .filter(Boolean)
           .join("/"),
         fileHandle: handles?.[index],
-        isPublished: canHost && uploadAsDraft ? false : true,
+        isPublished: !(canHost && defaultDraft),
         status: "saving",
         percent: 0,
         message: "Đang lưu hàng đợi…",
@@ -810,19 +808,6 @@ export function FileUploader({
             </button>
           </div>
         </details>
-        {canHost && (
-          <label
-            className="upload-draft-toggle"
-            title="Tài liệu sẽ ở trạng thái chờ (thành viên thường không thể xem cho đến khi bạn công bố)."
-          >
-            <input
-              type="checkbox"
-              checked={uploadAsDraft}
-              onChange={(e) => setUploadAsDraft(e.target.checked)}
-            />
-            <span>Tải lên ở trạng thái chờ (Chưa công bố)</span>
-          </label>
-        )}
         <span>hoặc kéo thả file, thư mục vào đây (tối đa 2 GB mỗi file).</span>
       </section>
       {storageError && <p role="alert">{storageError}</p>}

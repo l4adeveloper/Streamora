@@ -1086,337 +1086,344 @@ export function Workspace({
   };
   return (
     <div className={`app-shell ${mobileNav ? "nav-open" : ""}`}>
-      <aside className="community-rail" aria-label="Không gian và nhóm học tập">
-        <Brand small href="/groups" label="Streamora, nhóm học tập" />
-        <div className="rail-divider" />
-        <nav className="workspace-groups" aria-label="Nhóm học tập của bạn">
-          {workspaceGroup.loading && (
-            <span className="rail-loading" role="status">
-              <LoaderCircle
-                size={20}
-                className="ui-spinner"
-                aria-hidden="true"
-              />
-              <span className="sr-only">Đang tải nhóm học tập…</span>
-            </span>
-          )}
-          {workspaceGroup.groups.map((item) => {
-            const hasLive = liveGroupIds.has(item.id);
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`community-icon ${item.id === workspaceGroup.groupId ? "selected" : ""}`}
-                title={item.name}
-                aria-label={`Mở nhóm ${item.name}`}
-                disabled={roomSwitching}
-                aria-current={
-                  item.id === workspaceGroup.groupId ? "true" : undefined
-                }
-                onClick={() => {
-                  selectWorkspaceGroup(item.id);
-                  if (matchMedia("(max-width: 650px)").matches)
-                    setMobileNav(true);
-                }}
-              >
-                {groupInitials(item.name)}
-                <span
-                  className={`group-live-dot ${hasLive ? "has-live" : "no-live"}`}
-                  aria-label={
-                    hasLive
-                      ? "Có phòng họp đang diễn ra"
-                      : "Không có phòng họp đang diễn ra"
-                  }
-                  title={
-                    hasLive
-                      ? "Có cuộc họp đang diễn ra"
-                      : "Không có cuộc họp đang diễn ra"
-                  }
+      <div className="workspace-navigation">
+        <aside
+          className="community-rail"
+          aria-label="Không gian và nhóm học tập"
+        >
+          <Brand small href="/groups" label="Streamora, nhóm học tập" />
+          <div className="rail-divider" />
+          <nav className="workspace-groups" aria-label="Nhóm học tập của bạn">
+            {workspaceGroup.loading && (
+              <span className="rail-loading" role="status">
+                <LoaderCircle
+                  size={20}
+                  className="ui-spinner"
+                  aria-hidden="true"
                 />
+                <span className="sr-only">Đang tải nhóm học tập…</span>
+              </span>
+            )}
+            {workspaceGroup.groups.map((item) => {
+              const hasLive = liveGroupIds.has(item.id);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`community-icon ${item.id === workspaceGroup.groupId ? "selected" : ""}`}
+                  title={item.name}
+                  aria-label={`Mở nhóm ${item.name}`}
+                  disabled={roomSwitching}
+                  aria-current={
+                    item.id === workspaceGroup.groupId ? "true" : undefined
+                  }
+                  onClick={() => {
+                    selectWorkspaceGroup(item.id);
+                    if (matchMedia("(max-width: 650px)").matches)
+                      setMobileNav(true);
+                  }}
+                >
+                  {groupInitials(item.name)}
+                  <span
+                    className={`group-live-dot ${hasLive ? "has-live" : "no-live"}`}
+                    aria-label={
+                      hasLive
+                        ? "Có phòng họp đang diễn ra"
+                        : "Không có phòng họp đang diễn ra"
+                    }
+                    title={
+                      hasLive
+                        ? "Có cuộc họp đang diễn ra"
+                        : "Không có cuộc họp đang diễn ra"
+                    }
+                  />
+                </button>
+              );
+            })}
+            {Boolean(workspaceGroup.error) && (
+              <button
+                type="button"
+                className="community-icon"
+                title="Chưa tải được nhóm. Thử lại"
+                aria-label="Thử tải lại nhóm học tập"
+                onClick={workspaceGroup.reload}
+              >
+                <RefreshCw size={18} />
               </button>
-            );
-          })}
-          {Boolean(workspaceGroup.error) && (
+            )}
+            {user &&
+              !workspaceGroup.loading &&
+              !workspaceGroup.error &&
+              workspaceGroup.groups.length === 0 && (
+                <Link
+                  className="community-icon"
+                  href="/groups"
+                  title="Bạn chưa tham gia nhóm nào"
+                  aria-label="Xem nhóm học tập"
+                >
+                  <Users size={20} />
+                </Link>
+              )}
             <button
               type="button"
-              className="community-icon"
-              title="Chưa tải được nhóm. Thử lại"
-              aria-label="Thử tải lại nhóm học tập"
-              onClick={workspaceGroup.reload}
+              className="add-community"
+              title="Thêm nhóm học tập"
+              aria-label="Thêm nhóm học tập"
+              onClick={() => setModal("groups")}
             >
-              <RefreshCw size={18} />
+              <Plus size={22} />
             </button>
-          )}
-          {user &&
-            !workspaceGroup.loading &&
-            !workspaceGroup.error &&
-            workspaceGroup.groups.length === 0 && (
-              <Link
-                className="community-icon"
-                href="/groups"
-                title="Bạn chưa tham gia nhóm nào"
-                aria-label="Xem nhóm học tập"
-              >
-                <Users size={20} />
-              </Link>
-            )}
+          </nav>
+          <div className="rail-bottom">
+            <IconButton label="Hướng dẫn" onClick={() => setModal("help")}>
+              <CircleHelp size={21} />
+            </IconButton>
+          </div>
+        </aside>
+        <aside className="channel-sidebar">
           <button
-            type="button"
-            className="add-community"
-            title="Thêm nhóm học tập"
-            aria-label="Thêm nhóm học tập"
-            onClick={() => setModal("groups")}
+            className="community-title"
+            onClick={() => setModal("community-settings")}
           >
-            <Plus size={22} />
-          </button>
-        </nav>
-        <div className="rail-bottom">
-          <IconButton label="Hướng dẫn" onClick={() => setModal("help")}>
-            <CircleHelp size={21} />
-          </IconButton>
-        </div>
-      </aside>
-      <aside className="channel-sidebar">
-        <button
-          className="community-title"
-          onClick={() => setModal("community-settings")}
-        >
-          <span className="community-logo">
-            <Waves size={20} />
-          </span>
-          <div>
-            <b>{group}</b>
-            <small>Không gian học tập</small>
-          </div>
-          <ChevronDown size={15} />
-        </button>
-        <div className="sidebar-scroll">
-          <div className="channel-section">
-            <div className="section-label">
-              <ChevronDown size={12} /> Tổng quan
+            <span className="community-logo">
+              <Waves size={20} />
+            </span>
+            <div>
+              <b>{group}</b>
+              <small>Không gian học tập</small>
             </div>
-            <button
-              className={`channel ${membersView ? "selected" : ""}`}
-              onClick={() => {
-                if (activeMeetingId) {
-                  setPanelPreference(true);
-                  setPanelTab("members");
-                  return;
-                }
-                void changeWorkspace(() => {
-                  setMeetingSelection(null);
-                  setRoomInfo(null);
-                  const url = new URL(location.href);
-                  url.searchParams.delete("meetingId");
-                  url.searchParams.set("tab", "members");
-                  history.replaceState(null, "", url);
-                  setMembersView(true);
-                  setPanel(false);
-                  setPanelTab("members");
-                  setMobileNav(false);
-                });
-              }}
-            >
-              <Users size={18} /> Thành viên
-            </button>
-          </div>
-          <div className="channel-section">
-            <div className="section-label">
-              <ChevronDown size={12} /> Kênh trò chuyện{" "}
-              <button title="Thêm kênh" onClick={() => setModal("channel")}>
-                <Plus size={14} />
+            <ChevronDown size={15} />
+          </button>
+          <div className="sidebar-scroll">
+            <div className="channel-section">
+              <div className="section-label">
+                <ChevronDown size={12} /> Tổng quan
+              </div>
+              <button
+                className={`channel ${membersView ? "selected" : ""}`}
+                onClick={() => {
+                  if (activeMeetingId) {
+                    setPanelPreference(true);
+                    setPanelTab("members");
+                    return;
+                  }
+                  void changeWorkspace(() => {
+                    setMeetingSelection(null);
+                    setRoomInfo(null);
+                    const url = new URL(location.href);
+                    url.searchParams.delete("meetingId");
+                    url.searchParams.set("tab", "members");
+                    history.replaceState(null, "", url);
+                    setMembersView(true);
+                    setPanel(false);
+                    setPanelTab("members");
+                    setMobileNav(false);
+                  });
+                }}
+              >
+                <Users size={18} /> Thành viên
               </button>
             </div>
-            <Link
-              href={`/community${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
-              onClick={navigateWorkspace}
-              className={`channel ${!membersView && view === "chat" && channel === "trò-chuyện-chung" ? "selected" : ""}`}
-            >
-              <Hash size={19} /> trò-chuyện-chung{" "}
-              {(chatRead.unread["trò-chuyện-chung"] ?? 0) > 0 && (
-                <span
-                  className="channel-unread-count"
-                  aria-label={`${chatRead.unread["trò-chuyện-chung"]} tin nhắn chưa đọc`}
-                >
-                  {chatRead.unread["trò-chuyện-chung"]}
-                </span>
-              )}
-            </Link>
-            <Link
-              className={`channel ${channel === "hỏi-đáp" ? "selected" : ""}`}
-              href={`/community/${encodeURIComponent("hỏi-đáp")}${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
-              onClick={navigateWorkspace}
-            >
-              <Hash size={19} /> hỏi-đáp
-              {chatRead.questionsUnread > 0 && (
-                <span
-                  className="channel-unread-count"
-                  aria-label={`${chatRead.questionsUnread} tin nhắn chưa đọc`}
-                >
-                  {chatRead.questionsUnread}
-                </span>
-              )}
-            </Link>
-            <Link
-              className={`channel ${!membersView && view === "chat" && channel === "thông-báo" ? "selected" : ""}`}
-              href={`/community/${encodeURIComponent("thông-báo")}${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
-              onClick={navigateWorkspace}
-            >
-              <Hash size={19} /> thông-báo <Bell size={13} />
-            </Link>
-          </div>
-          <div className="custom-channels">
-            {customChannels.map((name) => (
+            <div className="channel-section">
+              <div className="section-label">
+                <ChevronDown size={12} /> Kênh trò chuyện{" "}
+                <button title="Thêm kênh" onClick={() => setModal("channel")}>
+                  <Plus size={14} />
+                </button>
+              </div>
               <Link
-                key={name}
-                href={`/community/${encodeURIComponent(name)}${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
+                href={`/community${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
                 onClick={navigateWorkspace}
-                className={`channel ${!membersView && view === "chat" && channel === name ? "selected" : ""}`}
+                className={`channel ${!membersView && view === "chat" && channel === "trò-chuyện-chung" ? "selected" : ""}`}
               >
-                <Hash size={19} />
-                {name}
+                <Hash size={19} /> trò-chuyện-chung{" "}
+                {(chatRead.unread["trò-chuyện-chung"] ?? 0) > 0 && (
+                  <span
+                    className="channel-unread-count"
+                    aria-label={`${chatRead.unread["trò-chuyện-chung"]} tin nhắn chưa đọc`}
+                  >
+                    {chatRead.unread["trò-chuyện-chung"]}
+                  </span>
+                )}
               </Link>
-            ))}
-          </div>
-          <div className="channel-section">
-            <div className="section-label">
-              <ChevronDown size={12} /> Phòng học{" "}
+              <Link
+                className={`channel ${channel === "hỏi-đáp" ? "selected" : ""}`}
+                href={`/community/${encodeURIComponent("hỏi-đáp")}${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
+                onClick={navigateWorkspace}
+              >
+                <Hash size={19} /> hỏi-đáp
+                {chatRead.questionsUnread > 0 && (
+                  <span
+                    className="channel-unread-count"
+                    aria-label={`${chatRead.questionsUnread} tin nhắn chưa đọc`}
+                  >
+                    {chatRead.questionsUnread}
+                  </span>
+                )}
+              </Link>
+              <Link
+                className={`channel ${!membersView && view === "chat" && channel === "thông-báo" ? "selected" : ""}`}
+                href={`/community/${encodeURIComponent("thông-báo")}${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
+                onClick={navigateWorkspace}
+              >
+                <Hash size={19} /> thông-báo <Bell size={13} />
+              </Link>
+            </div>
+            <div className="custom-channels">
+              {customChannels.map((name) => (
+                <Link
+                  key={name}
+                  href={`/community/${encodeURIComponent(name)}${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
+                  onClick={navigateWorkspace}
+                  className={`channel ${!membersView && view === "chat" && channel === name ? "selected" : ""}`}
+                >
+                  <Hash size={19} />
+                  {name}
+                </Link>
+              ))}
+            </div>
+            <div className="channel-section">
+              <div className="section-label">
+                <ChevronDown size={12} /> Phòng học{" "}
+                {permissions?.canHost && (
+                  <button
+                    type="button"
+                    aria-label="Tạo phòng học"
+                    onClick={openMeetingCreation}
+                  >
+                    <Plus size={14} />
+                  </button>
+                )}
+              </div>
+              <nav
+                className="workspace-meeting-channels"
+                aria-label="Phòng họp của lớp"
+                aria-busy={rooms.loading || roomSwitching}
+              >
+                {rooms.items.map((room) => {
+                  const isCurrentActive = activeMeetingId === room.id;
+                  return (
+                    <button
+                      key={room.id}
+                      type="button"
+                      className={`channel workspace-meeting-channel ${!membersView && isCurrentActive ? "selected" : ""}`}
+                      aria-current={
+                        !membersView && isCurrentActive ? "page" : undefined
+                      }
+                      disabled={roomSwitching}
+                      title={`${room.title} · ${room.status === "LIVE" ? "Đang diễn ra" : "Sắp diễn ra"}`}
+                      onClick={() => {
+                        if (isCurrentActive) {
+                          returnToMeeting();
+                          return;
+                        }
+                        openRoom(room);
+                      }}
+                    >
+                      {room.status === "SCHEDULED" ? (
+                        <CalendarDays size={18} />
+                      ) : (
+                        <Video size={19} />
+                      )}
+                      <span className="workspace-meeting-name">
+                        {room.title}
+                      </span>
+                      <span
+                        className={`workspace-meeting-status ${room.status.toLowerCase()}`}
+                      >
+                        {isCurrentActive && meetingMinimized
+                          ? "Đang kết nối"
+                          : room.status === "LIVE"
+                            ? "Trực tiếp"
+                            : "Đã lên lịch"}
+                      </span>
+                    </button>
+                  );
+                })}
+                {rooms.loading && !rooms.items.length && (
+                  <span className="workspace-meeting-loading" role="status">
+                    Đang tải phòng…
+                  </span>
+                )}
+                {!!rooms.error && (
+                  <button
+                    type="button"
+                    className="channel"
+                    onClick={() => void rooms.refresh()}
+                  >
+                    <RefreshCw size={16} />
+                    Tải lại phòng họp
+                  </button>
+                )}
+              </nav>
+              {!workspaceGroup.groupId && !user && (
+                <>
+                  <Link
+                    href="/workspace"
+                    onClick={navigateWorkspace}
+                    className={`channel live-channel ${!membersView && view === "live" ? "selected" : ""}`}
+                  >
+                    <Radio size={19} /> Lớp học trực tiếp{" "}
+                    <span className="live-dot" />
+                  </Link>
+                  <div className="channel-participants">
+                    <div className="stacked-avatars">
+                      <Avatar initials="NH" small />
+                      <Avatar initials="MA" color="pink" small />
+                      <Avatar initials="TP" color="blue" small />
+                    </div>
+                    <span>+21 đang tham gia</span>
+                  </div>
+                  <Link
+                    href="/rooms/nhom-01"
+                    onClick={navigateWorkspace}
+                    className={`channel ${!membersView && view === "room" ? "selected" : ""}`}
+                  >
+                    <Volume2 size={19} /> Phòng học nhóm <small>4</small>
+                  </Link>
+                </>
+              )}
               {permissions?.canHost && (
                 <button
                   type="button"
-                  aria-label="Tạo phòng học"
                   onClick={openMeetingCreation}
+                  className={`channel ${!membersView && view === "meet" ? "selected" : ""}`}
                 >
-                  <Plus size={14} />
+                  <Video size={19} /> Tạo cuộc họp / Lên lịch <Plus size={14} />
                 </button>
               )}
-            </div>
-            <nav
-              className="workspace-meeting-channels"
-              aria-label="Phòng họp của lớp"
-              aria-busy={rooms.loading || roomSwitching}
-            >
-              {rooms.items.map((room) => {
-                const isCurrentActive = activeMeetingId === room.id;
-                return (
-                  <button
-                    key={room.id}
-                    type="button"
-                    className={`channel workspace-meeting-channel ${!membersView && isCurrentActive ? "selected" : ""}`}
-                    aria-current={
-                      !membersView && isCurrentActive ? "page" : undefined
-                    }
-                    disabled={roomSwitching}
-                    title={`${room.title} · ${room.status === "LIVE" ? "Đang diễn ra" : "Sắp diễn ra"}`}
-                    onClick={() => {
-                      if (isCurrentActive) {
-                        returnToMeeting();
-                        return;
-                      }
-                      openRoom(room);
-                    }}
-                  >
-                    {room.status === "SCHEDULED" ? (
-                      <CalendarDays size={18} />
-                    ) : (
-                      <Video size={19} />
-                    )}
-                    <span className="workspace-meeting-name">{room.title}</span>
-                    <span
-                      className={`workspace-meeting-status ${room.status.toLowerCase()}`}
-                    >
-                      {isCurrentActive && meetingMinimized
-                        ? "Đang kết nối"
-                        : room.status === "LIVE"
-                          ? "Trực tiếp"
-                          : "Đã lên lịch"}
-                    </span>
-                  </button>
-                );
-              })}
-              {rooms.loading && !rooms.items.length && (
-                <span className="workspace-meeting-loading" role="status">
-                  Đang tải phòng…
-                </span>
-              )}
-              {!!rooms.error && (
-                <button
-                  type="button"
+              {workspaceGroup.groupId && (
+                <Link
+                  href={`/groups/${workspaceGroup.groupId}/sessions`}
                   className="channel"
-                  onClick={() => void rooms.refresh()}
+                  title="Xem toàn bộ lịch học của nhóm"
                 >
-                  <RefreshCw size={16} />
-                  Tải lại phòng họp
-                </button>
+                  <CalendarDays size={18} /> Lịch học của nhóm
+                </Link>
               )}
-            </nav>
-            {!workspaceGroup.groupId && !user && (
-              <>
-                <Link
-                  href="/workspace"
-                  onClick={navigateWorkspace}
-                  className={`channel live-channel ${!membersView && view === "live" ? "selected" : ""}`}
-                >
-                  <Radio size={19} /> Lớp học trực tiếp{" "}
-                  <span className="live-dot" />
-                </Link>
-                <div className="channel-participants">
-                  <div className="stacked-avatars">
-                    <Avatar initials="NH" small />
-                    <Avatar initials="MA" color="pink" small />
-                    <Avatar initials="TP" color="blue" small />
-                  </div>
-                  <span>+21 đang tham gia</span>
-                </div>
-                <Link
-                  href="/rooms/nhom-01"
-                  onClick={navigateWorkspace}
-                  className={`channel ${!membersView && view === "room" ? "selected" : ""}`}
-                >
-                  <Volume2 size={19} /> Phòng học nhóm <small>4</small>
-                </Link>
-              </>
-            )}
-            {permissions?.canHost && (
-              <button
-                type="button"
-                onClick={openMeetingCreation}
-                className={`channel ${!membersView && view === "meet" ? "selected" : ""}`}
-              >
-                <Video size={19} /> Tạo cuộc họp / Lên lịch <Plus size={14} />
-              </button>
-            )}
-            {workspaceGroup.groupId && (
-              <Link
-                href={`/groups/${workspaceGroup.groupId}/sessions`}
-                className="channel"
-                title="Xem toàn bộ lịch học của nhóm"
-              >
-                <CalendarDays size={18} /> Lịch học của nhóm
-              </Link>
-            )}
-          </div>
-          <div className="channel-section">
-            <div className="section-label">
-              <ChevronDown size={12} /> Thư viện
             </div>
-            <Link
-              href={`/files${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
-              onClick={navigateWorkspace}
-              className={`channel ${!membersView && view === "files" && filter !== "Bản ghi" ? "selected" : ""}`}
-            >
-              <Folder size={18} /> Tài liệu chung
-            </Link>
-            <Link
-              href={`/files?type=recordings${workspaceGroup.groupId ? `&groupId=${workspaceGroup.groupId}` : ""}`}
-              onClick={navigateWorkspace}
-              className={`channel ${!membersView && view === "files" && filter === "Bản ghi" ? "selected" : ""}`}
-            >
-              <Video size={18} /> Bản ghi bài giảng
-            </Link>
+            <div className="channel-section">
+              <div className="section-label">
+                <ChevronDown size={12} /> Thư viện
+              </div>
+              <Link
+                href={`/files${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
+                onClick={navigateWorkspace}
+                className={`channel ${!membersView && view === "files" && filter !== "Bản ghi" ? "selected" : ""}`}
+              >
+                <Folder size={18} /> Tài liệu chung
+              </Link>
+              <Link
+                href={`/files?type=recordings${workspaceGroup.groupId ? `&groupId=${workspaceGroup.groupId}` : ""}`}
+                onClick={navigateWorkspace}
+                className={`channel ${!membersView && view === "files" && filter === "Bản ghi" ? "selected" : ""}`}
+              >
+                <Video size={18} /> Bản ghi bài giảng
+              </Link>
+            </div>
           </div>
-        </div>
-      </aside>
+        </aside>
+      </div>
       <div className="sidebar-user workspace-identity">
         <Link
           className="workspace-account"

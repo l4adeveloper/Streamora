@@ -2,6 +2,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -57,6 +58,9 @@ export function VideoPlayerControls({
   const gear = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const idle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const dragging = useRef(false);
   const [media, setMedia] = useState({
     playing: false,
@@ -71,9 +75,30 @@ export function VideoPlayerControls({
   const [visible, setVisible] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [menu, setMenu] = useState<"main" | "quality" | "speed" | null>(null);
+  const [retainedMenu, setRetainedMenu] = useState<typeof menu>(null);
+  const renderedMenu = menu ?? retainedMenu;
+  const [feedback, setFeedback] = useState<{
+    playing: boolean;
+    id: number;
+  } | null>(null);
   const [seek, setSeek] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
-  const [menuHeight, setMenuHeight] = useState(280);
+  const [menuPosition, setMenuPosition] = useState({ right: 0, bottom: 0 });
+  const menuHeight =
+    14 +
+    (renderedMenu === "main"
+      ? 132
+      : 48 +
+        (renderedMenu === "speed" ? speeds.length : qualities.length) * 44);
+  useEffect(() => {
+    if (menu) {
+      setRetainedMenu(menu);
+      return;
+    }
+    const timer = setTimeout(() => setRetainedMenu(null), 140);
+    return () => clearTimeout(timer);
+  }, [menu]);
+  useEffect(() => () => clearTimeout(feedbackTimer.current), []);
   const wake = useCallback(() => {
     setVisible(true);
     clearTimeout(idle.current);
@@ -86,16 +111,40 @@ export function VideoPlayerControls({
     wake();
     return () => clearTimeout(idle.current);
   }, [media.playing, wake]);
-  useEffect(() => {
-    const element = frame.current;
-    if (!element) return;
-    const resized = () =>
-      setMenuHeight(Math.max(96, Math.min(340, element.clientHeight - 64)));
-    const observer = new ResizeObserver(resized);
-    observer.observe(element);
-    resized();
-    return () => observer.disconnect();
-  }, []);
+  useLayoutEffect(() => {
+    const popup = menuRef.current;
+    if (!renderedMenu || !popup) return;
+    // The top layer lets the menu expand beyond a short player's clipped bounds,
+    // while staying inside the preview dialog or fullscreen player in the DOM.
+    if (!popup.matches(":popover-open")) popup.showPopover();
+    const position = () => {
+      const anchor = gear.current?.getBoundingClientRect();
+      if (!anchor) return;
+      setMenuPosition({
+        right: Math.max(
+          8,
+          Math.min(
+            window.innerWidth - anchor.right,
+            window.innerWidth - popup.offsetWidth - 8,
+          ),
+        ),
+        bottom: Math.max(
+          8,
+          Math.min(
+            window.innerHeight - anchor.top + 12,
+            window.innerHeight - menuHeight - 8,
+          ),
+        ),
+      });
+    };
+    position();
+    window.addEventListener("resize", position);
+    window.addEventListener("scroll", position, true);
+    return () => {
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+    };
+  }, [renderedMenu, menuHeight]);
   useEffect(() => {
     const element = videoRef.current;
     if (!element) return;
@@ -171,18 +220,22 @@ export function VideoPlayerControls({
       const selected =
         menuRef.current?.querySelector<HTMLElement>('[aria-checked="true"]') ??
         menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]');
-      selected?.focus();
-      selected?.scrollIntoView({ block: "nearest" });
+      selected?.focus({ preventScroll: true });
     }, 0);
     return () => {
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("keydown", dismiss, true);
       clearTimeout(focus);
     };
-  }, [menu, menuHeight]);
+  }, [menu]);
   function closeMenu() {
     setMenu(null);
     gear.current?.focus();
+  }
+  function indicatePlayback(playing: boolean) {
+    clearTimeout(feedbackTimer.current);
+    setFeedback({ playing, id: performance.now() });
+    feedbackTimer.current = setTimeout(() => setFeedback(null), 460);
   }
   async function togglePlay() {
     const element = videoRef.current;
@@ -191,12 +244,16 @@ export function VideoPlayerControls({
     if (element.paused) {
       try {
         await element.play();
+        indicatePlayback(true);
       } catch (cause) {
         if (cause instanceof DOMException && cause.name === "AbortError")
           return;
         setNotice("Chưa phát được video. Hãy thử lại.");
       }
-    } else element.pause();
+    } else {
+      element.pause();
+      indicatePlayback(false);
+    }
     wake();
   }
   function changeTime(time: number) {
@@ -304,7 +361,20 @@ export function VideoPlayerControls({
           <LoaderCircle size={40} />
         </div>
       )}
-      {!loading && !buffering && !media.playing && (
+      {feedback && !loading && !buffering && (
+        <div
+          key={feedback.id}
+          className="video-player-center video-playback-feedback"
+          aria-hidden="true"
+        >
+          {feedback.playing ? (
+            <Play size={32} fill="currentColor" />
+          ) : (
+            <Pause size={32} fill="currentColor" />
+          )}
+        </div>
+      )}
+      {!loading && !buffering && !media.playing && !feedback && (
         <button
           type="button"
           className="video-player-center video-center-play"
@@ -409,16 +479,20 @@ export function VideoPlayerControls({
           <div className="video-control-spacer" />
           {transcriptControls}
           <div ref={settings} className="video-settings">
-            {menu && (
+            {renderedMenu && (
               <div
                 ref={menuRef}
                 className="video-settings-menu"
+                data-state={menu ? "open" : "closed"}
+                aria-hidden={!menu}
+                inert={!menu}
                 role="menu"
-                style={{ maxHeight: menuHeight }}
+                popover="manual"
+                style={{ ...menuPosition, height: menuHeight }}
                 aria-label={
-                  menu === "quality"
+                  renderedMenu === "quality"
                     ? "Chất lượng video"
-                    : menu === "speed"
+                    : renderedMenu === "speed"
                       ? "Tốc độ phát"
                       : "Cài đặt video"
                 }
@@ -448,92 +522,102 @@ export function VideoPlayerControls({
                   event.preventDefault();
                 }}
               >
-                {menu !== "main" && (
-                  <button
-                    type="button"
-                    className="video-menu-heading"
-                    aria-label="Quay lại cài đặt"
-                    onClick={() => setMenu("main")}
-                  >
-                    <ChevronLeft size={18} />
-                    {menu === "quality" ? "Chất lượng" : "Tốc độ phát"}
-                  </button>
-                )}
-                {menu === "main" ? (
-                  <>
+                <div
+                  key={renderedMenu}
+                  className={`video-menu-content ${renderedMenu === "main" ? "video-menu-back" : "video-menu-forward"}`}
+                >
+                  {renderedMenu !== "main" && (
                     <button
                       type="button"
-                      role="menuitem"
-                      onClick={() => setMenu("quality")}
+                      className="video-menu-heading"
+                      aria-label="Quay lại cài đặt"
+                      onClick={() => setMenu("main")}
                     >
-                      <span>Chất lượng</span>
-                      <small>{currentQuality}</small>
-                      <ChevronRight size={16} />
+                      <ChevronLeft size={18} />
+                      {renderedMenu === "quality"
+                        ? "Chất lượng"
+                        : "Tốc độ phát"}
                     </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => setMenu("speed")}
-                    >
-                      <span>Tốc độ phát</span>
-                      <small>
-                        {media.rate === 1 ? "Chuẩn" : `${media.rate}×`}
-                      </small>
-                      <ChevronRight size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={loading}
-                      onClick={() => {
-                        onRefresh();
-                        closeMenu();
-                      }}
-                    >
-                      <RefreshCw size={16} />
-                      <span>Cập nhật chất lượng</span>
-                    </button>
-                  </>
-                ) : menu === "quality" ? (
-                  qualities.map((item) => (
-                    <button
-                      type="button"
-                      key={item.value}
-                      role="menuitemradio"
-                      aria-checked={item.value === quality}
-                      disabled={loading}
-                      onClick={() => {
-                        onQualityChange(item.value);
-                        closeMenu();
-                      }}
-                    >
-                      <span className="video-menu-check">
-                        {item.value === quality && <Check size={17} />}
-                      </span>
-                      {item.label}
-                    </button>
-                  ))
-                ) : (
-                  speeds.map((rate) => (
-                    <button
-                      type="button"
-                      key={rate}
-                      role="menuitemradio"
-                      aria-checked={rate === media.rate}
-                      disabled={loading}
-                      onClick={() => {
-                        if (videoRef.current)
-                          videoRef.current.playbackRate = rate;
-                        closeMenu();
-                      }}
-                    >
-                      <span className="video-menu-check">
-                        {rate === media.rate && <Check size={17} />}
-                      </span>
-                      {rate === 1 ? "Chuẩn (1×)" : `${rate}×`}
-                    </button>
-                  ))
-                )}
+                  )}
+                  {renderedMenu === "main" ? (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => setMenu("quality")}
+                      >
+                        <span>Chất lượng</span>
+                        <small>{currentQuality}</small>
+                        <ChevronRight size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => setMenu("speed")}
+                      >
+                        <span>Tốc độ phát</span>
+                        <small>
+                          {media.rate === 1 ? "Bình thường" : `${media.rate}×`}
+                        </small>
+                        <ChevronRight size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={loading}
+                        onClick={() => {
+                          onRefresh();
+                          closeMenu();
+                        }}
+                      >
+                        <RefreshCw size={16} />
+                        <span>Cập nhật chất lượng</span>
+                      </button>
+                    </>
+                  ) : renderedMenu === "quality" ? (
+                    qualities.map((item) => (
+                      <button
+                        type="button"
+                        key={item.value}
+                        role="menuitemradio"
+                        aria-checked={item.value === quality}
+                        disabled={loading}
+                        onClick={() => {
+                          onQualityChange(item.value);
+                          closeMenu();
+                        }}
+                      >
+                        <span className="video-menu-check">
+                          {item.value === quality && <Check size={17} />}
+                        </span>
+                        {item.label}
+                      </button>
+                    ))
+                  ) : (
+                    speeds.map((rate) => (
+                      <button
+                        type="button"
+                        key={rate}
+                        role="menuitemradio"
+                        aria-label={rate === 1 ? "Bình thường" : `${rate}×`}
+                        aria-checked={rate === media.rate}
+                        disabled={loading}
+                        onClick={() => {
+                          if (videoRef.current)
+                            videoRef.current.playbackRate = rate;
+                          closeMenu();
+                        }}
+                      >
+                        <span className="video-menu-check">
+                          {rate === media.rate && <Check size={17} />}
+                        </span>
+                        <span className="video-speed-value">
+                          {rate === 1 ? "Bình thường" : rate}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
               </div>
             )}
             <button
