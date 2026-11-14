@@ -68,7 +68,7 @@ insert từ máy này hiện ngay ở máy khác. Test integration/UI tạo rồ
 
 ## Phụ đề cho video thư viện và bản ghi buổi học
 
-1. [Cài FFmpeg trên máy chạy API](#cài-ffmpeg).
+1. [Cài các dependency bằng npm trên máy chạy API](#cài-ffmpeg).
 2. Dùng tài nguyên Azure AI Speech hiện có ở East Asia (hỗ trợ Free F0) hoặc
    vùng hỗ trợ Speech to Text thời gian thực. Điền mã vùng và khóa của cùng một tài
    nguyên trong `backend/.env`.
@@ -95,39 +95,19 @@ nằm trong PostgreSQL và dùng quyền truy cập của video trong thư việ
 
 ### Cài FFmpeg
 
-Chọn lệnh theo hệ điều hành của máy chạy backend. Nếu chạy API trong WSL hoặc
-máy ảo Ubuntu, mở terminal bên trong môi trường đó để cài.
+Chạy lệnh sau từ thư mục gốc của dự án trên máy chạy API, kể cả trên EC2.
+Dependency `ffmpeg-static` tải bản FFmpeg phù hợp từ GitHub trong lúc cài đặt.
 
-**Ubuntu, Debian hoặc Linux Mint**
-
-```sh
-sudo apt update
-sudo apt install ffmpeg
-ffmpeg -version
+```bash
+npm ci
+node -e 'require("node:child_process").execFileSync(require("ffmpeg-static"), ["-version"], { stdio: "inherit" })'
+npm run build --workspace=@streamora/api
 ```
 
-**Windows (PowerShell)**
-
-```powershell
-winget install --id Gyan.FFmpeg --exact --source winget
-```
-
-Mở cửa sổ PowerShell mới rồi chạy `ffmpeg -version`. Nếu máy chưa có `winget`,
-tải bản ZIP cho Windows từ [trang tải FFmpeg](https://ffmpeg.org/download.html),
-giải nén rồi thêm thư mục `bin` vào `PATH` hoặc cấu hình đường dẫn như bên dưới.
-
-**macOS (Homebrew)**
-
-```sh
-brew install ffmpeg
-ffmpeg -version
-```
-
-Kiểm tra `ffmpeg -version` trong terminal dùng để chạy API. Nếu backend chạy dưới
-một tài khoản khác hoặc không tìm thấy `ffmpeg` trong `PATH`, đặt đường dẫn tuyệt
-đối đến file thực thi trong `backend/.env` hoặc biến môi trường triển khai.
-Dùng `command -v ffmpeg` trên Linux/macOS hoặc `(Get-Command ffmpeg).Source`
-trong PowerShell để lấy đường dẫn khi lệnh đã có trong `PATH`.
+Để trống hoặc xóa `RECORDING_FFMPEG_PATH` trong `backend/.env` và biến môi trường
+triển khai để dùng bản FFmpeg từ npm. Nếu bản này không có trên máy, API tìm
+`ffmpeg` trong `PATH`. Đặt đường dẫn tuyệt đối nếu muốn dùng bản cài riêng.
+Khởi động lại API sau khi cập nhật cấu hình hoặc build.
 
 ```dotenv
 # Ví dụ trên Windows sau khi giải nén FFmpeg vào C:\ffmpeg
