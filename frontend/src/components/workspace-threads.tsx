@@ -14,6 +14,11 @@ import { useGroupChat } from "@/lib/memberships/use-group-chat";
 import type { ChatMessage } from "./demo-data";
 import { WorkspaceChat } from "./workspace-chat";
 
+const chatTimeFormat = new Intl.DateTimeFormat("vi-VN", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 type ThreadSend = ChatMessage & {
   id: string;
   clientId: string;
@@ -24,9 +29,13 @@ type ThreadSend = ChatMessage & {
 export function WorkspaceThreads({
   groupId,
   userId,
+  targetMessageId,
+  targetThreadId,
 }: {
   groupId: string;
   userId?: string;
+  targetMessageId?: string;
+  targetThreadId?: string;
 }) {
   const [threads, setThreads] = useState<GroupChatThread[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -46,6 +55,7 @@ export function WorkspaceThreads({
   const chat = useGroupChat(
     selected ? groupId : null,
     selected ? `thread:${selected.id}` : "hỏi-đáp",
+    selected?.id === targetThreadId ? targetMessageId : undefined,
   );
   async function load(next?: string) {
     setBusy(true);
@@ -70,7 +80,11 @@ export function WorkspaceThreads({
       if ((event as CustomEvent).detail?.groupId === groupId) void load();
     };
     window.addEventListener("streamora:threads-changed", refresh);
-    const threadId = new URLSearchParams(location.search).get("threadId");
+    return () =>
+      window.removeEventListener("streamora:threads-changed", refresh);
+  }, [groupId]);
+  useEffect(() => {
+    const threadId = targetThreadId;
     let active = true;
     if (threadId && /^[a-f0-9-]{36}$/i.test(threadId))
       void apiRequest<{ thread: GroupChatThread }>(
@@ -84,9 +98,8 @@ export function WorkspaceThreads({
         });
     return () => {
       active = false;
-      window.removeEventListener("streamora:threads-changed", refresh);
     };
-  }, [groupId]);
+  }, [groupId, targetThreadId]);
   const visibleThreads = threads.filter((thread) =>
     thread.title
       .normalize("NFC")
@@ -101,10 +114,7 @@ export function WorkspaceThreads({
         initials: m.senderName.slice(0, 2).toUpperCase(),
         color: "violet",
         host: m.senderRole !== "VIEWER",
-        time: new Date(m.createdAt).toLocaleTimeString("vi-VN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+        time: chatTimeFormat.format(new Date(m.createdAt)),
       })),
     [chat.messages, userId],
   );
@@ -363,13 +373,23 @@ export function WorkspaceThreads({
             )}
             <WorkspaceChat
               key={selected.id}
+              targetMessageId={
+                selected.id === targetThreadId ? targetMessageId : undefined
+              }
               messages={messages}
+              historyReady={chat.historyReady}
+              latestVersion={chat.latestVersion}
+              onJumpToLatest={chat.loadLatest}
               currentUserId={userId}
               draft={draft}
               onDraftChange={setDraft}
               disabled={chat.status !== "connected"}
               hasOlder={chat.hasOlder}
               loadingOlder={chat.loadingOlder}
+              hasNewer={chat.hasNewer}
+              loadingNewer={chat.loadingNewer}
+              loadingTarget={chat.loadingTarget}
+              onLoadNewer={chat.loadNewer}
               onLoadOlder={chat.loadOlder}
               replyingTo={messages.find((m) => m.id === replyId)}
               onReply={(m) => setReplyId(m.id)}

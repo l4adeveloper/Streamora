@@ -257,6 +257,58 @@ test("gateway authorizes each write, prevents foreign edits/replies, and two ins
   await revoked.g.flush();
   assert.equal(revoked.delivered.length, 0);
 });
+test("direct history window preserves both directions and rejects foreign/deleted targets", async () => {
+  const id = randomUUID();
+  const rows = Array.from({ length: 45 }, (_, i) =>
+    message({
+      groupId: id,
+      createdAt: new Date(Date.UTC(2026, 10, 14, 0, 0, i)).toISOString(),
+    }),
+  );
+  await Promise.all(rows.map((row) => store.save(row)));
+  const window = await store.historyAround(
+    id,
+    rows[22].channel,
+    rows[22].id,
+    5,
+  );
+  assert.deepEqual(
+    window.items.map((row) => row.id),
+    rows.slice(17, 28).map((row) => row.id),
+  );
+  const older = await store.history(id, rows[22].channel, window.nextCursor, 5);
+  assert.deepEqual(
+    older.items.map((row) => row.id),
+    rows.slice(12, 17).map((row) => row.id),
+  );
+  const newer = await store.historyAfter(
+    id,
+    rows[22].channel,
+    window.newerCursor,
+    5,
+  );
+  assert.deepEqual(
+    newer.items.map((row) => row.id),
+    rows.slice(28, 33).map((row) => row.id),
+  );
+  await assert.rejects(
+    () => store.historyAround(randomUUID(), rows[22].channel, rows[22].id),
+    (e) => e.getStatus() === 404,
+  );
+  await assert.rejects(
+    () => store.historyAround(id, "other", rows[22].id),
+    (e) => e.getStatus() === 404,
+  );
+  await assert.rejects(
+    () => store.historyAfter(id, rows[22].channel, window.nextCursor),
+    (e) => e.getStatus() === 400,
+  );
+  await store.change(await store.get(id, rows[22].id));
+  await assert.rejects(
+    () => store.historyAround(id, rows[22].channel, rows[22].id),
+    (e) => e.getStatus() === 404,
+  );
+});
 test("REST uses real auth, runtime validation and group permissions with isolated PostgreSQL", async () => {
   const { createMeetingFixture } = require("./meeting-fixture.cjs");
   const fixture = await createMeetingFixture();
@@ -268,6 +320,23 @@ test("REST uses real auth, runtime validation and group permissions with isolate
     });
     assert.equal(created.status, 201);
     const path = `/groups/${created.body.group.id}/chat`;
+    const target = message({ groupId: created.body.group.id });
+    await store.save(target);
+    const windowUrl = `${path}/messages?around=${target.id}&channel=${encodeURIComponent(target.channel)}`;
+    assert.equal((await fixture.api(outsider, "GET", windowUrl)).status, 403);
+    const windowResult = await fixture.api(owner, "GET", windowUrl);
+    assert.equal(windowResult.status, 200);
+    assert.ok(windowResult.body.items.some((item) => item.id === target.id));
+    assert.equal(
+      (await fixture.api(owner, "GET", `${path}/messages?around=invalid`))
+        .status,
+      400,
+    );
+    assert.equal(
+      (await fixture.api(owner, "GET", `${path}/messages?direction=after`))
+        .status,
+      400,
+    );
     assert.equal(
       (await fixture.api(null, "GET", `${path}/threads`)).status,
       401,

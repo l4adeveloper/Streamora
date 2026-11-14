@@ -6,7 +6,7 @@ Ngày: 13/11/2026. Phạm vi: chat nhóm/kênh trong workspace. Chat bên trong 
 
 - Tin nhắn workspace chuyển sang DynamoDB, gồm gửi, sửa, xóa mềm, trả lời và chống trùng khi gửi lại.
 - Mở kênh ở cuối lịch sử ngay trước khi trình duyệt vẽ, không chạy hiệu ứng cuộn từ đầu xuống.
-- Lần đầu tải 20 tin. Cuộn lên đầu mới tải trang cũ; chèn tin vào đầu giữ vị trí đọc. Có nút tải thêm cho bàn phím và khi lịch sử ngắn hơn khung nhìn. Khi đang đọc tin cũ, tin mới không kéo người dùng xuống cuối.
+- Lần đầu tải 20 tin mới nhất; tự tải thêm nếu chưa lấp đầy khung nhìn. Cuộn lên đầu tải trang cũ; chèn tin vào đầu giữ vị trí đọc. Có điều khiển tải thêm gọn cho bàn phím. Khi đang đọc tin cũ, tin mới không kéo người dùng xuống cuối.
 - Tìm kiếm trong toàn bộ tin nhắn của group, bao gồm các kênh và thread, không chỉ các tin đã tải vào UI. Không phân biệt hoa/thường, chuẩn hóa Unicode NFC, giữ dấu tiếng Việt.
 - Kênh hỏi-đáp mở danh sách chủ đề bên trái và nội dung thread bên phải. Người dùng tạo chủ đề có tiêu đề, mở từng thread, gửi/trả lời/sửa/xóa tin như chat thường. Màn hình nhỏ chuyển giữa danh sách và nội dung bằng nút quay lại.
 - Gửi trong thread hiển thị tin tạm và xóa ô nhập ngay, giữ focus để viết tiếp; không khóa composer trong lúc chờ ACK. Đối chiếu clientId/ID để gộp tin đã xác nhận, tách tin chờ theo thread. Khi lỗi, giữ nguyên nội dung trong thông báo có nút “Thử gửi lại”, dùng lại clientId và không ghi đè bản nháp đang viết. Danh sách tin được memo hóa để gõ chữ không kích hoạt lại phần cuộn lịch sử.
@@ -95,7 +95,17 @@ Tất cả đều yêu cầu Bearer token và quyền truy cập group hiện t�
 
 `channel:join` trả thêm `nextCursor` và tối đa 20 tin mới nhất. UI dùng REST `/chat/messages` để tải trang cũ. `chat:thread.created` thông báo làm mới danh sách chủ đề. Contracts nằm trong `backend/contracts/src/memberships.ts`.
 
-Tìm kiếm có debounce 300ms và chặn phản hồi cũ khi đổi từ khóa/nhóm. Kết quả thread mở đúng chủ đề qua `threadId` trên URL; kết quả kênh mở kênh tương ứng. Chưa có nhảy/highlight chính xác một tin rất cũ trong kênh.
+Tìm kiếm có debounce 300ms và chặn phản hồi cũ khi đổi từ khóa/nhóm. Kết quả thread mở đúng chủ đề qua `threadId` trên URL; kết quả kênh mở kênh tương ứng. `messageId` xác định tin cần đến; cuộn ngắn tới tin, tô nổi bật trong 5 giây sau khi đến nơi. Không cuộn lại khi người dùng đang đọc hoặc gõ bản nháp mới.
+
+### Bổ sung nhảy tới tin nhắn và rà soát hồi quy (14/11/2026)
+
+`GET /groups/{groupId}/chat/messages?channel=...&around={messageId}&limit=20` đọc trực tiếp tối đa 20 tin trước, tin đích và 20 tin sau; trả `{items,nextCursor,newerCursor}`. Không duyệt tuần tự từ tin mới nhất về tin cần tìm. `nextCursor` tiếp tục về trước bằng API cũ; `newerCursor` tiếp tục về sau bằng `direction=after&cursor=...`. Giữ kiểm tra quyền nhóm/chủ đề; tin đã xóa hoặc thuộc kênh/nhóm khác trả 404. Bỏ `around` và `direction` giữ nguyên hành vi API lịch sử cũ.
+
+`use-group-chat.ts` dùng chung một hàm tải trang cho hai hướng. `use-chat-scroll.ts` giữ vị trí đọc, theo cuối khung khi đang ở tin mới nhất và quản lý hiệu ứng tìm kiếm; không phụ thuộc component hiển thị tin. Kết nối lại xóa cursor của cửa sổ tìm kiếm cũ. ACK gửi tin được trả ngay, không phải chờ tải lại lịch sử.
+
+Hỏi đáp giữ tin nhắn dưới tiêu đề, rộng cùng cột với ô trả lời trên desktop/mobile. Nút về tin mới nhất nằm nổi trong khung lịch sử, không thay đổi chiều cao ô nhập. CSS cuộn chung nằm ở `workspace-layout.css`, phần căn lề riêng cho hỏi đáp ở `workspace-threads.css`.
+
+Chuyển giữa các kênh chat, tài liệu và bản ghi trong cùng nhóm dùng chung trạng thái điều hướng, giữ Workspace/sidebar đang mount, cập nhật URL bằng History API và hỗ trợ Back/Forward. `type=recordings` chọn bộ lọc bản ghi; bỏ tham số này quay về tất cả tài liệu. Không để trạng thái chọn chat cũ che màn hình thư viện. Danh sách kênh được giữ theo nhóm trong khi chờ ACK kênh mới; đổi nhóm không hiển thị kênh của nhóm cũ và bỏ qua phản hồi tạo kênh cũ đến muộn. Link mở tab mới vẫn giữ `groupId`. Khi đang trong cuộc họp, chuyển sang thư viện vẫn phải rời phòng thành công trước.
 
 ## Cấu trúc lưu trữ
 
@@ -152,9 +162,13 @@ Lệnh chạy theo lô 100, giữ ID, thời gian, replyToId và trạng thái c
 npm run typecheck
 npm run build --workspace=@streamora/web
 npm run test:chat --workspace=@streamora/api
+node --test backend/test/frontend/chat-search-navigation.test.cjs
+node --test backend/test/frontend/chat-scroll-browser.test.cjs
 ```
 
 `test:chat` yêu cầu DynamoDB Local đang chạy, tạo table `streamora_chat_test_{UUID}` và xóa chính table đó sau khi chạy; từ chối endpoint ngoài loopback. Phần kiểm tra HTTP dùng PostgreSQL PGlite trong RAM, không đọc `.env` hay tạo database EC2. Không chạy các bài integration cũ với DATABASE_URL ứng dụng: fixture cũ cần PostgreSQL test riêng có CREATEDB.
+
+Hai bộ frontend mới không cần dữ liệu ứng dụng: bộ logic kiểm tra yêu cầu tải trực tiếp, đổi đích, reconnect và ACK; bộ trình duyệt dùng component thật với mạng giả lập để kiểm tra cuộn, khung tô 5 giây, bố cục desktop/mobile, tự lấp khung và gửi/thử lại khi lưu chậm hoặc lỗi. Đặt `STREAMORA_CHAT_SCREENSHOTS=1` nếu cần lưu ảnh bố cục vào `.preview/chat-layout-review`. Khi chạy production build lúc đang mở dev server, dùng bản sao nguồn riêng để không ghi đè `.next` đang chạy.
 
 Đã đạt 7 bài: retry đồng thời và conflict, phân trang timestamp trùng/cursor chéo scope, search nhiều kênh và sửa/xóa, trang search rỗng có cursor, thread độc lập, kiểm tra gateway/quyền/broadcast giữa hai gateway dùng chung DynamoDB, xác thực/validation/phân quyền REST qua Nest thật. Typecheck toàn workspace và production build frontend đạt.
 

@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
-import { IsOptional, IsString, Length } from "class-validator";
+import { IsIn, IsOptional, IsString, IsUUID, Length } from "class-validator";
 import { ApiError } from "../../common/api-error";
 import {
   CurrentAuth,
@@ -13,6 +13,8 @@ import { ChatStore } from "./chat-store";
 
 class HistoryQuery extends PaginationQueryDto {
   @IsOptional() @IsString() @Length(1, 100) channel = "trò-chuyện-chung";
+  @IsOptional() @IsUUID() around?: string;
+  @IsOptional() @IsIn(["before", "after"]) direction?: "before" | "after";
 }
 class SearchQuery extends PaginationQueryDto {
   @IsString() @Length(1, 100) q!: string;
@@ -36,6 +38,23 @@ export class ChatController {
   ) {
     await this.access.require(auth.user.id, groupId);
     await this.chat.requireThread(groupId, query.channel);
+    if (query.around)
+      return this.chat.historyAround(
+        groupId,
+        query.channel,
+        query.around,
+        query.limit,
+      );
+    if (query.direction === "after") {
+      if (!query.cursor)
+        throw new ApiError(400, "VALIDATION_ERROR", "Thiếu vị trí tin nhắn.");
+      return this.chat.historyAfter(
+        groupId,
+        query.channel,
+        query.cursor,
+        query.limit,
+      );
+    }
     return this.chat.history(groupId, query.channel, query.cursor, query.limit);
   }
   @Get("search")

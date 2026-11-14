@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -77,6 +77,11 @@ import { WorkspaceSearch } from "./workspace-search";
 import { FilesPanel } from "./files/files-panel";
 import { initialFiles, membersInitial, portrait } from "./demo-data";
 import type { View, ChatMessage } from "./demo-data";
+const chatTimeFormat = new Intl.DateTimeFormat("vi-VN", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 function ArrowUpRight() {
   return <ExternalLink size={15} />;
 }
@@ -98,15 +103,51 @@ function groupInitials(name: string) {
 export function Workspace({
   view: baseView,
   channel: routeChannel = "trò-chuyện-chung",
+  targetMessageId: routeMessageId,
+  targetThreadId: routeThreadId,
 }: {
   view: View;
   channel?: string;
+  targetMessageId?: string;
+  targetThreadId?: string;
 }) {
   const router = useRouter();
-  const [meetingChatChannel, setMeetingChatChannel] = useState<string | null>(
-    null,
-  );
-  const channel = meetingChatChannel ?? routeChannel;
+  const [navigation, setNavigation] = useState<
+    | { view: "chat"; channel: string; messageId?: string; threadId?: string }
+    | { view: "files" }
+    | null
+  >(null);
+  const chatNavigation = navigation?.view === "chat" ? navigation : null;
+  const channel = chatNavigation?.channel ?? routeChannel;
+  const targetMessageId = navigation
+    ? chatNavigation?.messageId
+    : routeMessageId;
+  const targetThreadId = navigation ? chatNavigation?.threadId : routeThreadId;
+  useEffect(() => {
+    setNavigation(null);
+    const restore = () => {
+      const url = new URL(location.href);
+      const match = url.pathname.match(/^\/community(?:\/([^/]+))?\/?$/);
+      setNavigation(
+        match
+          ? {
+              view: "chat",
+              channel: decodeURIComponent(match[1] ?? "trò-chuyện-chung"),
+              messageId: url.searchParams.get("messageId") ?? undefined,
+              threadId: url.searchParams.get("threadId") ?? undefined,
+            }
+          : url.pathname === "/files"
+            ? { view: "files" }
+            : null,
+      );
+      if (url.pathname === "/files")
+        setFilter(
+          url.searchParams.get("type") === "recordings" ? "Bản ghi" : "Tất cả",
+        );
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [baseView, routeChannel, routeMessageId, routeThreadId]);
   const { notify } = useToast();
   const { user } = useAuth();
   const workspaceGroup = useWorkspaceGroup();
@@ -236,10 +277,11 @@ export function Workspace({
     ? meetingMinimized
       ? "chat"
       : "meetings"
-    : baseView === "meetings" ||
-        (baseView === "live" && !!workspaceGroup.groupId)
-      ? "chat"
-      : baseView;
+    : (navigation?.view ??
+      (baseView === "meetings" ||
+      (baseView === "live" && !!workspaceGroup.groupId)
+        ? "chat"
+        : baseView));
   const changeWorkspace = useCallback(
     async (apply: () => void) => {
       if (switching.current) return;
@@ -402,11 +444,6 @@ export function Workspace({
           /^\/community(?:\/([^/]+))?\/?$/,
         );
         setMeetingMinimized(!!id && !!chatPath);
-        setMeetingChatChannel(
-          chatPath
-            ? decodeURIComponent(chatPath[1] ?? "trò-chuyện-chung")
-            : null,
-        );
         setRoomInfo(null);
         if (id) {
           setPanel(!matchMedia("(max-width: 900px)").matches);
@@ -474,69 +511,80 @@ export function Workspace({
   const [activeRoomName, setActiveRoomName] = useState("Phòng học nhóm");
   const chatStorageKey = `streamora-chat-v2:${channel}`;
   const legacyChatStorageKey = `streamora-chat:${channel}`;
-  const groupChat = useGroupChat(workspaceGroup.groupId, channel);
+  const groupChat = useGroupChat(
+    workspaceGroup.groupId,
+    channel,
+    channel !== "hỏi-đáp" ? targetMessageId : undefined,
+  );
   const customChannels = workspaceGroup.groupId
     ? groupChat.channels.map((item) => item.name)
     : localCustomChannels;
-  const confirmedMessages: ChatMessage[] = groupChat.messages.map(
-    (message) => ({
-      id: message.id,
-      clientId: message.clientId,
-      senderId: message.senderId,
-      name: message.senderId === user?.id ? "Bạn" : message.senderName,
-      initials: groupInitials(message.senderName),
-      color: message.senderId === user?.id ? "violet" : "blue",
-      text: message.text,
-      time: new Date(message.createdAt).toLocaleTimeString("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      createdAt: message.createdAt,
-      replyToId: message.replyToId,
-      meetingId: message.meetingId,
-      editedAt: message.editedAt,
-      host: message.senderRole !== "VIEWER",
-    }),
+  const confirmedMessages = useMemo<ChatMessage[]>(
+    () =>
+      groupChat.messages.map((message) => ({
+        id: message.id,
+        clientId: message.clientId,
+        senderId: message.senderId,
+        name: message.senderId === user?.id ? "Bạn" : message.senderName,
+        initials: groupInitials(message.senderName),
+        color: message.senderId === user?.id ? "violet" : "blue",
+        text: message.text,
+        time: chatTimeFormat.format(new Date(message.createdAt)),
+        createdAt: message.createdAt,
+        replyToId: message.replyToId,
+        meetingId: message.meetingId,
+        editedAt: message.editedAt,
+        host: message.senderRole !== "VIEWER",
+      })),
+    [groupChat.messages, user?.id],
   );
-  const confirmedMessageIds = new Set(
-    confirmedMessages.map((message) => message.id),
-  );
-  const confirmedClientIds = new Set(
-    confirmedMessages.flatMap((message) =>
-      message.clientId ? [message.clientId] : [],
-    ),
-  );
-  const visibleConfirmedMessages = confirmedMessages.filter((message) => {
-    if (message.clientId) return true;
-    const confirmedAt = Date.parse(message.createdAt ?? "");
-    return !pendingMessages.some((pending) => {
-      const pendingAt = Date.parse(pending.createdAt ?? "");
-      return (
-        pending.pending &&
-        pending.senderId === message.senderId &&
-        pending.text === message.text &&
-        (pending.replyToId ?? null) === (message.replyToId ?? null) &&
-        Number.isFinite(confirmedAt) &&
-        Number.isFinite(pendingAt) &&
-        Math.abs(confirmedAt - pendingAt) < 30_000
-      );
+  const messages = useMemo<ChatMessage[]>(() => {
+    const confirmedMessageIds = new Set(
+      confirmedMessages.map((message) => message.id),
+    );
+    const confirmedClientIds = new Set(
+      confirmedMessages.flatMap((message) =>
+        message.clientId ? [message.clientId] : [],
+      ),
+    );
+    const visibleConfirmedMessages = confirmedMessages.filter((message) => {
+      if (message.clientId) return true;
+      const confirmedAt = Date.parse(message.createdAt ?? "");
+      return !pendingMessages.some((pending) => {
+        const pendingAt = Date.parse(pending.createdAt ?? "");
+        return (
+          pending.pending &&
+          pending.senderId === message.senderId &&
+          pending.text === message.text &&
+          (pending.replyToId ?? null) === (message.replyToId ?? null) &&
+          Number.isFinite(confirmedAt) &&
+          Number.isFinite(pendingAt) &&
+          Math.abs(confirmedAt - pendingAt) < 30_000
+        );
+      });
     });
-  });
-  const messages: ChatMessage[] = workspaceGroup.groupId
-    ? [
-        ...visibleConfirmedMessages,
-        ...pendingMessages.filter(
-          (message) =>
-            !confirmedMessageIds.has(message.id) &&
-            !confirmedClientIds.has(message.clientId ?? ""),
-        ),
-      ].sort((left, right) => {
-        const leftTime = Date.parse(left.createdAt ?? "");
-        const rightTime = Date.parse(right.createdAt ?? "");
-        if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return 0;
-        return leftTime - rightTime;
-      })
-    : localMessages;
+    return workspaceGroup.groupId
+      ? [
+          ...visibleConfirmedMessages,
+          ...pendingMessages.filter(
+            (message) =>
+              !confirmedMessageIds.has(message.id) &&
+              !confirmedClientIds.has(message.clientId ?? ""),
+          ),
+        ].sort((left, right) => {
+          const leftTime = Date.parse(left.createdAt ?? "");
+          const rightTime = Date.parse(right.createdAt ?? "");
+          if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime))
+            return 0;
+          return leftTime - rightTime;
+        })
+      : localMessages;
+  }, [
+    confirmedMessages,
+    pendingMessages,
+    workspaceGroup.groupId,
+    localMessages,
+  ]);
   const replyingTo = replyingToId
     ? messages.find((message) => message.id === replyingToId)
     : undefined;
@@ -937,23 +985,42 @@ export function Workspace({
     const url = new URL(location.href);
     url.searchParams.delete("tab");
     history.replaceState(null, "", url);
+    const target = new URL(event.currentTarget.href);
+    const chatPath = target.pathname.match(/^\/community(?:\/([^/]+))?\/?$/);
+    const filesPath = target.pathname === "/files";
+    if (chatPath || filesPath) {
+      event.preventDefault();
+      if (workspaceGroup.groupId)
+        target.searchParams.set("groupId", workspaceGroup.groupId);
+      const apply = () => {
+        if (chatPath) {
+          setNavigation({
+            view: "chat",
+            channel: decodeURIComponent(chatPath[1] ?? "trò-chuyện-chung"),
+          });
+          if (activeMeetingId) {
+            setMeetingMinimized(true);
+            target.searchParams.set("meetingId", activeMeetingId);
+          }
+        } else {
+          setNavigation({ view: "files" });
+          setFilter(
+            target.searchParams.get("type") === "recordings"
+              ? "Bản ghi"
+              : "Tất cả",
+          );
+          setMeetingSelection(null);
+          setMeetingMinimized(false);
+          setRoomInfo(null);
+        }
+        // Keep the sidebar mounted while changing the workspace content.
+        if (target.href !== location.href) history.pushState(null, "", target);
+      };
+      if (filesPath && activeMeetingId) void changeWorkspace(apply);
+      else apply();
+      return;
+    }
     if (activeMeetingId) {
-      const targetHref = event.currentTarget.getAttribute("href") ?? "";
-      if (targetHref.startsWith("/community")) {
-        event.preventDefault();
-        setMeetingMinimized(true);
-        const target = new URL(event.currentTarget.href);
-        setMeetingChatChannel(
-          decodeURIComponent(
-            target.pathname.split("/")[2] || "trò-chuyện-chung",
-          ),
-        );
-        target.searchParams.set("groupId", workspaceGroup.groupId!);
-        target.searchParams.set("meetingId", activeMeetingId);
-        // Keep the room mounted while browsing chat so its media and controls survive.
-        history.pushState(null, "", target);
-        return;
-      }
       event.preventDefault();
       const href = event.currentTarget.href;
       void changeWorkspace(() => {
@@ -966,6 +1033,14 @@ export function Workspace({
   }
 
   const chatProps = {
+    historyReady: !workspaceGroup.groupId || groupChat.historyReady,
+    latestVersion: groupChat.latestVersion,
+    onJumpToLatest: groupChat.loadLatest,
+    hasNewer: groupChat.hasNewer,
+    loadingNewer: groupChat.loadingNewer,
+    loadingTarget: groupChat.loadingTarget,
+    onLoadNewer: groupChat.loadNewer,
+    targetMessageId,
     hasOlder: groupChat.hasOlder,
     loadingOlder: groupChat.loadingOlder,
     onLoadOlder: groupChat.loadOlder,
@@ -1137,7 +1212,7 @@ export function Workspace({
               </button>
             </div>
             <Link
-              href="/community"
+              href={`/community${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
               onClick={navigateWorkspace}
               className={`channel ${!membersView && view === "chat" && channel === "trò-chuyện-chung" ? "selected" : ""}`}
             >
@@ -1163,7 +1238,7 @@ export function Workspace({
             {customChannels.map((name) => (
               <Link
                 key={name}
-                href={`/community/${encodeURIComponent(name)}`}
+                href={`/community/${encodeURIComponent(name)}${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
                 onClick={navigateWorkspace}
                 className={`channel ${!membersView && view === "chat" && channel === name ? "selected" : ""}`}
               >
@@ -1282,21 +1357,15 @@ export function Workspace({
               <ChevronDown size={12} /> Thư viện
             </div>
             <Link
-              href="/files"
-              onClick={(event) => {
-                navigateWorkspace(event);
-                setFilter("Tất cả");
-              }}
+              href={`/files${workspaceGroup.groupId ? `?groupId=${workspaceGroup.groupId}` : ""}`}
+              onClick={navigateWorkspace}
               className={`channel ${!membersView && view === "files" && filter !== "Bản ghi" ? "selected" : ""}`}
             >
               <Folder size={18} /> Tài liệu chung
             </Link>
             <Link
-              href="/files?type=recordings"
-              onClick={(event) => {
-                navigateWorkspace(event);
-                setFilter("Bản ghi");
-              }}
+              href={`/files?type=recordings${workspaceGroup.groupId ? `&groupId=${workspaceGroup.groupId}` : ""}`}
+              onClick={navigateWorkspace}
               className={`channel ${!membersView && view === "files" && filter === "Bản ghi" ? "selected" : ""}`}
             >
               <Video size={18} /> Bản ghi bài giảng
@@ -1762,6 +1831,8 @@ export function Workspace({
                     <WorkspaceThreads
                       key={workspaceGroup.groupId}
                       groupId={workspaceGroup.groupId}
+                      targetMessageId={targetMessageId}
+                      targetThreadId={targetThreadId}
                       userId={user?.id}
                     />
                   )}

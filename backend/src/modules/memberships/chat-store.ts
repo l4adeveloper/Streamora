@@ -133,6 +133,72 @@ export class ChatStore {
     );
     return row.Item && !row.Item.deletedAt ? (row.Item as Stored) : null;
   }
+  async historyAfter(
+    groupId: string,
+    channel: string,
+    cursor: string,
+    limit = 20,
+  ) {
+    const prefix = `M#${channel}#`;
+    const key = this.decode(`${groupId}:after:${prefix}`, cursor);
+    if (!key || key.pk !== this.pk(groupId) || !key.sk.startsWith(prefix))
+      throw invalid();
+    const result = await this.client.send(
+      new QueryCommand({
+        TableName: this.table,
+        KeyConditionExpression: "pk = :pk AND sk BETWEEN :start AND :end",
+        ExpressionAttributeValues: {
+          ":pk": key.pk,
+          ":start": key.sk,
+          ":end": `${prefix}~`,
+        },
+        ExclusiveStartKey: key,
+        ScanIndexForward: true,
+        ConsistentRead: true,
+        Limit: limit,
+      }),
+    );
+    return {
+      items: (result.Items ?? [])
+        .filter((row) => !row.deletedAt)
+        .map((row) => this.publicMessage(row)),
+      nextCursor: this.cursor(
+        `${groupId}:after:${prefix}`,
+        result.LastEvaluatedKey,
+      ),
+    };
+  }
+  async historyAround(
+    groupId: string,
+    channel: string,
+    id: string,
+    limit = 20,
+  ) {
+    const target = await this.get(groupId, id);
+    if (!target || target.channel !== channel)
+      throw new ApiError(404, "NOT_FOUND", "Không tìm thấy tin nhắn.");
+    const prefix = `M#${channel}#`;
+    const key = { pk: target.pk, sk: target.sk };
+    const [older, newer] = await Promise.all([
+      this.history(
+        groupId,
+        channel,
+        this.cursor(`${groupId}:${prefix}`, key)!,
+        limit,
+      ),
+      this.historyAfter(
+        groupId,
+        channel,
+        this.cursor(`${groupId}:after:${prefix}`, key)!,
+        limit,
+      ),
+    ]);
+    return {
+      items: [...older.items, this.publicMessage(target), ...newer.items],
+      nextCursor: older.nextCursor,
+      newerCursor: newer.nextCursor,
+    };
+  }
   private event(groupId: string, event: string, payload: unknown) {
     const id = randomUUID();
     return {
