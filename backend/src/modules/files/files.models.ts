@@ -52,3 +52,17 @@ export class VideoPlaybackResponseDto {
   @ApiProperty({ type: VideoProcessingDto }) processing!: VideoProcessingDto;
   @ApiProperty({ type: [VideoSourceDto] }) sources!: VideoSourceDto[];
 }
+
+class RecordingTranscriptCueDto {
+  @ApiProperty({ type: "integer", minimum: 0 }) startMs!: number;
+  @ApiProperty({ type: "integer", minimum: 1 }) endMs!: number;
+  @ApiProperty() text!: string;
+}
+export class RecordingTranscriptResponseDto {
+  @ApiProperty({
+    enum: ["PENDING", "PROCESSING", "READY", "UNAVAILABLE", "FAILED", "TOO_LONG"],
+  })
+  status!: string;
+  @ApiPropertyOptional({ type: [RecordingTranscriptCueDto] })
+  cues?: RecordingTranscriptCueDto[];
+}

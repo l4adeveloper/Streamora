@@ -47,3 +47,14 @@ export type UpdateClassRecordingLayoutRequest = Partial<ClassRecordingLayout>;
 export interface CompleteClassRecordingRequest {
   fileId: string;
 }
+
+export interface RecordingTranscriptCue {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+export type RecordingTranscriptResponse =
+  | { status: "READY"; cues: RecordingTranscriptCue[] }
+  | {
+      status: "PENDING" | "PROCESSING" | "UNAVAILABLE" | "FAILED" | "TOO_LONG";
+    };

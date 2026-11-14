@@ -555,6 +555,7 @@ model LibraryFile {
   deletion    FileObjectDeletion?
   upload      UploadSession?
   classRecording ClassRecording?
+  videoTranscript VideoTranscript?
   storageLocationId String? @map("storage_location_id") @db.Char(64)
   storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
   @@index([groupId, status, createdAt, id])
@@ -740,6 +741,14 @@ model StorageLocation {
   @@map("storage_locations")
 }
 
+enum RecordingTranscriptStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+  TOO_LONG
+}
+
 // Session recording composed in the recorder's browser and saved through the
 // upload pipeline. While RECORDING, at most one screen share stays published.
 // The partial unique index (one RECORDING row per session) lives in the migration.
@@ -760,4 +769,15 @@ model ClassRecording {
   file LibraryFile? @relation(fields: [fileId], references: [id], onDelete: Restrict)
   @@index([sessionId, startedAt(sort: Desc)])
   @@map("class_recordings")
+}
+
+model VideoTranscript {
+  fileId String @id @map("file_id") @db.Uuid
+  file LibraryFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  transcriptStatus RecordingTranscriptStatus @default(PENDING) @map("transcript_status")
+  transcriptNextAttemptAt DateTime @default(now()) @map("transcript_next_attempt_at") @db.Timestamptz(3)
+  transcriptAttempts Int @default(0) @map("transcript_attempts")
+  transcriptCues Json? @map("transcript_cues")
+  @@index([transcriptStatus, transcriptNextAttemptAt], map: "video_transcripts_queue_idx")
+  @@map("video_transcripts")
 }

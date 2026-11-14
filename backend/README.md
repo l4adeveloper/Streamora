@@ -66,6 +66,74 @@ Database dùng chung cả nhóm: migration chạy một lần là mọi người
 insert từ máy này hiện ngay ở máy khác. Test integration/UI tạo rồi xóa database
 `streamora_test_*` tạm trên cùng server, nên user trong `DATABASE_URL` cần quyền CREATEDB.
 
+## Phụ đề cho video thư viện và bản ghi buổi học
+
+1. [Cài FFmpeg trên máy chạy API](#cài-ffmpeg).
+2. Dùng tài nguyên Azure AI Speech hiện có ở East Asia (hỗ trợ Free F0) hoặc
+   vùng hỗ trợ Speech to Text thời gian thực. Điền mã vùng và khóa của cùng một tài
+   nguyên trong `backend/.env`.
+
+   ```dotenv
+   AZURE_SPEECH_REGION=eastasia
+   AZURE_SPEECH_KEY=<khóa của tài nguyên Speech ở East Asia>
+   AZURE_SPEECH_LOCALES=vi-VN,en-US
+   ```
+
+3. Dừng API đang chạy, áp dụng `npm run db:migrate` rồi khởi động lại API.
+   Mở video trong thư viện rồi chọn **Phụ đề (CC)** hoặc **Bản chép lời**.
+
+Video MP4, WebM và MOV tải lên thư viện tự vào hàng đợi khi tải xong. Migration
+cũng đưa video thư viện hiện có vào hàng đợi và chuyển phụ đề đã tạo của các bản
+ghi buổi học sang bảng phụ đề của video. Worker dùng FFmpeg để tách âm thanh rồi
+gửi luồng PCM đến Azure Speech SDK. Phụ đề xuất hiện khi nhận dạng xong.
+Thời gian xử lý có thể gần bằng độ dài bản ghi, và mỗi lần xử lý dùng hạn mức
+Speech to Text của tài nguyên Azure. Streamora hỗ trợ bản ghi ngắn hơn hai giờ.
+Với nhiều giá trị trong `AZURE_SPEECH_LOCALES`, Azure dò ngôn ngữ chính ở đầu
+bản ghi. Dùng một giá trị như `vi-VN` nếu đã biết ngôn ngữ của buổi học. Kết quả
+nằm trong PostgreSQL và dùng quyền truy cập của video trong thư viện.
+[Xem tài liệu Azure Speech SDK](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/how-to-recognize-speech?pivots=programming-language-javascript).
+
+### Cài FFmpeg
+
+Chọn lệnh theo hệ điều hành của máy chạy backend. Nếu chạy API trong WSL hoặc
+máy ảo Ubuntu, mở terminal bên trong môi trường đó để cài.
+
+**Ubuntu, Debian hoặc Linux Mint**
+
+```sh
+sudo apt update
+sudo apt install ffmpeg
+ffmpeg -version
+```
+
+**Windows (PowerShell)**
+
+```powershell
+winget install --id Gyan.FFmpeg --exact --source winget
+```
+
+Mở cửa sổ PowerShell mới rồi chạy `ffmpeg -version`. Nếu máy chưa có `winget`,
+tải bản ZIP cho Windows từ [trang tải FFmpeg](https://ffmpeg.org/download.html),
+giải nén rồi thêm thư mục `bin` vào `PATH` hoặc cấu hình đường dẫn như bên dưới.
+
+**macOS (Homebrew)**
+
+```sh
+brew install ffmpeg
+ffmpeg -version
+```
+
+Kiểm tra `ffmpeg -version` trong terminal dùng để chạy API. Nếu backend chạy dưới
+một tài khoản khác hoặc không tìm thấy `ffmpeg` trong `PATH`, đặt đường dẫn tuyệt
+đối đến file thực thi trong `backend/.env` hoặc biến môi trường triển khai.
+Dùng `command -v ffmpeg` trên Linux/macOS hoặc `(Get-Command ffmpeg).Source`
+trong PowerShell để lấy đường dẫn khi lệnh đã có trong `PATH`.
+
+```dotenv
+# Ví dụ trên Windows sau khi giải nén FFmpeg vào C:\ffmpeg
+RECORDING_FFMPEG_PATH=C:/ffmpeg/bin/ffmpeg.exe
+```
+
 ## Cấu trúc và trách nhiệm
 
 ```text
