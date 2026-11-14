@@ -12,6 +12,7 @@ import { ClassAdmissionsService } from "./class-admissions.service";
 import { ClassAdmissionsController } from "./class-admissions.controller";
 import { ClassPresenceService } from "./class-presence.service";
 import { ClassSessionsGateway } from "./class-sessions.gateway";
+import { ClassSessionAutoCloseService } from "./class-session-auto-close.service";
 import { SessionSecurityModule } from "../auth/session-security.module";
 import { ClassParticipantService } from "./class-participant.service";
 import { ClassParticipantGuard } from "./class-participant.guard";
@@ -34,6 +35,7 @@ import { ClassSessionEventsModule } from "./class-session-events.module";
     ClassSessionsGateway,
     ClassParticipantService,
     ClassParticipantGuard,
+    ClassSessionAutoCloseService,
   ],
   exports: [
     ClassSessionsService,
@@ -41,6 +43,7 @@ import { ClassSessionEventsModule } from "./class-session-events.module";
     ClassSessionAccessService,
     ClassParticipantService,
     ClassParticipantGuard,
+    ClassSessionAutoCloseService,
     SessionSecurityModule,
     ClassSessionEventsModule,
   ],

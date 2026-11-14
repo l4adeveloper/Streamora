@@ -2,6 +2,7 @@ import {
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
+  Optional,
 } from "@nestjs/common";
 import {
   ConnectedSocket,
@@ -30,6 +31,7 @@ import {
   ClassPresenceService,
   type ClassConnection,
 } from "./class-presence.service";
+import { ClassSessionAutoCloseService } from "./class-session-auto-close.service";
 
 interface Watch {
   participationId?: string;
@@ -64,6 +66,7 @@ export class ClassSessionsGateway
     private readonly admissions: ClassAdmissionsService,
     private readonly presence: ClassPresenceService,
     private readonly prisma: PrismaService,
+    @Optional() private readonly autoClose?: ClassSessionAutoCloseService,
   ) {}
 
   handleConnection(socket: Socket) {
@@ -728,6 +731,7 @@ export class ClassSessionsGateway
     this.sweeping = true;
     try {
       await this.presence.sweep();
+      await this.autoClose?.sweep();
     } catch {
       this.warn();
     } finally {
