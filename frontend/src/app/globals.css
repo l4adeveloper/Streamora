@@ -1680,6 +1680,12 @@ small {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
+.message.search-target {
+  background: color-mix(in srgb, var(--accent, #8b5cf6) 14%, transparent);
+  border-radius: 8px;
+  outline: 2px solid color-mix(in srgb, var(--accent, #8b5cf6) 40%, transparent);
+  outline-offset: 2px;
+}
 .message {
   display: flex;
   gap: var(--space-2);

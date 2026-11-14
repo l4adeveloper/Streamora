@@ -2,7 +2,8 @@
 import Link from "next/link";
 
 import {
-  useLayoutEffect,
+  useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -10,6 +11,7 @@ import {
 } from "react";
 import {
   Check,
+  LoaderCircle,
   Pencil,
   Reply,
   Send,
@@ -19,6 +21,7 @@ import {
 } from "lucide-react";
 import { Avatar } from "./ui";
 import type { ChatMessage } from "./demo-data";
+import { useChatScroll } from "@/lib/memberships/use-chat-scroll";
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -45,9 +48,17 @@ function belongsToSameGroup(
 
 export function WorkspaceChat({
   messages,
+  targetMessageId,
+  historyReady = true,
+  latestVersion = 0,
+  onJumpToLatest,
   hasOlder = false,
   loadingOlder = false,
   onLoadOlder,
+  hasNewer = false,
+  loadingNewer = false,
+  loadingTarget = false,
+  onLoadNewer,
   draft,
   onDraftChange,
   onSubmit,
@@ -66,9 +77,17 @@ export function WorkspaceChat({
   disabled = false,
 }: {
   messages: ChatMessage[];
+  historyReady?: boolean;
+  latestVersion?: number;
+  onJumpToLatest?: () => Promise<void>;
+  targetMessageId?: string;
   hasOlder?: boolean;
   loadingOlder?: boolean;
   onLoadOlder?: () => Promise<void>;
+  hasNewer?: boolean;
+  loadingNewer?: boolean;
+  loadingTarget?: boolean;
+  onLoadNewer?: () => Promise<void>;
   draft: string;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
@@ -86,29 +105,70 @@ export function WorkspaceChat({
   infoText?: string;
   disabled?: boolean;
 }) {
-  const history = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
-  const pinned = useRef(true);
-  const previous = useRef({ first: "", height: 0, count: 0 });
-  useLayoutEffect(() => {
-    const element = history.current;
-    if (!element) return;
-    const first = messages[0]?.id ?? "";
-    const prev = previous.current;
-    if (prev.count && first !== prev.first && messages.length > prev.count) {
-      element.scrollTop += element.scrollHeight - prev.height;
-    } else if (!prev.count || pinned.current) {
-      element.scrollTop = element.scrollHeight;
-    }
-    previous.current = {
-      first,
-      height: element.scrollHeight,
-      count: messages.length,
-    };
-  }, [messages]);
+  const scroll = useChatScroll({
+    messages,
+    targetMessageId,
+    hasNewer,
+    loadingTarget,
+    latestVersion,
+  });
+  const { history, highlightId } = scroll;
+  const messageById = useMemo(
+    () => new Map(messages.map((message) => [message.id, message])),
+    [messages],
+  );
+  const userScrolling = useRef(false);
+  const autoFilledPage = useRef("");
+  useEffect(() => {
+    const el = history.current;
+    if (
+      !el ||
+      !historyReady ||
+      !hasOlder ||
+      loadingOlder ||
+      loadingTarget ||
+      targetMessageId ||
+      hasNewer ||
+      !onLoadOlder
+    )
+      return;
+    const page = [messages[0]?.id, messages.at(-1)?.id, messages.length].join(
+      ":",
+    );
+    if (
+      el.scrollHeight > el.clientHeight + 1 ||
+      autoFilledPage.current === page
+    )
+      return;
+    autoFilledPage.current = page;
+    void onLoadOlder();
+  }, [
+    messages,
+    historyReady,
+    hasOlder,
+    loadingOlder,
+    loadingTarget,
+    targetMessageId,
+    hasNewer,
+    onLoadOlder,
+    history,
+  ]);
+
+  function loadOlder() {
+    scroll.rememberAnchor();
+    return onLoadOlder?.();
+  }
+  function interruptScroll() {
+    userScrolling.current = true;
+    const interrupted = scroll.stopJump();
+    const el = history.current;
+    if (el && interrupted)
+      el.scrollTo({ top: el.scrollTop, behavior: "instant" });
+  }
 
   function startReply(message: ChatMessage) {
     onReply?.(message);
@@ -144,231 +204,313 @@ export function WorkspaceChat({
 
   return (
     <>
-      <div
-        className="chat-history"
-        ref={history}
-        onScroll={() => {
-          const el = history.current;
-          if (!el) return;
-          pinned.current =
-            el.scrollHeight - el.scrollTop - el.clientHeight < 64;
-          previous.current.height = el.scrollHeight;
-          if (el.scrollTop < 80 && !pinned.current && hasOlder && !loadingOlder)
-            void onLoadOlder?.();
-        }}
-        role="log"
-        aria-label="Lịch sử tin nhắn"
-        tabIndex={0}
-      >
-        {hasOlder && (
+      <div className="chat-scroll-region">
+        <div
+          className="chat-history"
+          ref={history}
+          onWheel={interruptScroll}
+          onPointerDown={interruptScroll}
+          onTouchStart={interruptScroll}
+          onKeyDown={(event) => {
+            if (
+              [
+                "ArrowUp",
+                "ArrowDown",
+                "PageUp",
+                "PageDown",
+                "Home",
+                "End",
+                " ",
+              ].includes(event.key)
+            )
+              interruptScroll();
+          }}
+          onScroll={() => {
+            const el = history.current;
+            if (!el) return;
+            const delta = scroll.onScroll();
+            if (delta === undefined || !userScrolling.current || loadingTarget)
+              return;
+            if (delta < 0 && el.scrollTop < 160 && hasOlder && !loadingOlder)
+              void loadOlder();
+            if (
+              delta > 0 &&
+              el.scrollHeight - el.scrollTop - el.clientHeight < 160 &&
+              hasNewer &&
+              !loadingNewer
+            )
+              void onLoadNewer?.();
+          }}
+          role="log"
+          aria-label="Lịch sử tin nhắn"
+          tabIndex={0}
+        >
+          <div ref={scroll.content} className="chat-history-content">
+            {hasOlder && (
+              <div className="chat-history-page-control">
+                <button
+                  type="button"
+                  className="chat-history-more"
+                  disabled={loadingOlder || loadingTarget}
+                  onClick={() => void loadOlder()}
+                >
+                  {loadingOlder && (
+                    <LoaderCircle
+                      size={13}
+                      className="ui-spinner"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {loadingOlder ? "Đang tải tin cũ…" : "Xem tin nhắn cũ hơn"}
+                </button>
+              </div>
+            )}
+            {historyReady && !hasOlder && !loadingTarget && welcome}
+            {historyReady && !hasOlder && !loadingTarget && showInfo && (
+              <div className="chat-info">
+                <ShieldCheck size={14} />
+                <span>{infoText}</span>
+              </div>
+            )}
+            {historyReady &&
+              !hasOlder &&
+              !loadingTarget &&
+              showHistoryLabel &&
+              messages.length > 0 && (
+                <div className="chat-date">
+                  <span /> Lịch sử trò chuyện <span />
+                </div>
+              )}
+            <div className="messages">
+              {messages.map((message, index) => {
+                const continuation = belongsToSameGroup(
+                  messages[index - 1],
+                  message,
+                );
+                const continues = belongsToSameGroup(
+                  message,
+                  messages[index + 1],
+                );
+                const replyTarget = message.replyToId
+                  ? messageById.get(message.replyToId)
+                  : undefined;
+                const ownMessage =
+                  Boolean(currentUserId) && message.senderId === currentUserId;
+                const canAct = Boolean(
+                  message.id && !message.pending && !message.meetingId,
+                );
+                return (
+                  <div
+                    className={[
+                      "message",
+                      message.id === highlightId && "search-target",
+                      message.pending && "pending",
+                      continuation && "continuation",
+                      continues && "continues",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    key={
+                      message.clientId ??
+                      message.id ??
+                      `${message.name}:${message.time}:${index}`
+                    }
+                    id={message.id ? `message-${message.id}` : undefined}
+                    data-message-id={message.id}
+                    aria-busy={message.pending || undefined}
+                  >
+                    <Avatar
+                      initials={message.initials}
+                      color={message.color}
+                      small
+                    />
+                    <div className="message-content">
+                      {continuation ? (
+                        <span className="sr-only">
+                          {message.name}, {message.time}
+                        </span>
+                      ) : (
+                        <div className="message-meta">
+                          <b title={message.name}>{message.name}</b>
+                          {message.host && (
+                            <span className="host-label">Giảng viên</span>
+                          )}
+                          <time dateTime={message.createdAt}>
+                            {message.time}
+                          </time>
+                        </div>
+                      )}
+                      {message.replyToId && (
+                        <button
+                          type="button"
+                          className="message-reply-preview"
+                          onClick={() =>
+                            replyTarget?.id &&
+                            document
+                              .getElementById(`message-${replyTarget.id}`)
+                              ?.scrollIntoView({ block: "center" })
+                          }
+                          disabled={!replyTarget}
+                        >
+                          <Reply size={12} aria-hidden="true" />
+                          {replyTarget ? (
+                            <>
+                              <b>{replyTarget.name}</b>
+                              <span>{replyTarget.text}</span>
+                            </>
+                          ) : (
+                            <span>Tin nhắn không còn tồn tại</span>
+                          )}
+                        </button>
+                      )}
+                      {editingId === message.id ? (
+                        <form
+                          className="message-edit-form"
+                          onSubmit={(event) =>
+                            void saveEdit(event, message.id!)
+                          }
+                        >
+                          <input
+                            value={editDraft}
+                            onChange={(event) =>
+                              setEditDraft(event.target.value)
+                            }
+                            aria-label="Sửa nội dung tin nhắn"
+                            maxLength={4000}
+                            autoFocus
+                            disabled={actionId === message.id}
+                          />
+                          <button
+                            type="submit"
+                            aria-label="Lưu thay đổi"
+                            disabled={
+                              !editDraft.trim() || actionId === message.id
+                            }
+                          >
+                            <Check size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Hủy sửa"
+                            onClick={() => setEditingId(null)}
+                            disabled={actionId === message.id}
+                          >
+                            <X size={15} />
+                          </button>
+                        </form>
+                      ) : (
+                        <div className="message-text">
+                          <p>
+                            {message.text
+                              .split(/(\/meet\/[A-Z0-9]{12})/g)
+                              .map((part, i) =>
+                                /^\/meet\/[A-Z0-9]{12}$/.test(part) ? (
+                                  <Link
+                                    key={i}
+                                    href={part}
+                                    className="meeting-chat-link"
+                                    onClick={(event) => {
+                                      if (
+                                        message.meetingId &&
+                                        onMeetingOpen &&
+                                        !event.metaKey &&
+                                        !event.ctrlKey &&
+                                        !event.shiftKey &&
+                                        !event.altKey
+                                      ) {
+                                        event.preventDefault();
+                                        onMeetingOpen(message.meetingId);
+                                      }
+                                    }}
+                                  >
+                                    Tham gia cuộc họp →
+                                  </Link>
+                                ) : (
+                                  part
+                                ),
+                              )}
+                          </p>
+                          {message.editedAt && (
+                            <small className="message-edited">
+                              (đã chỉnh sửa)
+                            </small>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {canAct &&
+                      (onReply || (ownMessage && (onEdit || onDelete))) && (
+                        <div
+                          className="message-actions"
+                          aria-label="Thao tác tin nhắn"
+                        >
+                          {onReply && (
+                            <button
+                              type="button"
+                              aria-label={`Trả lời tin nhắn của ${message.name}`}
+                              title="Trả lời"
+                              onClick={() => startReply(message)}
+                            >
+                              <Reply size={15} />
+                            </button>
+                          )}
+                          {ownMessage && onEdit && (
+                            <button
+                              type="button"
+                              aria-label="Sửa tin nhắn"
+                              title="Sửa"
+                              onClick={() => {
+                                setEditingId(message.id!);
+                                setEditDraft(message.text);
+                              }}
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
+                          {ownMessage && onDelete && (
+                            <button
+                              type="button"
+                              aria-label="Xóa tin nhắn"
+                              title="Xóa"
+                              disabled={actionId === message.id}
+                              onClick={() => void remove(message.id!)}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                  </div>
+                );
+              })}
+            </div>
+            {hasNewer && (
+              <div className="chat-history-page-control">
+                <button
+                  type="button"
+                  className="chat-history-more"
+                  disabled={loadingNewer || loadingTarget}
+                  onClick={() => void onLoadNewer?.()}
+                >
+                  {loadingNewer ? "Đang tải tin mới…" : "Xem tin nhắn mới hơn"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        {(scroll.awayFromLatest || hasNewer) && (
           <button
-            className="button secondary compact"
-            disabled={loadingOlder}
-            onClick={() => void onLoadOlder?.()}
+            type="button"
+            className="chat-jump-latest button secondary compact"
+            disabled={loadingTarget}
+            onClick={() => {
+              if (hasNewer && onJumpToLatest) void onJumpToLatest();
+              else scroll.scrollToLatest();
+            }}
           >
-            {loadingOlder ? "Đang tải…" : "Tải tin nhắn trước"}
+            Đi tới tin mới nhất ↓
           </button>
         )}
-        {welcome}
-        {showInfo && (
-          <div className="chat-info">
-            <ShieldCheck size={14} />
-            <span>{infoText}</span>
-          </div>
-        )}
-        {showHistoryLabel && messages.length > 0 && (
-          <div className="chat-date">
-            <span /> Lịch sử trò chuyện <span />
-          </div>
-        )}
-        <div className="messages">
-          {messages.map((message, index) => {
-            const continuation = belongsToSameGroup(
-              messages[index - 1],
-              message,
-            );
-            const continues = belongsToSameGroup(message, messages[index + 1]);
-            const replyTarget = message.replyToId
-              ? messages.find((candidate) => candidate.id === message.replyToId)
-              : undefined;
-            const ownMessage =
-              Boolean(currentUserId) && message.senderId === currentUserId;
-            const canAct = Boolean(
-              message.id && !message.pending && !message.meetingId,
-            );
-            return (
-              <div
-                className={[
-                  "message",
-                  message.pending && "pending",
-                  continuation && "continuation",
-                  continues && "continues",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                key={
-                  message.clientId ??
-                  message.id ??
-                  `${message.name}:${message.time}:${index}`
-                }
-                id={message.id ? `message-${message.id}` : undefined}
-                aria-busy={message.pending || undefined}
-              >
-                <Avatar
-                  initials={message.initials}
-                  color={message.color}
-                  small
-                />
-                <div className="message-content">
-                  {continuation ? (
-                    <span className="sr-only">
-                      {message.name}, {message.time}
-                    </span>
-                  ) : (
-                    <div className="message-meta">
-                      <b title={message.name}>{message.name}</b>
-                      {message.host && (
-                        <span className="host-label">Giảng viên</span>
-                      )}
-                      <time dateTime={message.createdAt}>{message.time}</time>
-                    </div>
-                  )}
-                  {message.replyToId && (
-                    <button
-                      type="button"
-                      className="message-reply-preview"
-                      onClick={() =>
-                        replyTarget?.id &&
-                        document
-                          .getElementById(`message-${replyTarget.id}`)
-                          ?.scrollIntoView({ block: "center" })
-                      }
-                      disabled={!replyTarget}
-                    >
-                      <Reply size={12} aria-hidden="true" />
-                      {replyTarget ? (
-                        <>
-                          <b>{replyTarget.name}</b>
-                          <span>{replyTarget.text}</span>
-                        </>
-                      ) : (
-                        <span>Tin nhắn không còn tồn tại</span>
-                      )}
-                    </button>
-                  )}
-                  {editingId === message.id ? (
-                    <form
-                      className="message-edit-form"
-                      onSubmit={(event) => void saveEdit(event, message.id!)}
-                    >
-                      <input
-                        value={editDraft}
-                        onChange={(event) => setEditDraft(event.target.value)}
-                        aria-label="Sửa nội dung tin nhắn"
-                        maxLength={4000}
-                        autoFocus
-                        disabled={actionId === message.id}
-                      />
-                      <button
-                        type="submit"
-                        aria-label="Lưu thay đổi"
-                        disabled={!editDraft.trim() || actionId === message.id}
-                      >
-                        <Check size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Hủy sửa"
-                        onClick={() => setEditingId(null)}
-                        disabled={actionId === message.id}
-                      >
-                        <X size={15} />
-                      </button>
-                    </form>
-                  ) : (
-                    <div className="message-text">
-                      <p>
-                        {message.text
-                          .split(/(\/meet\/[A-Z0-9]{12})/g)
-                          .map((part, i) =>
-                            /^\/meet\/[A-Z0-9]{12}$/.test(part) ? (
-                              <Link
-                                key={i}
-                                href={part}
-                                className="meeting-chat-link"
-                                onClick={(event) => {
-                                  if (
-                                    message.meetingId &&
-                                    onMeetingOpen &&
-                                    !event.metaKey &&
-                                    !event.ctrlKey &&
-                                    !event.shiftKey &&
-                                    !event.altKey
-                                  ) {
-                                    event.preventDefault();
-                                    onMeetingOpen(message.meetingId);
-                                  }
-                                }}
-                              >
-                                Tham gia cuộc họp →
-                              </Link>
-                            ) : (
-                              part
-                            ),
-                          )}
-                      </p>
-                      {message.editedAt && (
-                        <small className="message-edited">(đã chỉnh sửa)</small>
-                      )}
-                    </div>
-                  )}
-                </div>
-                {canAct &&
-                  (onReply || (ownMessage && (onEdit || onDelete))) && (
-                    <div
-                      className="message-actions"
-                      aria-label="Thao tác tin nhắn"
-                    >
-                      {onReply && (
-                        <button
-                          type="button"
-                          aria-label={`Trả lời tin nhắn của ${message.name}`}
-                          title="Trả lời"
-                          onClick={() => startReply(message)}
-                        >
-                          <Reply size={15} />
-                        </button>
-                      )}
-                      {ownMessage && onEdit && (
-                        <button
-                          type="button"
-                          aria-label="Sửa tin nhắn"
-                          title="Sửa"
-                          onClick={() => {
-                            setEditingId(message.id!);
-                            setEditDraft(message.text);
-                          }}
-                        >
-                          <Pencil size={14} />
-                        </button>
-                      )}
-                      {ownMessage && onDelete && (
-                        <button
-                          type="button"
-                          aria-label="Xóa tin nhắn"
-                          title="Xóa"
-                          disabled={actionId === message.id}
-                          onClick={() => void remove(message.id!)}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  )}
-              </div>
-            );
-          })}
-        </div>
       </div>
       <form className="chat-form" onSubmit={onSubmit}>
         {replyingTo && (

@@ -122,7 +122,8 @@ export function WorkspaceSearch({
               key={m.id}
               className="space-search-result"
               onClick={onNavigate}
-              href={`/community/${encodeURIComponent(thread ? "hỏi-đáp" : m.channel)}?groupId=${groupId}${thread ? `&threadId=${m.channel.slice(7)}` : ""}`}
+              scroll={false}
+              href={`/community/${encodeURIComponent(thread ? "hỏi-đáp" : m.channel)}?${new URLSearchParams({ groupId, messageId: m.id, ...(thread ? { threadId: m.channel.slice(7) } : {}) })}`}
             >
               <div className="space-search-result-meta">
                 <span>

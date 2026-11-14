@@ -582,6 +582,59 @@ body:has(.app-shell) {
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
+  overflow-anchor: none;
+  scroll-behavior: auto;
+  scrollbar-gutter: stable;
+}
+.chat-history-content {
+  display: flow-root;
+}
+.chat-history-page-control {
+  display: flex;
+  justify-content: center;
+  min-height: 32px;
+  padding: 2px 0 6px;
+}
+.chat-history-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chat-history-more:hover:not(:disabled),
+.chat-history-more:focus-visible {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.chat-history-more:disabled {
+  cursor: default;
+}
+.chat-scroll-region {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.chat-jump-latest {
+  position: absolute;
+  z-index: 3;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  box-shadow: var(--shadow-popover);
 }
 .app-shell .chat-history .messages {
   flex: none;
