@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
 import { resolve } from "node:path";
 import { AUTH_POLICY } from "./auth-policy";
@@ -369,17 +370,24 @@ function readAzureSpeechConfig(
     .map((locale) => locale.trim());
   if (locales.length > 4 || locales.includes(""))
     invalid("AZURE_SPEECH_LOCALES");
+  let canonical: string[];
   try {
-    const canonical = Intl.getCanonicalLocales(locales);
+    canonical = Intl.getCanonicalLocales(locales);
     const languages = new Set(canonical.map((locale) => new Intl.Locale(locale).language));
     if (languages.size !== locales.length) invalid("AZURE_SPEECH_LOCALES");
-    return {
-      region,
-      key,
-      locales: canonical,
-      ffmpegPath: env.RECORDING_FFMPEG_PATH?.trim() || "ffmpeg",
-    };
   } catch {
     invalid("AZURE_SPEECH_LOCALES");
   }
+  const override = env.RECORDING_FFMPEG_PATH?.trim();
+  const bundledPath = override
+    ? null
+    : (require("ffmpeg-static") as string | null);
+  return {
+    region,
+    key,
+    locales: canonical,
+    ffmpegPath:
+      override ||
+      (bundledPath && existsSync(bundledPath) ? bundledPath : "ffmpeg"),
+  };
 }

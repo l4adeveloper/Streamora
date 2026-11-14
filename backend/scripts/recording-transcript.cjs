@@ -153,6 +153,7 @@ async function main() {
         select: {
           id: true,
           name: true,
+          mimeType: true,
           source: true,
           status: true,
           storageLocationId: true,
@@ -244,7 +245,33 @@ async function main() {
       },
     });
     if (!row) {
-      console.error("No transcript job found for this video.");
+      const file = await db.libraryFile.findUnique({
+        where: { id: fileId },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          source: true,
+          mimeType: true,
+          sessionId: true,
+        },
+      });
+      if (!file) {
+        console.error("No Streamora library file has that ID in this database.");
+        console.error("Use find-s3 <s3-uri> to look up the library file ID.");
+      } else {
+        console.log({ file });
+        console.error("No transcript job found for this video.");
+        if (file.status !== "AVAILABLE") {
+          console.error("Transcription requires an AVAILABLE file.");
+        } else if (!VIDEO_TYPES.has(file.mimeType)) {
+          console.error(`Supported video types: ${[...VIDEO_TYPES].join(", ")}.`);
+        } else if (file.source === "DOCUMENT") {
+          console.error(
+            `Run node backend/scripts/recording-transcript.cjs queue-file ${fileId} to create a job for this upload.`,
+          );
+        }
+      }
       process.exitCode = 1;
       return;
     }
