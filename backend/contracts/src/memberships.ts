@@ -62,6 +62,12 @@ export interface GroupChatThread {
   title: string;
   createdById: string;
   createdAt: string;
+  lastMessageAt?: string;
+}
+
+export interface GroupChatReadState {
+  unread: Record<string, number>;
+  threadActivity: Record<string, string>;
 }
 
 export type GroupChatJoinAck =

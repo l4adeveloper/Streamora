@@ -22,6 +22,10 @@ class SearchQuery extends PaginationQueryDto {
 class CreateThreadDto {
   @IsString() @Length(1, 120) title!: string;
 }
+class MarkReadDto {
+  @IsString() @Length(1, 100) channel!: string;
+  @IsUUID() messageId!: string;
+}
 
 @Controller("groups/:groupId/chat")
 @RequireAuth()
@@ -65,6 +69,29 @@ export class ChatController {
   ) {
     await this.access.require(auth.user.id, groupId);
     return this.chat.search(groupId, query.q, query.cursor, query.limit);
+  }
+  @Get("read-state")
+  async readState(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("groupId", new UUIDParamPipe()) groupId: string,
+  ) {
+    await this.access.require(auth.user.id, groupId);
+    return this.chat.readState(groupId, auth.user.id);
+  }
+  @Post("read")
+  async markRead(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("groupId", new UUIDParamPipe()) groupId: string,
+    @Body() body: MarkReadDto,
+  ) {
+    await this.access.require(auth.user.id, groupId);
+    await this.chat.requireThread(groupId, body.channel);
+    return this.chat.markRead(
+      groupId,
+      auth.user.id,
+      body.channel,
+      body.messageId,
+    );
   }
   @Get("threads")
   async threads(

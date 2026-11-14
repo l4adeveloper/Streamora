@@ -564,6 +564,22 @@ body:has(.app-shell) {
 }
 
 /* Only chat history scrolls; each conversation keeps its own composer. */
+.channel-unread-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+}
 .app-shell .view-chat:not(.membership-main) {
   display: flex;
   flex-direction: column;

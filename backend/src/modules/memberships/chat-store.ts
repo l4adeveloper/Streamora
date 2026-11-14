@@ -5,12 +5,14 @@ import {
   GetCommand,
   QueryCommand,
   TransactWriteCommand,
+  PutCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
 import type {
   CursorPage,
   GroupChatMessage,
   GroupChatThread,
+  GroupChatReadState,
 } from "@streamora/contracts";
 import { ApiError } from "../../common/api-error";
 
@@ -372,13 +374,152 @@ export class ChatStore {
     cursor?: string,
     limit = 20,
   ): Promise<CursorPage<GroupChatThread>> {
-    const result = await this.query(groupId, "T#", limit, cursor);
+    const [messages, rows] = await Promise.all([
+      this.messageMetadata(groupId),
+      this.allRows(groupId, "T#"),
+    ]);
+    const activity = this.threadActivity(messages);
+    const scope = `${groupId}:threads:activity`;
+    const after = this.decode(scope, cursor);
+    if (after && after.pk !== this.pk(groupId)) throw invalid();
+    const sorted = rows
+      .map(
+        ({ pk, sk, ...thread }) =>
+          ({
+            ...thread,
+            lastMessageAt: activity[`thread:${thread.id}`] ?? thread.createdAt,
+          }) as GroupChatThread & { lastMessageAt: string },
+      )
+      .sort(
+        (a, b) =>
+          b.lastMessageAt.localeCompare(a.lastMessageAt) ||
+          b.id.localeCompare(a.id),
+      );
+    const position = (thread: (typeof sorted)[number]) =>
+      `${thread.lastMessageAt}#${thread.id}`;
+    const remaining = after
+      ? sorted.filter((thread) => position(thread) < after.sk)
+      : sorted;
+    const items = remaining.slice(0, limit);
     return {
-      items: (result.Items ?? []).map(
-        ({ pk, sk, ...thread }) => thread as GroupChatThread,
-      ),
-      nextCursor: this.cursor(`${groupId}:T#`, result.LastEvaluatedKey),
+      items,
+      nextCursor:
+        remaining.length > limit
+          ? this.cursor(scope, {
+              pk: this.pk(groupId),
+              sk: position(items[items.length - 1]),
+            })
+          : null,
     };
+  }
+  private async allRows(
+    groupId: string,
+    prefix: string,
+    projection?: string,
+    names?: Record<string, string>,
+  ) {
+    const items: Record<string, any>[] = [];
+    let key: Record<string, any> | undefined;
+    do {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.table,
+          KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+          ExpressionAttributeValues: {
+            ":pk": this.pk(groupId),
+            ":prefix": prefix,
+          },
+          ConsistentRead: true,
+          ExclusiveStartKey: key,
+          ProjectionExpression: projection,
+          ExpressionAttributeNames: names,
+        }),
+      );
+      items.push(...(result.Items ?? []));
+      key = result.LastEvaluatedKey;
+    } while (key);
+    return items;
+  }
+  private messageMetadata(groupId: string) {
+    return this.allRows(
+      groupId,
+      "M#",
+      "#id, #channel, #sender, #created, #deleted",
+      {
+        "#id": "id",
+        "#channel": "channel",
+        "#sender": "senderId",
+        "#created": "createdAt",
+        "#deleted": "deletedAt",
+      },
+    );
+  }
+  private threadActivity(messages: Record<string, any>[]) {
+    const activity: Record<string, string> = Object.create(null);
+    for (const message of messages) {
+      if (
+        !message.deletedAt &&
+        message.channel.startsWith("thread:") &&
+        (!activity[message.channel] ||
+          activity[message.channel] < message.createdAt)
+      )
+        activity[message.channel] = message.createdAt;
+    }
+    return activity;
+  }
+  async readState(
+    groupId: string,
+    userId: string,
+  ): Promise<GroupChatReadState> {
+    const [messages, markers] = await Promise.all([
+      this.messageMetadata(groupId),
+      this.allRows(groupId, `READ#${userId}#`),
+    ]);
+    const positions = new Map(
+      markers.map((marker) => [marker.channel, marker.position]),
+    );
+    const unread: Record<string, number> = Object.create(null);
+    for (const message of messages) {
+      if (message.deletedAt || message.senderId === userId) continue;
+      if (
+        `${message.createdAt}#${message.id}` >
+        (positions.get(message.channel) ?? "")
+      )
+        unread[message.channel] = (unread[message.channel] ?? 0) + 1;
+    }
+    return { unread, threadActivity: this.threadActivity(messages) };
+  }
+  async markRead(
+    groupId: string,
+    userId: string,
+    channel: string,
+    messageId: string,
+  ) {
+    const message = await this.get(groupId, messageId);
+    if (!message || message.channel !== channel)
+      throw new ApiError(404, "NOT_FOUND", "Không tìm thấy tin nhắn.");
+    const position = `${message.createdAt}#${message.id}`;
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: {
+            pk: this.pk(groupId),
+            sk: `READ#${userId}#${channel}`,
+            channel,
+            position,
+          },
+          ConditionExpression:
+            "attribute_not_exists(#position) OR #position < :position",
+          ExpressionAttributeNames: { "#position": "position" },
+          ExpressionAttributeValues: { ":position": position },
+        }),
+      );
+    } catch (error) {
+      if ((error as Error).name !== "ConditionalCheckFailedException")
+        throw error;
+    }
+    return { ok: true };
   }
   async createThread(groupId: string, createdById: string, title: string) {
     const thread: GroupChatThread = {

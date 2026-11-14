@@ -52,6 +52,7 @@ export function WorkspaceChat({
   historyReady = true,
   latestVersion = 0,
   onJumpToLatest,
+  onRead,
   hasOlder = false,
   loadingOlder = false,
   onLoadOlder,
@@ -80,6 +81,7 @@ export function WorkspaceChat({
   historyReady?: boolean;
   latestVersion?: number;
   onJumpToLatest?: () => Promise<void>;
+  onRead?: (messageId: string) => Promise<boolean>;
   targetMessageId?: string;
   hasOlder?: boolean;
   loadingOlder?: boolean;
@@ -117,6 +119,58 @@ export function WorkspaceChat({
     latestVersion,
   });
   const { history, highlightId } = scroll;
+  const lastRead = useRef<string | undefined>(undefined);
+  const receiptInFlight = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (
+      !onRead ||
+      !historyReady ||
+      loadingTarget ||
+      hasNewer ||
+      scroll.awayFromLatest
+    )
+      return;
+    const mark = () => {
+      const el = history.current;
+      const latest = messages.findLast(
+        (message) => message.id && !message.pending,
+      );
+      if (
+        !el ||
+        !latest?.id ||
+        latest.id === lastRead.current ||
+        latest.id === receiptInFlight.current ||
+        document.visibilityState !== "visible" ||
+        el.scrollHeight - el.scrollTop - el.clientHeight > 64
+      )
+        return;
+      const id = latest.id;
+      receiptInFlight.current = id;
+      void onRead(id)
+        .then((ok) => {
+          if (ok && receiptInFlight.current === id) lastRead.current = id;
+        })
+        .finally(() => {
+          if (receiptInFlight.current === id)
+            receiptInFlight.current = undefined;
+        });
+    };
+    mark();
+    document.addEventListener("visibilitychange", mark);
+    window.addEventListener("focus", mark);
+    return () => {
+      document.removeEventListener("visibilitychange", mark);
+      window.removeEventListener("focus", mark);
+    };
+  }, [
+    messages,
+    onRead,
+    historyReady,
+    loadingTarget,
+    hasNewer,
+    scroll.awayFromLatest,
+    history,
+  ]);
   const messageById = useMemo(
     () => new Map(messages.map((message) => [message.id, message])),
     [messages],

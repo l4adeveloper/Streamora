@@ -591,13 +591,6 @@ small {
   line-height: var(--line-meta);
   font-weight: 500;
 }
-.unread-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--muted);
-  margin-left: auto;
-}
 .channel-participants {
   display: flex;
   gap: var(--space-2);

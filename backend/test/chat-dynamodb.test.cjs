@@ -322,6 +322,50 @@ test("REST uses real auth, runtime validation and group permissions with isolate
     const path = `/groups/${created.body.group.id}/chat`;
     const target = message({ groupId: created.body.group.id });
     await store.save(target);
+    assert.equal(
+      (await fixture.api(outsider, "GET", `${path}/read-state`)).status,
+      403,
+    );
+    assert.equal(
+      (
+        await fixture.api(outsider, "POST", `${path}/read`, {
+          channel: target.channel,
+          messageId: target.id,
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await fixture.api(owner, "POST", `${path}/read`, {
+          channel: target.channel,
+          messageId: target.id,
+          userId: outsider.id,
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (await fixture.api(owner, "GET", `${path}/read-state`)).body.unread[
+        target.channel
+      ],
+      1,
+    );
+    assert.equal(
+      (
+        await fixture.api(owner, "POST", `${path}/read`, {
+          channel: target.channel,
+          messageId: target.id,
+        })
+      ).status,
+      201,
+    );
+    assert.equal(
+      (await fixture.api(owner, "GET", `${path}/read-state`)).body.unread[
+        target.channel
+      ] ?? 0,
+      0,
+    );
     const windowUrl = `${path}/messages?around=${target.id}&channel=${encodeURIComponent(target.channel)}`;
     assert.equal((await fixture.api(outsider, "GET", windowUrl)).status, 403);
     const windowResult = await fixture.api(owner, "GET", windowUrl);
@@ -380,4 +424,112 @@ test("REST uses real auth, runtime validation and group permissions with isolate
   } finally {
     await fixture.cleanup();
   }
+});
+
+test("unread receipts persist per user/channel, never move backwards and ignore own/deleted messages", async () => {
+  const group = randomUUID(),
+    reader = randomUUID(),
+    other = randomUUID();
+  const first = message({
+    groupId: group,
+    senderId: other,
+    createdAt: "2026-11-14T00:00:00.000Z",
+  });
+  const second = message({
+    groupId: group,
+    senderId: other,
+    createdAt: "2026-11-14T00:00:01.000Z",
+  });
+  const own = message({
+    groupId: group,
+    senderId: reader,
+    createdAt: "2026-11-14T00:00:02.000Z",
+  });
+  const removed = message({
+    groupId: group,
+    senderId: other,
+    createdAt: "2026-11-14T00:00:03.000Z",
+  });
+  await Promise.all([first, second, own, removed].map((m) => store.save(m)));
+  await store.change(await store.get(group, removed.id));
+  assert.equal((await store.readState(group, reader)).unread[first.channel], 2);
+  assert.equal((await store.readState(group, other)).unread[first.channel], 1);
+  await store.markRead(group, reader, first.channel, second.id);
+  await store.markRead(group, reader, first.channel, first.id);
+  assert.equal(
+    (await store.readState(group, reader)).unread[first.channel] ?? 0,
+    0,
+  );
+  assert.equal((await store.readState(group, other)).unread[first.channel], 1);
+  const thread = await store.createThread(group, reader, "Independent unread");
+  await store.save(
+    message({
+      groupId: group,
+      senderId: other,
+      channel: `thread:${thread.id}`,
+    }),
+  );
+  const reopened = new ChatStore();
+  try {
+    const result = await reopened.readState(group, reader);
+    assert.equal(result.unread[first.channel] ?? 0, 0);
+    assert.equal(result.unread[`thread:${thread.id}`], 1);
+  } finally {
+    reopened.client.destroy();
+  }
+  await assert.rejects(
+    () => store.markRead(randomUUID(), reader, first.channel, first.id),
+    (e) => e.getStatus() === 404,
+  );
+  await assert.rejects(
+    () => store.markRead(group, reader, "other-channel", first.id),
+    (e) => e.getStatus() === 404,
+  );
+  await assert.rejects(
+    () => store.markRead(group, reader, removed.channel, removed.id),
+    (e) => e.getStatus() === 404,
+  );
+});
+
+test("threads sort by last sent message across pagination and move an older topic to the top", async () => {
+  const group = randomUUID();
+  const threads = [];
+  for (let i = 0; i < 3; i++)
+    threads.push(await store.createThread(group, senderId, "Topic " + i));
+  const base = Date.now() + 10000;
+  await store.save(
+    message({
+      groupId: group,
+      channel: `thread:${threads[0].id}`,
+      createdAt: new Date(base).toISOString(),
+    }),
+  );
+  await store.save(
+    message({
+      groupId: group,
+      channel: `thread:${threads[1].id}`,
+      createdAt: new Date(base + 1000).toISOString(),
+    }),
+  );
+  let page = await store.threads(group, undefined, 1);
+  const ids = [page.items[0].id];
+  assert.equal(ids[0], threads[1].id);
+  while (page.nextCursor) {
+    page = await store.threads(group, page.nextCursor, 1);
+    ids.push(...page.items.map((item) => item.id));
+  }
+  assert.deepEqual(ids, [threads[1].id, threads[0].id, threads[2].id]);
+  await store.save(
+    message({
+      groupId: group,
+      channel: `thread:${threads[0].id}`,
+      createdAt: new Date(base + 2000).toISOString(),
+    }),
+  );
+  assert.equal((await store.threads(group)).items[0].id, threads[0].id);
+  const scoped = (await store.threads(group, undefined, 1)).nextCursor;
+  await assert.rejects(
+    () => store.threads(randomUUID(), scoped, 1),
+    (e) => e.getStatus() === 400,
+  );
 });

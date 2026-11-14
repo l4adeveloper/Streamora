@@ -34,8 +34,8 @@ async function fixture({
         const [state,setState]=useState({messages:[],hasOlder:true,historyReady:false,latestVersion:0});
         const [draft,setDraft]=useState('');
         window.setChat=patch=>setState(current=>({...current,...patch}));
-        if (location.search.includes('workspace')) return <Workspace view={${JSON.stringify(workspaceView)}} />;
-        if (location.search.includes('qa')) return <div className="app-shell"><main className="view-chat"><WorkspaceThreads groupId="group" userId="u0" /></main></div>;
+        if (${workspace}) return <Workspace view={location.pathname==='/files'?'files':${JSON.stringify(workspaceView)}} channel={location.pathname.startsWith('/community/')?decodeURIComponent(location.pathname.split('/')[2]):undefined} />;
+        if (${qa}) return <div className="app-shell"><main className="view-chat"><WorkspaceThreads groupId="group" userId="u0" /></main></div>;
         return <div className="app-shell"><main className="view-chat"><div className="community-chat">
           <WorkspaceChat {...state} draft={draft} onDraftChange={setDraft} onSubmit={event=>event.preventDefault()}
             welcome={<div className="chat-welcome"><h2>Beginning of the channel</h2></div>}
@@ -61,7 +61,7 @@ async function fixture({
           builder.onResolve(
             {
               filter:
-                /^(next\/navigation|client-only|@\/components\/auth\/auth-provider|\.\.?\/auth\/auth-provider|\.\.?\/common\/toast-provider|@\/components\/common\/toast-provider|@\/lib\/memberships\/use-workspace-group|@\/lib\/memberships\/use-group-permissions|@\/lib\/class-sessions\/use-workspace-meetings|\.\/memberships\/members-panel)$/,
+                /^(next\/navigation|client-only|@\/components\/auth\/auth-provider|\.\.?\/auth\/auth-provider|\.\.?\/common\/toast-provider|@\/components\/common\/toast-provider|@\/lib\/memberships\/use-workspace-group|@\/lib\/memberships\/use-group-permissions|@\/lib\/class-sessions\/use-workspace-meetings)$/,
             },
             (args) => ({ path: args.path, namespace: "workspace-fixture" }),
           );
@@ -99,9 +99,12 @@ async function fixture({
               const thread={id:'11111111-1111-4111-8111-111111111111',title:'Chủ đề bố cục',createdAt:'2026-11-13T00:00:00Z',createdById:'u0',groupId:'group'};
               export class ApiError extends Error{};export const asApiError=error=>error;
               export async function apiRequest(path){
+                if(path.includes('/chat/read-state')) return window.readState??{unread:{},threadActivity:{}};
+                if(path.endsWith('/chat/read')) { const body=arguments[1]?.body; (window.readReceipts??=[]).push(body); if(window.readState && body) window.readState={...window.readState,unread:{...window.readState.unread,[body.channel]:0}}; return {ok:true}; }
+                if(path.includes('/members')) return {items:[],nextCursor:null};
                 if(path.includes('/folders')) return {folders:[],breadcrumbs:[],currentFolder:null};
                 if(path.includes('/files?')||path.includes('/sessions')) return {items:[],nextCursor:null};
-                return path.includes('/threads?')?{items:[thread],nextCursor:null}:{thread};
+                return path.includes('/threads?')?{items:window.threads??[thread],nextCursor:null}:{thread};
               }
             `
                 : `
@@ -720,3 +723,214 @@ for (const workspaceView of ["chat", "files"]) {
     }
   });
 }
+
+test("workspace panel close/open preference survives reload using the real close button", async () => {
+  const f = await fixture({
+    workspace: true,
+    viewport: { width: 1440, height: 900 },
+  });
+  const { page } = f;
+  try {
+    await page.locator(".right-panel").waitFor();
+    await page
+      .locator(".right-panel")
+      .getByRole("button", { name: "Đóng bảng bên", exact: true })
+      .click();
+    assert.equal(await page.locator(".right-panel").count(), 0);
+    await page.reload();
+    await page
+      .getByRole("button", { name: "Mở trò chuyện và thành viên", exact: true })
+      .waitFor();
+    assert.equal(await page.locator(".right-panel").count(), 0);
+    await page
+      .getByRole("button", { name: "Mở trò chuyện và thành viên", exact: true })
+      .click();
+    await page.locator(".right-panel").waitFor();
+    await page.reload();
+    await page.locator(".right-panel").waitFor();
+    assert.deepEqual(f.errors, []);
+  } finally {
+    await f.close();
+  }
+});
+
+test("unread badges and thread ordering update on activity; reading one topic leaves other topics unread", async () => {
+  const f = await fixture({
+    workspace: true,
+    workspaceView: "files",
+    viewport: { width: 1440, height: 900 },
+  });
+  const { page } = f;
+  try {
+    const ids = [
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+    ];
+    await page.evaluate((ids) => {
+      window.threads = ids.map((id, index) => ({
+        id,
+        groupId: "group",
+        title: index ? "Second topic" : "First topic",
+        createdById: "u1",
+        createdAt: `2026-11-${12 + index}T00:00:00.000Z`,
+      }));
+      window.readState = {
+        unread: {
+          "trò-chuyện-chung": 3,
+          [`thread:${ids[0]}`]: 2,
+          [`thread:${ids[1]}`]: 1,
+        },
+        threadActivity: {
+          [`thread:${ids[0]}`]: "2026-11-12T00:00:00.000Z",
+          [`thread:${ids[1]}`]: "2026-11-13T00:00:00.000Z",
+        },
+      };
+      window.dispatchEvent(
+        new CustomEvent("streamora:chat-activity", {
+          detail: { groupId: "group" },
+        }),
+      );
+    }, ids);
+    const sidebar = page.locator(".channel-sidebar");
+    await page.waitForFunction(
+      () =>
+        document.querySelector(
+          '.channel[href*="community"] .channel-unread-count',
+        )?.textContent === "3",
+    );
+    const general = sidebar
+      .getByRole("link")
+      .filter({ hasText: "trò-chuyện-chung" });
+    const questions = sidebar.getByRole("link").filter({ hasText: "hỏi-đáp" });
+    assert.equal(
+      await general.locator(".channel-unread-count").textContent(),
+      "3",
+    );
+    assert.equal(
+      await questions.locator(".channel-unread-count").textContent(),
+      "3",
+    );
+    assert.equal(
+      await page.evaluate(() => window.readReceipts?.length ?? 0),
+      0,
+      "visiting files does not mark chat as read",
+    );
+    await questions.click();
+    await page.locator(".qa-thread-copy b").first().waitFor();
+    assert.equal(
+      await page.locator(".qa-thread-copy b").first().textContent(),
+      "Second topic",
+    );
+    await page.evaluate((id) => {
+      window.readState.unread[`thread:${id}`] = 3;
+      window.readState.threadActivity[`thread:${id}`] =
+        "2026-11-15T00:00:00.000Z";
+      window.dispatchEvent(
+        new CustomEvent("streamora:chat-activity", {
+          detail: { groupId: "group" },
+        }),
+      );
+    }, ids[0]);
+    await page.waitForFunction(
+      () =>
+        document.querySelector(".qa-thread-copy b")?.textContent ===
+        "First topic",
+    );
+    await f.screenshot("qa-unread-alignment.png");
+    await page.locator(".qa-thread").filter({ hasText: "First topic" }).click();
+    await page.evaluate(() =>
+      window.setThreadChat({ messages: window.rows(0, 2) }),
+    );
+    await page.waitForFunction(
+      () =>
+        document.querySelector(
+          '.channel[href*="h%E1%BB%8Fi"] .channel-unread-count',
+        )?.textContent === "1",
+    );
+    assert.equal(
+      await questions.locator(".channel-unread-count").textContent(),
+      "1",
+    );
+    assert.equal(
+      await general.locator(".channel-unread-count").textContent(),
+      "3",
+    );
+    assert.equal(
+      await page
+        .locator(".qa-thread")
+        .filter({ hasText: "Second topic" })
+        .locator(".channel-unread-count")
+        .textContent(),
+      "1",
+    );
+    assert.deepEqual(f.errors, []);
+  } finally {
+    await f.close();
+  }
+});
+
+test("unread messages stay unread while reading above the bottom, then clear at latest", async () => {
+  const f = await fixture({
+    workspace: true,
+    workspaceView: "files",
+    viewport: { width: 1440, height: 900 },
+  });
+  const { page } = f;
+  try {
+    const general = page
+      .locator(".channel-sidebar")
+      .getByRole("link")
+      .filter({ hasText: "trò-chuyện-chung" });
+    await general.click();
+    await page.evaluate(() =>
+      window.setThreadChat({ messages: window.rows(0, 50) }),
+    );
+    await page.waitForFunction(() =>
+      window.readReceipts?.some((receipt) => receipt.messageId === "m49"),
+    );
+    await page
+      .locator(".community-chat .chat-history")
+      .evaluate((el) => (el.scrollTop = 200));
+    await page
+      .getByRole("button", { name: "Đi tới tin mới nhất ↓", exact: true })
+      .waitFor();
+    await page.evaluate(() => {
+      window.readState = {
+        unread: { "trò-chuyện-chung": 1 },
+        threadActivity: {},
+      };
+      window.setThreadChat({ messages: window.rows(0, 51) });
+      window.dispatchEvent(
+        new CustomEvent("streamora:chat-activity", {
+          detail: { groupId: "group" },
+        }),
+      );
+    });
+    await general.locator(".channel-unread-count").waitFor();
+    assert.equal(
+      await general.locator(".channel-unread-count").textContent(),
+      "1",
+    );
+    assert.equal(
+      await page.evaluate(() =>
+        window.readReceipts.some((receipt) => receipt.messageId === "m50"),
+      ),
+      false,
+    );
+    await page
+      .getByRole("button", { name: "Đi tới tin mới nhất ↓", exact: true })
+      .click();
+    await page.waitForFunction(() =>
+      window.readReceipts.some((receipt) => receipt.messageId === "m50"),
+    );
+    await page.waitForFunction(
+      () =>
+        !document.querySelector(
+          '.channel[href*="community"] .channel-unread-count',
+        ),
+    );
+    assert.deepEqual(f.errors, []);
+  } finally {
+    await f.close();
+  }
+});

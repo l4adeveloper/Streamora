@@ -231,6 +231,11 @@
   color: var(--muted);
   margin: 0;
 }
+.qa-thread .channel-unread-count {
+  align-self: center;
+  margin-left: 0;
+  font-variant-numeric: tabular-nums;
+}
 .qa-create {
   display: grid;
   gap: 10px;
