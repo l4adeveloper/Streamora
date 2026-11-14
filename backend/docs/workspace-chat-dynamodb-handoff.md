@@ -90,8 +90,17 @@ Tất cả đều yêu cầu Bearer token và quyền truy cập group hiện t�
 | GET | `/groups/{groupId}/chat/threads` | `cursor?`, `limit?` | `{items:GroupChatThread[],nextCursor}` |
 | GET | `/groups/{groupId}/chat/threads/{threadId}` | UUID | `{thread}` |
 | POST | `/groups/{groupId}/chat/threads` | `{title:string}` dài 1–120 sau trim | 201 `{thread}` |
+| PATCH | `/groups/{groupId}/chat/threads/{threadId}` | `{title:string}` dài 1–120, không để trống | 200 `{thread}`; người tạo chủ đề hoặc OWNER/ADMIN |
 
 `GroupChatThread={id,groupId,title,createdById,createdAt}`. Nội dung của thread dùng channel nội bộ `thread:{threadId}`; server xác nhận thread thuộc group trước khi join/gửi/đọc. Không thể dùng ID thread của nhóm khác.
+
+### Đổi tên chủ đề và cân lại giao diện (14/11/2026)
+
+Giữ hai cột và nút tạo ở dưới có mở rộng khi hover/focus. Icon danh sách 40px và đầu cuộc trò chuyện 44px cân với cụm tiêu đề/thời gian hai dòng; chuẩn hóa khoảng cách, cỡ chữ, vùng bấm, trạng thái focus và hỗ trợ giảm chuyển động. Không đổi luồng gửi, tìm kiếm hay cuộn chat.
+
+Nút bút chì ở đầu cuộc trò chuyện mở hộp thoại đổi tên. Enter lưu, Escape hủy; giới hạn 120 ký tự, chặn tên trống, giữ tên đang nhập khi lưu lỗi và trả focus về nút mở khi đóng. API kiểm tra membership hiện tại và chỉ cho người tạo chủ đề hoặc OWNER/ADMIN đổi tên. Hai bản ghi `T#` và `THREAD#` cùng outbox `chat:thread.updated` được ghi trong một transaction DynamoDB bằng PutItem, không cần migration hoặc quyền IAM mới. Các client nhận sự kiện cập nhật danh sách và tiêu đề đang mở, giữ bản nháp/tin nhắn/vị trí đọc. Đổi tên không thay thời gian hoạt động hay số chưa đọc.
+
+Kiểm thử bổ sung gồm lưu và đọc lại bằng ChatStore mới, quyền người tạo/OWNER/ADMIN, từ chối thành viên khác/người ngoài/nhóm khác, validation REST và thao tác đổi tên desktop/mobile với lỗi lưu, retry, Escape, cập nhật trực tiếp và giữ bản nháp. Chạy lại bộ chat DynamoDB, chat-search-navigation và chat-scroll-browser; API build và frontend typecheck. Sau khi cập nhật, khởi động lại API nếu tiến trình local chưa tự nạp mã mới.
 
 `channel:join` trả thêm `nextCursor` và tối đa 20 tin mới nhất. UI dùng REST `/chat/messages` để tải trang cũ. `chat:thread.created` thông báo làm mới danh sách chủ đề. Contracts nằm trong `backend/contracts/src/memberships.ts`.
 

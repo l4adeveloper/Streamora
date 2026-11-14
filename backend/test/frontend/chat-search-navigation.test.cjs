@@ -228,6 +228,19 @@ for (const scenario of [
       }
       assert.equal(state.loadingOlder, false);
       assert.equal(state.loadingTarget, false);
+      if (scenario === "older") {
+        const changes = [];
+        const listener = (event) => changes.push(event.detail);
+        window.addEventListener("streamora:threads-changed", listener);
+        const thread = { id: "topic", groupId: "group", title: "Tên đã đổi" };
+        await React.act(async () => {
+          handlers["chat:thread.updated"]({ ...thread, groupId: "other" });
+          handlers["chat:thread.updated"](thread);
+        });
+        assert.deepEqual(changes, [{ groupId: "group", thread }]);
+        assert.ok(state.messages.some((item) => item.id === "target"));
+        window.removeEventListener("streamora:threads-changed", listener);
+      }
     } finally {
       await env.cleanup();
     }

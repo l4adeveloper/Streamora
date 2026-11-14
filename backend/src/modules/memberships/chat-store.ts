@@ -559,6 +559,28 @@ export class ChatStore {
     if (!result.Item)
       throw new ApiError(404, "NOT_FOUND", "Không tìm thấy chủ đề hỏi đáp.");
   }
+  async renameThread(thread: GroupChatThread, title: string) {
+    if (!title.trim() || title.length > 120) throw invalid();
+    const renamed = { ...thread, title: title.trim() };
+    const pk = this.pk(thread.groupId);
+    await this.client.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          ...[`T#${thread.createdAt}#${thread.id}`, `THREAD#${thread.id}`].map(
+            (sk) => ({
+              Put: {
+                TableName: this.table,
+                Item: { ...renamed, pk, sk },
+                ConditionExpression: "attribute_exists(pk)",
+              },
+            }),
+          ),
+          this.event(thread.groupId, "chat:thread.updated", renamed),
+        ],
+      }),
+    );
+    return renamed;
+  }
   async getThread(groupId: string, id: string): Promise<GroupChatThread> {
     const result = await this.client.send(
       new GetCommand({

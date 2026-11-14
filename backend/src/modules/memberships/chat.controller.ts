@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from "@nestjs/common";
 import { IsIn, IsOptional, IsString, IsUUID, Length } from "class-validator";
 import { ApiError } from "../../common/api-error";
 import {
@@ -19,7 +27,7 @@ class HistoryQuery extends PaginationQueryDto {
 class SearchQuery extends PaginationQueryDto {
   @IsString() @Length(1, 100) q!: string;
 }
-class CreateThreadDto {
+class ThreadTitleDto {
   @IsString() @Length(1, 120) title!: string;
 }
 class MarkReadDto {
@@ -106,7 +114,7 @@ export class ChatController {
   async create(
     @CurrentAuth() auth: AuthenticatedIdentity,
     @Param("groupId", new UUIDParamPipe()) groupId: string,
-    @Body() body: CreateThreadDto,
+    @Body() body: ThreadTitleDto,
   ) {
     await this.access.require(auth.user.id, groupId);
     if (!body.title.trim())
@@ -127,5 +135,25 @@ export class ChatController {
   ) {
     await this.access.require(auth.user.id, groupId);
     return { thread: await this.chat.getThread(groupId, threadId) };
+  }
+  @Patch("threads/:threadId")
+  async rename(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("groupId", new UUIDParamPipe()) groupId: string,
+    @Param("threadId", new UUIDParamPipe()) threadId: string,
+    @Body() body: ThreadTitleDto,
+  ) {
+    const permissions = await this.access.require(auth.user.id, groupId);
+    const thread = await this.chat.getThread(groupId, threadId);
+    if (thread.createdById !== auth.user.id && !permissions.canManageMembers)
+      throw new ApiError(
+        403,
+        "FORBIDDEN",
+        "Bạn không có quyền đổi tên chủ đề này.",
+      );
+    const title = body.title.trim();
+    if (!title)
+      throw new ApiError(400, "VALIDATION_ERROR", "Vui lòng nhập chủ đề.");
+    return { thread: await this.chat.renameThread(thread, title) };
   }
 }

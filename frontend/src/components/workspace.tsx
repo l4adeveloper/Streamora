@@ -1878,6 +1878,9 @@ export function Workspace({
                       targetMessageId={targetMessageId}
                       targetThreadId={targetThreadId}
                       userId={user?.id}
+                      canManageThreads={
+                        groupAccess.permissions?.canManageMembers ?? false
+                      }
                       unread={chatRead.unread}
                       threadActivity={chatRead.threadActivity}
                       onRead={markThreadRead}

@@ -309,6 +309,43 @@ test("direct history window preserves both directions and rejects foreign/delete
     (e) => e.getStatus() === 404,
   );
 });
+test("renaming persists both thread records and an event, preserving messages, unread and activity", async () => {
+  const group = randomUUID();
+  const thread = await store.createThread(group, senderId, "Tên cũ");
+  await store.save(message({ groupId: group, channel: `thread:${thread.id}` }));
+  const before = await store.threads(group);
+  const unread = await store.readState(group, randomUUID());
+  const renamed = await store.renameThread(thread, "  Tên mới  ");
+  const reopened = new ChatStore();
+  try {
+    assert.equal((await reopened.getThread(group, thread.id)).title, "Tên mới");
+    const listed = (await reopened.threads(group)).items[0];
+    assert.equal(listed.title, "Tên mới");
+    assert.equal(listed.lastMessageAt, before.items[0].lastMessageAt);
+    assert.equal(renamed.createdAt, thread.createdAt);
+    assert.equal(renamed.createdById, thread.createdById);
+    assert.equal(
+      (await reopened.history(group, `thread:${thread.id}`)).items.length,
+      1,
+    );
+    assert.equal(
+      (await reopened.readState(group, randomUUID())).unread[
+        `thread:${thread.id}`
+      ],
+      unread.unread[`thread:${thread.id}`],
+    );
+    assert.ok(
+      (await reopened.events(group, "2000")).some(
+        (event) =>
+          event.event === "chat:thread.updated" &&
+          event.payload.title === "Tên mới",
+      ),
+    );
+  } finally {
+    reopened.onModuleDestroy();
+  }
+});
+
 test("REST uses real auth, runtime validation and group permissions with isolated PostgreSQL", async () => {
   const { createMeetingFixture } = require("./meeting-fixture.cjs");
   const fixture = await createMeetingFixture();
@@ -408,9 +445,92 @@ test("REST uses real auth, runtime validation and group permissions with isolate
     });
     assert.equal(result.status, 201);
     assert.equal(result.body.thread.createdById, owner.id);
+    const threadPath = `${path}/threads/${result.body.thread.id}`;
+    const viewer = await fixture.account("Chat viewer");
+    assert.equal(
+      (
+        await fixture.api(
+          owner,
+          "POST",
+          `/groups/${created.body.group.id}/members`,
+          { userId: viewer.id, role: "VIEWER" },
+        )
+      ).status,
+      201,
+    );
+    assert.equal(
+      (await fixture.api(null, "PATCH", threadPath, { title: "Denied" }))
+        .status,
+      401,
+    );
+    assert.equal(
+      (await fixture.api(outsider, "PATCH", threadPath, { title: "Denied" }))
+        .status,
+      403,
+    );
+    assert.equal(
+      (await fixture.api(viewer, "PATCH", threadPath, { title: "Denied" }))
+        .status,
+      403,
+    );
+    for (const body of [
+      { title: "   " },
+      { title: "x".repeat(121) },
+      { title: "Valid", createdById: viewer.id },
+    ])
+      assert.equal(
+        (await fixture.api(owner, "PATCH", threadPath, body)).status,
+        400,
+      );
+    assert.equal(
+      (
+        await fixture.api(owner, "PATCH", `${path}/threads/invalid`, {
+          title: "Valid",
+        })
+      ).status,
+      400,
+    );
+    const renamed = await fixture.api(owner, "PATCH", threadPath, {
+      title: "  Tên đã đổi  ",
+    });
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.body.thread.title, "Tên đã đổi");
+    assert.equal(
+      (await fixture.api(owner, "GET", threadPath)).body.thread.title,
+      "Tên đã đổi",
+    );
+    const ownThread = await fixture.api(viewer, "POST", `${path}/threads`, {
+      title: "Viewer topic",
+    });
+    const ownPath = `${path}/threads/${ownThread.body.thread.id}`;
+    assert.equal(
+      (await fixture.api(viewer, "PATCH", ownPath, { title: "Creator edit" }))
+        .status,
+      200,
+    );
+    assert.equal(
+      (await fixture.api(owner, "PATCH", ownPath, { title: "Owner edit" }))
+        .status,
+      200,
+    );
+    const adminUser = await fixture.account("Chat admin", "ADMIN");
+    assert.equal(
+      (await fixture.api(adminUser, "PATCH", ownPath, { title: "Admin edit" }))
+        .status,
+      200,
+    );
+    const foreign = await store.createThread(randomUUID(), owner.id, "Foreign");
+    assert.equal(
+      (
+        await fixture.api(owner, "PATCH", `${path}/threads/${foreign.id}`, {
+          title: "Denied",
+        })
+      ).status,
+      404,
+    );
     assert.equal(
       (await fixture.api(owner, "GET", `${path}/threads`)).body.items.length,
-      1,
+      2,
     );
     assert.equal(
       (await fixture.api(owner, "GET", `${path}/messages?limit=101`)).status,

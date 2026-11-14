@@ -6,18 +6,33 @@ import {
   Plus,
   ArrowLeft,
   Search,
-  ChevronRight,
+  LoaderCircle,
+  Pencil,
 } from "lucide-react";
 import type { CursorPage, GroupChatThread } from "@streamora/contracts";
 import { apiRequest } from "@/lib/api";
 import { useGroupChat } from "@/lib/memberships/use-group-chat";
 import type { ChatMessage } from "./demo-data";
 import { WorkspaceChat } from "./workspace-chat";
+import { ThreadRenameDialog } from "./thread-rename-dialog";
 
 const chatTimeFormat = new Intl.DateTimeFormat("vi-VN", {
   hour: "2-digit",
   minute: "2-digit",
 });
+const topicDateFormat = new Intl.DateTimeFormat("vi-VN", {
+  day: "2-digit",
+  month: "2-digit",
+});
+function topicActivityLabel(value: string) {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const time = chatTimeFormat.format(date);
+  if (date.toDateString() === today.toDateString()) return time;
+  return `${date.toDateString() === yesterday.toDateString() ? "Hôm qua" : topicDateFormat.format(date)} · ${time}`;
+}
 const EMPTY_COUNTS: Record<string, number> = {};
 const EMPTY_ACTIVITY: Record<string, string> = {};
 
@@ -36,6 +51,7 @@ export function WorkspaceThreads({
   unread = EMPTY_COUNTS,
   threadActivity = EMPTY_ACTIVITY,
   onRead,
+  canManageThreads = false,
 }: {
   groupId: string;
   userId?: string;
@@ -44,10 +60,12 @@ export function WorkspaceThreads({
   unread?: Record<string, number>;
   threadActivity?: Record<string, string>;
   onRead?: (threadId: string, messageId: string) => Promise<boolean>;
+  canManageThreads?: boolean;
 }) {
   const [threads, setThreads] = useState<GroupChatThread[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<GroupChatThread | null>(null);
+  const [renaming, setRenaming] = useState<GroupChatThread | null>(null);
   const markSelectedRead = useCallback(
     (id: string) =>
       selected && onRead ? onRead(selected.id, id) : Promise.resolve(false),
@@ -88,6 +106,11 @@ export function WorkspaceThreads({
         ).values(),
       ]);
       setCursor(page.nextCursor);
+      setSelected((current) =>
+        current
+          ? (page.items.find((thread) => thread.id === current.id) ?? current)
+          : null,
+      );
       setError("");
     } catch {
       if (version === loadVersion.current)
@@ -99,7 +122,16 @@ export function WorkspaceThreads({
   useEffect(() => {
     void load();
     const refresh = (event: Event) => {
-      if ((event as CustomEvent).detail?.groupId === groupId) void load();
+      const detail = (
+        event as CustomEvent<{ groupId?: string; thread?: GroupChatThread }>
+      ).detail;
+      if (detail?.groupId !== groupId) return;
+      const thread = detail.thread;
+      if (thread?.groupId === groupId && typeof thread.title === "string")
+        setSelected((current) =>
+          current?.id === thread.id ? { ...current, ...thread } : current,
+        );
+      void load();
     };
     window.addEventListener("streamora:threads-changed", refresh);
     return () => {
@@ -226,6 +258,7 @@ export function WorkspaceThreads({
           className="qa-new-thread"
           type="button"
           aria-label="Tạo chủ đề"
+          title="Tạo chủ đề"
           aria-expanded={creating}
           onClick={() => {
             setCreating(true);
@@ -236,7 +269,7 @@ export function WorkspaceThreads({
             Tạo chủ đề
           </span>
           <span className="qa-new-thread-icon">
-            <Plus size={21} aria-hidden="true" />
+            <Plus size={21} strokeWidth={1.7} aria-hidden="true" />
           </span>
         </button>
         {creating && (
@@ -294,7 +327,7 @@ export function WorkspaceThreads({
         {error && <p role="alert">{error}</p>}
         <div className="qa-list-tools">
           <label className="qa-filter">
-            <Search size={15} />
+            <Search size={18} strokeWidth={1.7} aria-hidden="true" />
             <input
               aria-label="Tìm chủ đề đã tải"
               placeholder="Tìm chủ đề…"
@@ -306,12 +339,23 @@ export function WorkspaceThreads({
         <div className="qa-list-caption">
           <span>
             {filter.trim()
-              ? "KẾT QUẢ TRONG DANH SÁCH ĐÃ TẢI"
-              : "CHỦ ĐỀ GẦN ĐÂY"}
+              ? `${visibleThreads.length} kết quả trong danh sách`
+              : "Hoạt động gần nhất"}
           </span>
-          <span>{visibleThreads.length}</span>
+          <span
+            className="qa-topic-count"
+            aria-label={`${threads.length} chủ đề đã tải`}
+          >
+            {threads.length}
+            {cursor ? "+" : ""}
+          </span>
         </div>
         <div className="qa-thread-items">
+          {busy && !threads.length && (
+            <div className="qa-list-loading" role="status">
+              <LoaderCircle size={15} className="ui-spinner" /> Đang tải chủ đề…
+            </div>
+          )}
           {filter.trim() && !visibleThreads.length && (
             <p className="qa-filter-empty">
               Chưa có chủ đề khớp “{filter.trim()}”. Thử từ khóa khác hoặc tải
@@ -325,46 +369,53 @@ export function WorkspaceThreads({
               <p>Hãy mở chủ đề đầu tiên cho không gian này.</p>
             </div>
           )}
-          {visibleThreads.map((thread) => (
-            <button
-              key={thread.id}
-              className={`qa-thread ${selected?.id === thread.id ? "selected" : ""}`}
-              onClick={() => {
-                if (selected?.id === thread.id) return;
-                setSelected(thread);
-                setDraft("");
-                setReplyId(undefined);
-              }}
-            >
-              <span className="qa-thread-icon">
-                <MessageCircle size={17} />
-              </span>
-              <span className="qa-thread-copy">
-                <b>{thread.title}</b>
-                <small>
-                  Tạo{" "}
-                  {new Date(thread.createdAt).toLocaleDateString("vi-VN", {
-                    day: "2-digit",
-                    month: "2-digit",
-                  })}{" "}
-                  ·{" "}
-                  {new Date(thread.createdAt).toLocaleTimeString("vi-VN", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </small>
-              </span>
-              {(unread[`thread:${thread.id}`] ?? 0) > 0 && (
-                <span
-                  className="channel-unread-count"
-                  aria-label={`${unread[`thread:${thread.id}`]} tin nhắn chưa đọc`}
-                >
-                  {unread[`thread:${thread.id}`]}
+          {visibleThreads.map((thread) => {
+            const activity =
+              threadActivity[`thread:${thread.id}`] ??
+              thread.lastMessageAt ??
+              thread.createdAt;
+            return (
+              <button
+                key={thread.id}
+                className={`qa-thread ${selected?.id === thread.id ? "selected" : ""}`}
+                aria-current={selected?.id === thread.id ? "true" : undefined}
+                onClick={() => {
+                  if (selected?.id === thread.id) return;
+                  setSelected(thread);
+                  setDraft("");
+                  setReplyId(undefined);
+                }}
+              >
+                <span className="qa-thread-icon">
+                  <MessageCircle
+                    size={22}
+                    strokeWidth={1.7}
+                    aria-hidden="true"
+                  />
                 </span>
-              )}
-              <ChevronRight size={15} className="qa-thread-arrow" />
-            </button>
-          ))}
+                <span className="qa-thread-copy">
+                  <b title={thread.title}>{thread.title}</b>
+                  <small>
+                    {activity === thread.createdAt ? "Tạo" : "Tin mới"} ·{" "}
+                    <time
+                      dateTime={activity}
+                      title={new Date(activity).toLocaleString("vi-VN")}
+                    >
+                      {topicActivityLabel(activity)}
+                    </time>
+                  </small>
+                </span>
+                {(unread[`thread:${thread.id}`] ?? 0) > 0 && (
+                  <span
+                    className="channel-unread-count"
+                    aria-label={`${unread[`thread:${thread.id}`]} tin nhắn chưa đọc`}
+                  >
+                    {unread[`thread:${thread.id}`]}
+                  </span>
+                )}
+              </button>
+            );
+          })}
           {cursor && (
             <button
               className="button secondary qa-load-more"
@@ -380,23 +431,39 @@ export function WorkspaceThreads({
         {selected ? (
           <>
             <header>
-              <button
-                aria-label="Về danh sách chủ đề"
-                className="qa-back"
-                onClick={() => setSelected(null)}
-              >
-                <ArrowLeft size={18} />
-              </button>
-              <span className="qa-topic-icon">
-                <MessageCircle size={20} />
-              </span>
-              <div className="qa-topic-heading">
-                <span>CHỦ ĐỀ HỎI ĐÁP</span>
-                <h3>{selected.title}</h3>
-                <small>
-                  Tạo ngày{" "}
-                  {new Date(selected.createdAt).toLocaleDateString("vi-VN")}
-                </small>
+              <div className="qa-topic-header">
+                <button
+                  aria-label="Về danh sách chủ đề"
+                  className="qa-back"
+                  onClick={() => setSelected(null)}
+                >
+                  <ArrowLeft size={18} strokeWidth={1.7} aria-hidden="true" />
+                </button>
+                <span className="qa-topic-icon">
+                  <MessageCircle
+                    size={24}
+                    strokeWidth={1.7}
+                    aria-hidden="true"
+                  />
+                </span>
+                <div className="qa-topic-heading">
+                  <h3 title={selected.title}>{selected.title}</h3>
+                  <small>
+                    Tạo ngày{" "}
+                    {new Date(selected.createdAt).toLocaleDateString("vi-VN")}
+                  </small>
+                </div>
+                {(selected.createdById === userId || canManageThreads) && (
+                  <button
+                    type="button"
+                    className="qa-icon-button qa-rename-button"
+                    aria-label="Đổi tên chủ đề"
+                    title="Đổi tên chủ đề"
+                    onClick={() => setRenaming(selected)}
+                  >
+                    <Pencil size={19} strokeWidth={1.7} aria-hidden="true" />
+                  </button>
+                )}
               </div>
             </header>
             {(chat.error || error) && <p role="alert">{chat.error || error}</p>}
@@ -491,7 +558,7 @@ export function WorkspaceThreads({
               }}
               showInfo={false}
               showHistoryLabel={false}
-              placeholder="Viết câu trả lời hoặc chia sẻ ý kiến…"
+              placeholder="Viết câu trả lời…"
               infoText="Thảo luận riêng theo chủ đề"
             />
           </>
@@ -503,6 +570,30 @@ export function WorkspaceThreads({
           </div>
         )}
       </section>
+      {renaming && (
+        <ThreadRenameDialog
+          key={renaming.id}
+          thread={renaming}
+          onClose={() => setRenaming(null)}
+          onSaved={(thread) => {
+            loadVersion.current++;
+            setThreads((current) =>
+              current.map((item) =>
+                item.id === thread.id ? { ...item, ...thread } : item,
+              ),
+            );
+            setSelected((current) =>
+              current?.id === thread.id ? { ...current, ...thread } : current,
+            );
+            setRenaming(null);
+            window.dispatchEvent(
+              new CustomEvent("streamora:threads-changed", {
+                detail: { groupId, thread },
+              }),
+            );
+          }}
+        />
+      )}
     </div>
   );
 }

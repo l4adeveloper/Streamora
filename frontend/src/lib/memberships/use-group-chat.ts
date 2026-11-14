@@ -192,12 +192,16 @@ export function useGroupChat(
         current.filter((message) => message.id !== value.id),
       );
     });
-    socket.on("chat:thread.created", (value: { groupId?: string }) => {
+    const refreshThreads = (value: { groupId?: string }) => {
       if (active && value?.groupId === groupId)
         window.dispatchEvent(
-          new CustomEvent("streamora:threads-changed", { detail: { groupId } }),
+          new CustomEvent("streamora:threads-changed", {
+            detail: { groupId, thread: value },
+          }),
         );
-    });
+    };
+    socket.on("chat:thread.created", refreshThreads);
+    socket.on("chat:thread.updated", refreshThreads);
     socket.on("chat:channel.created", (value: unknown) => {
       if (!active || !isChannel(value) || value.groupId !== groupId) return;
       setChannelList((current) => ({

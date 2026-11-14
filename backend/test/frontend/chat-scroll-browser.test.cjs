@@ -99,6 +99,17 @@ async function fixture({
               const thread={id:'11111111-1111-4111-8111-111111111111',title:'Chủ đề bố cục',createdAt:'2026-11-13T00:00:00Z',createdById:'u0',groupId:'group'};
               export class ApiError extends Error{};export const asApiError=error=>error;
               export async function apiRequest(path){
+                if(arguments[1]?.method==='PATCH' && path.includes('/chat/threads/')) {
+                  const body=arguments[1].body;
+                  (window.renameRequests??=[]).push({path,body});
+                  if(window.holdRename) await new Promise(resolve=>{window.releaseRename=resolve;});
+                  if(window.failRename) throw new Error('rename failed');
+                  const id=path.split('/').pop();
+                  const current=(window.threads??[thread]).find(item=>item.id===id);
+                  const updated={...current,title:body.title};
+                  window.threads=(window.threads??[thread]).map(item=>item.id===id?updated:item);
+                  return {thread:updated};
+                }
                 if(path.includes('/chat/read-state')) return window.readState??{unread:{},threadActivity:{}};
                 if(path.endsWith('/chat/read')) { const body=arguments[1]?.body; (window.readReceipts??=[]).push(body); if(window.readState && body) window.readState={...window.readState,unread:{...window.readState.unread,[body.channel]:0}}; return {ok:true}; }
                 if(path.includes('/members')) return {items:[],nextCursor:null};
@@ -868,6 +879,132 @@ test("unread badges and thread ordering update on activity; reading one topic le
     await f.close();
   }
 });
+
+for (const width of [1440, 390]) {
+  test(`Q&A rename: save, retry, keyboard and live updates preserve chat at ${width}px`, async () => {
+    const f = await fixture({ qa: true, viewport: { width, height: 900 } });
+    const { page } = f;
+    try {
+      await page
+        .getByRole("button")
+        .filter({ hasText: "Chủ đề bố cục" })
+        .click();
+      await page.evaluate(() =>
+        window.setThreadChat({ messages: window.rows(0, 2) }),
+      );
+      await page.locator('[data-message-id="m1"]').waitFor();
+      const draft = page.getByRole("textbox", {
+        name: "Tin nhắn",
+        exact: true,
+      });
+      await draft.fill("Bản nháp đang viết");
+      await page.evaluate(() => {
+        window.historyNode = document.querySelector(".chat-history");
+      });
+      const rename = page.getByRole("button", {
+        name: "Đổi tên chủ đề",
+        exact: true,
+      });
+      await rename.click();
+      const dialog = page.getByRole("dialog", {
+        name: "Đổi tên chủ đề",
+        exact: true,
+      });
+      const input = dialog.getByRole("textbox", {
+        name: "Tên chủ đề",
+        exact: true,
+      });
+      await input.waitFor();
+      assert.equal(await input.inputValue(), "Chủ đề bố cục");
+      assert.equal(await input.getAttribute("maxlength"), "120");
+      await page.keyboard.press("Escape");
+      await dialog.waitFor({ state: "detached" });
+      assert.equal(
+        await rename.evaluate((el) => el === document.activeElement),
+        true,
+      );
+      await rename.click();
+      await input.fill("  ");
+      assert.equal(
+        await dialog
+          .getByRole("button", { name: "Lưu tên", exact: true })
+          .isDisabled(),
+        true,
+      );
+      await input.fill("  Chủ đề mới dễ tìm  ");
+      await dialog.evaluate(async (el) => {
+        await Promise.all(
+          el.getAnimations().map((animation) => animation.finished),
+        );
+      });
+      await f.screenshot(`qa-rename-dialog-${width}.png`);
+      await page.evaluate(() => {
+        window.failRename = true;
+      });
+      await dialog
+        .getByRole("button", { name: "Lưu tên", exact: true })
+        .click();
+      await dialog.getByRole("alert").waitFor();
+      assert.equal(await input.inputValue(), "  Chủ đề mới dễ tìm  ");
+      assert.equal(
+        await page.locator(".qa-topic-heading h3").textContent(),
+        "Chủ đề bố cục",
+      );
+      await page.evaluate(() => {
+        window.failRename = false;
+        window.holdRename = true;
+      });
+      await dialog
+        .getByRole("button", { name: "Lưu tên", exact: true })
+        .click();
+      await page.waitForFunction(() => Boolean(window.releaseRename));
+      await page.keyboard.press("Escape");
+      assert.equal(await dialog.isVisible(), true);
+      await page.evaluate(() => window.releaseRename());
+      await dialog.waitFor({ state: "detached" });
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".qa-topic-heading h3").textContent ===
+          "Chủ đề mới dễ tìm",
+      );
+      assert.equal(await draft.inputValue(), "Bản nháp đang viết");
+      assert.equal(
+        await page.evaluate(
+          () => window.historyNode === document.querySelector(".chat-history"),
+        ),
+        true,
+      );
+      assert.equal(await page.locator("[data-message-id]").count(), 2);
+      assert.equal(
+        await page.locator(".qa-thread b").textContent(),
+        "Chủ đề mới dễ tìm",
+      );
+      assert.equal(await page.evaluate(() => window.renameRequests.length), 2);
+      await page.evaluate(() => {
+        const thread = {
+          ...window.threads[0],
+          title: "Tên từ thành viên khác",
+        };
+        window.threads = [thread];
+        window.dispatchEvent(
+          new CustomEvent("streamora:threads-changed", {
+            detail: { groupId: "group", thread },
+          }),
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".qa-topic-heading h3").textContent ===
+          "Tên từ thành viên khác",
+      );
+      assert.equal(await draft.inputValue(), "Bản nháp đang viết");
+      await f.screenshot(`qa-refined-renamed-${width}.png`);
+      assert.deepEqual(f.errors, []);
+    } finally {
+      await f.close();
+    }
+  });
+}
 
 test("unread messages stay unread while reading above the bottom, then clear at latest", async () => {
   const f = await fixture({
