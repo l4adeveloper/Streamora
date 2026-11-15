@@ -1,6 +1,5 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { generateKeyPairSync, verify } = require("node:crypto");
 const {
   CloudFrontVideoCdn,
 } = require("../dist/modules/video-processing/cloudfront-video-cdn");
@@ -10,47 +9,16 @@ const {
 const config = {
   video: { outputBucket: "output-bucket", region: "ap-northeast-1" },
 };
-test("CloudFront signing covers exactly one output tree and unconfigured storage never becomes public", async () => {
-  const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+test("CloudFront serves public output without cookies and rejects unmapped storage", async () => {
   const video = { ...config.video, mediaDomain: "media.example.com" };
   const provider = new CloudFrontVideoCdn(video);
-  provider.secret = {
-    keyPairId: "public-key",
-    privateKey: keys.privateKey,
-    expires: Date.now() + 60000,
-  };
-  const output = {
-    storageLocationId: "a".repeat(64),
-    prefix: "groups/g/videos/f/job/1",
-    masterKey: "groups/g/videos/f/job/1/hls/master.m3u8",
-  };
-  const grant = await provider.grant(
-    "file",
-    output,
-    Math.floor(Date.now() / 1000) + 60,
-  );
-  const decode = (text) =>
-    Buffer.from(
-      text.replace(/-/g, "+").replace(/_/g, "=").replace(/~/g, "/"),
-      "base64",
-    );
-  const policy = decode(
-    grant.cookies.find((c) => c.name === "CloudFront-Policy").value,
-  );
-  const signature = decode(
-    grant.cookies.find((c) => c.name === "CloudFront-Signature").value,
-  );
-  assert.ok(verify("RSA-SHA1", policy, keys.publicKey, signature));
-  assert.equal(
-    JSON.parse(policy).Statement[0].Resource,
-    `https://media.example.com/${output.prefix}/*`,
-  );
-  assert.equal(grant.cookies.length, 3);
-  assert.ok(
-    grant.cookies.every(
-      (c) => c.secure && c.path === "/" + output.prefix + "/",
-    ),
-  );
+  const output = { storageLocationId: "a".repeat(64), prefix: "groups/g/videos/f/job/1", masterKey: "groups/g/videos/f/job/1/hls/master.m3u8" };
+  const grant = await provider.grant("file", output, Math.floor(Date.now() / 1000) + 60);
+  assert.equal(grant.url, "https://media.example.com/" + output.masterKey);
+  assert.deepEqual(grant.cookies, []);
+  assert.equal(grant.public, true);
+  assert.equal(grant.grantUrl, undefined);
+  assert.equal(grant.assetUrl(output.prefix + "/hls/segment.ts"), "https://media.example.com/" + output.prefix + "/hls/segment.ts");
   assert.throws(() => grant.assetUrl("groups/other/master.m3u8"));
   const delivery = new VideoDelivery(
     { video },

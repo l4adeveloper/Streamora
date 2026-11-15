@@ -137,7 +137,6 @@ export class VideoPlaybackService {
       sources,
       ...(snapshot.qualities ? { qualities: snapshot.qualities } : {}),
       ...(snapshot.thumbnail ? { thumbnail: snapshot.thumbnail } : {}),
-      ...(snapshot.grantUrl ? { grantUrl: snapshot.grantUrl } : {}),
       ...(snapshot.deliveryCookies
         ? { deliveryCookies: snapshot.deliveryCookies }
         : {}),

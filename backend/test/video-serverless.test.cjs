@@ -114,8 +114,6 @@ const awsEnv = {
   VIDEO_MEDIACONVERT_ROLE_ARN: "arn:aws:iam::123456789012:role/video",
   VIDEO_MEDIACONVERT_QUEUE_ARN:
     "arn:aws:mediaconvert:ap-northeast-1:123456789012:queues/video",
-  VIDEO_SIGNING_SECRET_ARN:
-    "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:video",
   VIDEO_MEDIA_DOMAIN: "media.example.com",
 };
 

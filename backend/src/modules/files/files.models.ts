@@ -54,7 +54,6 @@ export class VideoPlaybackResponseDto {
   @ApiProperty({ type: [VideoSourceDto] }) sources!: VideoSourceDto[];
   @ApiPropertyOptional({ type: [Object] }) qualities?: object[];
   @ApiPropertyOptional() thumbnail?: string;
-  @ApiPropertyOptional() grantUrl?: string;
 }
 
 class RecordingTranscriptCueDto {
@@ -64,7 +63,14 @@ class RecordingTranscriptCueDto {
 }
 export class RecordingTranscriptResponseDto {
   @ApiProperty({
-    enum: ["PENDING", "PROCESSING", "READY", "UNAVAILABLE", "FAILED", "TOO_LONG"],
+    enum: [
+      "PENDING",
+      "PROCESSING",
+      "READY",
+      "UNAVAILABLE",
+      "FAILED",
+      "TOO_LONG",
+    ],
   })
   status!: string;
   @ApiPropertyOptional({ type: [RecordingTranscriptCueDto] })

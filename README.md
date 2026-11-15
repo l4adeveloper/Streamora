@@ -138,8 +138,7 @@ Chat trong nhóm dùng API/realtime thật; phần demo không gắn nhóm vẫn
 ### Triển khai T13 bằng AWS Management Console
 
 Tạo/cấu hình dịch vụ theo [hướng dẫn từng bước](backend/docs/t13-aws-console.md).
-Tài liệu có IAM policy để dán vào Console, cấu hình Lambda/CloudFront và danh sách
-biến môi trường cần đưa vào backend EC2 ở cuối tài liệu.
+MVP dùng một lịch Lambda mỗi phút, queue MediaConvert Default và CloudFront public. Cấu hình trực tiếp trên Console theo tài liệu; không cần sinh file trung gian.
 
 Đóng gói code Lambda từ máy local:
 
@@ -149,7 +148,7 @@ npm run package:video-lambda
 ```
 
 Upload `backend/dist/video-lambda.zip` trong Lambda Console. Luồng xử lý vẫn là
-DynamoDB Streams → Lambda → MediaConvert; EventBridge trả kết quả, Scheduler phục hồi
+Scheduler → Lambda → DynamoDB/MediaConvert; mỗi tick lấy job, kiểm tra kết quả
 và dọn output. Lambda không cần PostgreSQL, DB secret, VPC hoặc NAT.
 Xem [luồng xử lý/test local](backend/docs/t13-handoff.md).
 
@@ -197,7 +196,7 @@ pm2 restart streamora --update-env
 | T15 — thư viện               | [Bàn giao](backend/docs/t15-handoff.md)                | [Nhập file và chạy local](backend/docs/t15-local.md)                                                  |
 | T16 — upload multipart       | [Bàn giao local/AWS](backend/docs/t16-handoff.md)      | API, quota, storage và nghiệm thu multipart                                                           |
 | T17 — tiếp tục upload        | [Bàn giao mới nhất](backend/docs/t17-handoff.md)       | Pause/resume, reload hàng đợi, tối ưu truyền và các giới hạn                                          |
-| T13 — Pipeline video | [Setup AWS Console](backend/docs/t13-aws-console.md), [Handoff và test local](backend/docs/t13-handoff.md) | DynamoDB, Lambda, MediaConvert, HLS nhiều chất lượng và preview private |
+| T13 — Pipeline video | [Setup AWS Console](backend/docs/t13-aws-console.md), [Handoff và test local](backend/docs/t13-handoff.md) | DynamoDB, Lambda, MediaConvert và HLS nhiều chất lượng công khai qua CloudFront |
 
 ### Quy ước dùng chung
 

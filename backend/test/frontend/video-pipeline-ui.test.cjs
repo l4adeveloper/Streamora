@@ -2,7 +2,11 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
 const { join } = require("node:path");
-const { stat, rm } = require("node:fs/promises");
+const { stat, rm, readFile } = require("node:fs/promises");
+const { createServer } = require("node:http");
+const {
+  VideoDelivery,
+} = require("../../dist/modules/video-processing/video-delivery");
 const { chromium } = require("playwright");
 const { createFrontendFixture } = require("./frontend-fixture.cjs");
 const {
@@ -36,7 +40,7 @@ test(
   "real HLS player preserves captions, transcript seeking and playback settings across quality changes and grant refresh",
   { timeout: 240000 },
   async () => {
-    let fixture, browser, path;
+    let fixture, browser, path, publicServer;
     try {
       fixture = await createFrontendFixture({ localUploads: true });
       browser = await chromium.launch({
@@ -568,10 +572,78 @@ test(
         .evaluate((v) => ({ rate: v.playbackRate, volume: v.volume }));
       assert.equal(after.rate, 1.5);
       assert.ok(Math.abs(after.volume - 0.4) < 0.01);
+      // Model public CloudFront: wildcard CORS rejects credentialed requests.
+      const publicRequests = [];
+      publicServer = createServer(async (request, response) => {
+        try {
+          const key = decodeURIComponent(
+            new URL(request.url, "http://localhost").pathname.slice(1),
+          );
+          if (
+            !key.startsWith(job.output.prefix + "/") ||
+            key
+              .split("/")
+              .some(
+                (part) => part === ".." || part === "." || part.includes("\\"),
+              )
+          )
+            throw new Error("invalid path");
+          publicRequests.push({ key, cookie: request.headers.cookie });
+          response.setHeader("Access-Control-Allow-Origin", "*");
+          response.setHeader(
+            "Content-Type",
+            key.endsWith(".m3u8")
+              ? "application/vnd.apple.mpegurl"
+              : key.endsWith(".jpg")
+                ? "image/jpeg"
+                : "video/mp2t",
+          );
+          response.end(
+            await readFile(join(storage.local.options.directory, key)),
+          );
+        } catch {
+          response.writeHead(404);
+          response.end();
+        }
+      });
+      await new Promise((resolve) =>
+        publicServer.listen(0, "127.0.0.1", resolve),
+      );
+      const publicBase = "http://127.0.0.1:" + publicServer.address().port;
+      fixture.app.get(VideoDelivery).grant = async (_file, _job, output) => ({
+        url: publicBase + "/" + output.masterKey,
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+        public: true,
+        cookies: [],
+        assetUrl: (key) => publicBase + "/" + key,
+      });
+      await page.reload();
+      await page
+        .getByRole("button", { name: "Xem trước HLS real.mp4", exact: true })
+        .click();
+      await page.waitForFunction(
+        () => document.querySelector(".video-preview video")?.readyState >= 2,
+      );
+      await quality(page, "360p");
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".video-preview video")?.videoHeight === 360,
+      );
+      assert.equal(
+        await page.locator(".video-preview video").getAttribute("crossorigin"),
+        "anonymous",
+      );
+      assert.ok(publicRequests.some((request) => request.key.endsWith(".ts")));
+      assert.ok(
+        publicRequests.every((request) => !request.cookie),
+        "public HLS must not send cookies",
+      );
       await page.getByRole("button", { name: "Đóng", exact: true }).click();
       assert.equal(await page.locator(".video-preview video").count(), 0);
     } finally {
       await browser?.close();
+      if (publicServer)
+        await new Promise((resolve) => publicServer.close(resolve));
       await fixture?.cleanup();
       if (path) await rm(path, { force: true });
     }

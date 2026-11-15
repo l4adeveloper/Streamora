@@ -6,11 +6,10 @@ export interface VideoProcessingSnapshot {
   hasOriginal?: boolean;
   qualities?: import("@streamora/contracts").VideoQuality[];
   thumbnail?: string;
-  grantUrl?: string;
   deliveryCookies?: import("../video-processing/video-delivery").DeliveryCookie[];
   status: VideoProcessingStatus;
   progressPercent: number | null;
-  // AWS encoder outputs (wired by T13 later). Only fully published objects are ready.
+  // Only fully published objects are ready.
   renditions: {
     id: string;
     height: number;
@@ -19,9 +18,7 @@ export interface VideoProcessingSnapshot {
     objectKey: string;
     storageLocationId?: string;
   }[];
-  // T13/T14 must authorize the entire HLS tree, including playlists and segments.
-  // A presigned master.m3u8 alone is not a playable private HLS delivery solution.
-  hls?: { url: string; expiresAt: string };
+  hls?: { url: string; expiresAt: string; public?: boolean };
 }
 export abstract class VideoRenditionCatalog {
   abstract read(

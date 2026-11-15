@@ -9,14 +9,14 @@
     {
       "Effect": "Allow",
       "Action": ["s3:PutObject"],
-      "Resource": "arn:aws:s3:::streamora-video-586481704097-ap-northeast-1/*"
+      "Resource": "arn:aws:s3:::streamora-file-storage-output/*"
     },
     {
       "Effect": "Allow",
       "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
       "Resource": [
         "arn:aws:s3:::streamora-file-storage",
-        "arn:aws:s3:::streamora-video-586481704097-ap-northeast-1"
+        "arn:aws:s3:::streamora-file-storage-output"
       ]
     }
   ]

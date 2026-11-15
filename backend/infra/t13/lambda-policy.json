@@ -19,20 +19,6 @@
     {
       "Effect": "Allow",
       "Action": [
-        "dynamodb:DescribeStream",
-        "dynamodb:GetShardIterator",
-        "dynamodb:GetRecords"
-      ],
-      "Resource": "arn:aws:dynamodb:ap-northeast-1:586481704097:table/streamora-video-jobs/stream/*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "dynamodb:ListStreams",
-      "Resource": "*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
         "mediaconvert:Probe",
         "mediaconvert:CreateJob",
         "mediaconvert:GetJob",
@@ -55,7 +41,7 @@
       "Action": "s3:GetObject",
       "Resource": [
         "arn:aws:s3:::streamora-file-storage/*",
-        "arn:aws:s3:::streamora-video-586481704097-ap-northeast-1/*"
+        "arn:aws:s3:::streamora-file-storage-output/*"
       ]
     },
     {
@@ -63,18 +49,13 @@
       "Action": "s3:ListBucket",
       "Resource": [
         "arn:aws:s3:::streamora-file-storage",
-        "arn:aws:s3:::streamora-video-586481704097-ap-northeast-1"
+        "arn:aws:s3:::streamora-file-storage-output"
       ]
     },
     {
       "Effect": "Allow",
       "Action": "s3:DeleteObject",
-      "Resource": "arn:aws:s3:::streamora-video-586481704097-ap-northeast-1/groups/*/videos/*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "sqs:SendMessage",
-      "Resource": "arn:aws:sqs:ap-northeast-1:586481704097:streamora-video-failures"
+      "Resource": "arn:aws:s3:::streamora-file-storage-output/groups/*/videos/*"
     }
   ]
 }

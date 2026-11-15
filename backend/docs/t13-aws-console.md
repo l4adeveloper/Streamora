@@ -1,119 +1,121 @@
-# T13 — cấu hình AWS từng bước
+# T13 — cấu hình AWS Console cho MVP
 
-Theo tài liệu AWS ngày **15/11/2026**, dùng tên mục tiếng Anh hiện tại.
-Làm lần lượt từ trên xuống; tên dịch vụ và ARN cố định đã điền ngay tại từng bước.
+Đối chiếu tài liệu AWS chính thức ngày **16/11/2026**. Hướng dẫn dùng tên mục tiếng Anh; một số tài khoản có thể nhận giao diện mới sớm hoặc muộn hơn. Các bước dưới đây được kiểm tra bằng tài liệu AWS và mã nguồn dự án, chưa thao tác trong Console của bạn.
 
-Code triển khai CDK đã được bỏ. Local chỉ đóng gói ZIP và chuẩn bị khóa ký; mọi
-tài nguyên AWS dưới đây được tạo/cấu hình trong Console.
+Code hiện tại lấy job bằng **Scheduler mỗi phút**. Phương án API gọi Lambda ngay mới được trao đổi, chưa được triển khai; tài liệu này cấu hình theo code đang có.
 
-Chọn region **Asia Pacific (Tokyo) — ap-northeast-1**, account **586481704097**.
-IAM và CloudFront dùng giao diện global.
-
-**Tài nguyên cùng tên đã có thì mở để cấu hình tiếp.** Giữ dữ liệu và khóa ký đang
-chạy. Không xóa stack `StreamoraT13`/`CDKToolkit` cũ vì có thể còn sở hữu dịch vụ.
-
-## 1. S3 — nguồn upload và output private
-
-Mở [S3 Console](https://console.aws.amazon.com/s3/) → **General purpose buckets**.
-Chọn **Create bucket**, tạo lần lượt hai bucket:
-
-| Bucket | Điền vào Bucket name |
-| --- | --- |
-| File upload/bản ghi gốc | `streamora-file-storage` |
-| Video đã convert | `streamora-video-586481704097-ap-northeast-1` |
-
-Cả hai bucket dùng cấu hình sau:
-
-| Trường | Bucket nguồn và bucket output |
-| --- | --- |
-| AWS Region | Asia Pacific (Tokyo) — `ap-northeast-1` |
-| Bucket type | General purpose |
-| Object Ownership | ACLs disabled / Bucket owner enforced |
-| Block Public Access | Bật toàn bộ bốn lựa chọn |
-| Bucket Versioning | Có thể giữ Disabled cho triển khai tối thiểu |
-| Default encryption | Server-side encryption with Amazon S3 managed keys — SSE-S3 |
-
-Chọn **Create bucket**. Bucket có sẵn đang dùng SSE-KMS cần quyền KMS bổ sung;
-các policy mẫu ở đây dùng SSE-S3, không tự thay encryption dữ liệu hiện có.
-
-Mở **streamora-file-storage → Permissions → Cross-origin resource sharing (CORS) → Edit**.
-Dán JSON sau rồi **Save changes**:
-
-```json
-[
-  {
-    "ID": "streamora-upload",
-    "AllowedOrigins": ["https://18-138-205-52.sslip.io"],
-    "AllowedMethods": ["PUT", "GET", "HEAD"],
-    "AllowedHeaders": ["*"],
-    "ExposeHeaders": [
-      "ETag",
-      "Content-Length",
-      "Content-Range",
-      "Accept-Ranges"
-    ],
-    "MaxAgeSeconds": 3600
-  }
-]
+```text
+EC2 API → DynamoDB ← Lambda ← Scheduler mỗi phút
+                       ↓
+                  MediaConvert → S3 output → CloudFront → Player HLS
 ```
 
-Nếu đã có rule cho ứng dụng khác, giữ rule đó trong cùng mảng và đặt rule Streamora
-trước các rule rộng có thể khớp cùng origin. Thay `AllowedOrigins` nếu đổi frontend.
+## 0. Mở đúng tài khoản và region
 
-## 2. DynamoDB — trạng thái xử lý, không cần PostgreSQL cho Lambda
+1. Đăng nhập Console bằng identity **streamora-developer** trong tài khoản chứa các service.
+2. Mở menu tài khoản ở góc phải, kiểm tra **Account ID = 586481704097**. Đây là ID đang dùng trong các policy mẫu.
+3. Với S3, DynamoDB, Lambda, MediaConvert và Scheduler, chọn **Asia Pacific (Tokyo) / ap-northeast-1** ở thanh trên. IAM và CloudFront là dịch vụ global.
+4. Nếu không thấy menu trái, bấm biểu tượng mở thanh điều hướng. Có thể dùng ô tìm kiếm dịch vụ ở thanh trên hoặc các liên kết Console trong từng mục.
 
-Mở [DynamoDB Console](https://console.aws.amazon.com/dynamodb/) → **Tables → Create table**.
+**Tài nguyên đã có thì mở để kiểm tra/sửa, không tạo trùng.** Mọi thao tác IAM trong tài liệu diễn ra ở tài khoản chứa streamora-developer; không cần vào tài khoản sở hữu EC2 hoặc sửa instance role của EC2.
+
+| Tài nguyên | Tên dùng trong dự án |
+| --- | --- |
+| Bucket nguồn | `streamora-file-storage` |
+| Bucket output | `streamora-file-storage-output` |
+| Bảng DynamoDB | `streamora-video-jobs` |
+| Index | `work-due` |
+| Role encode | `streamora-video-mediaconvert` |
+| Role Lambda | `streamora-video-lambda` |
+| Lambda | `streamora-video-pipeline` |
+| Lịch | `streamora-video-maintenance` |
+
+Làm lần lượt **S3 → DynamoDB → IAM → Lambda → Scheduler → CloudFront → env API**. Không có bước sinh cấu hình trung gian.
+
+## 1. S3 — tạo hai bucket
+
+Mở [S3 Console](https://console.aws.amazon.com/s3/). Trong menu trái chọn **General purpose buckets**, tìm tên bucket trước khi tạo.
+
+### 1.1. Tạo bucket nguồn và output
+
+Chọn **Create bucket**, thực hiện hai lần với hai tên ở bảng trên:
+
+| Trường trên form | Điền/chọn |
+| --- | --- |
+| AWS Region | Asia Pacific (Tokyo) — ap-northeast-1 |
+| Bucket type | General purpose |
+| Bucket namespace, nếu xuất hiện | Shared global namespace, để giữ đúng tên bucket trong policy |
+| Bucket name | `streamora-file-storage`, lần sau là `streamora-file-storage-output` |
+| Object Ownership | ACLs disabled / Bucket owner enforced |
+| Block Public Access settings | Giữ Block all public access bật |
+| Bucket Versioning | Disable cho bucket mới của MVP |
+| Default encryption | SSE-S3 / Amazon S3 managed keys |
+
+Cuộn cuối form, chọn **Create bucket**. Với bucket đã có, giữ encryption và dữ liệu hiện tại; nếu đang dùng SSE-KMS, các role cần quyền KMS bổ sung.
+
+**Kiểm tra:** hai bucket có trong danh sách, region Tokyo. Nếu báo tên đã tồn tại nhưng không thấy trong tài khoản, tên global đang thuộc tài khoản khác; không thể sử dụng chỉ bằng cách nhập tên. Nếu bucket output cũ có tên khác, tạo bucket mới theo tên dự án, giữ dữ liệu cũ khi còn tham chiếu.
+
+Nguồn: [các tùy chọn tạo bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html).
+
+### 1.2. CORS cho upload từ trình duyệt
+
+1. Bấm **tên** `streamora-file-storage` trong danh sách.
+2. Mở tab **Permissions**.
+3. Cuộn đến **Cross-origin resource sharing (CORS)** → **Edit**.
+4. Mở [source-cors.json](../infra/t13/source-cors.json), copy toàn bộ nội dung JSON, dán vào editor rồi chọn **Save changes**.
+5. Kiểm tra `AllowedOrigins` khớp frontend: hiện là `https://18-138-205-52.sslip.io`, không thêm dấu `/` cuối.
+
+Nếu đã có rule khác, thêm rule Streamora vào cùng mảng JSON thay vì ghi đè. Đây là editor CORS, không phải editor Bucket policy. Bucket output dùng response headers của CloudFront ở mục 6.
+
+Nguồn: [vị trí CORS trong S3 Console](https://docs.aws.amazon.com/AmazonS3/latest/userguide/enabling-cors-examples.html).
+
+## 2. DynamoDB — bảng và index
+
+### 2.1. Tạo bảng
+
+Mở [DynamoDB tại Tokyo](https://ap-northeast-1.console.aws.amazon.com/dynamodbv2/home?region=ap-northeast-1), chọn **Tables → Create table**.
 
 | Trường | Giá trị |
 | --- | --- |
 | Table name | `streamora-video-jobs` |
-| Partition key | `pk`, kiểu **String** |
-| Sort key | `sk`, kiểu **String** |
-| Table settings | Customize settings nếu cần chỉnh capacity/protection |
+| Partition key | `pk`, type String |
+| Sort key | Bật thêm sort key nếu form yêu cầu; tên `sk`, type String |
+| Table settings | Customize settings nếu cần để xem/chỉnh capacity |
 | Table class | DynamoDB Standard |
-| Capacity mode | **On-demand** |
-| Encryption | Khóa do DynamoDB/AWS sở hữu mặc định |
-| Deletion protection | Bật |
+| Read/write capacity mode | On-demand |
 
-Tạo bảng, đợi **Active**. Không tự tạo item, không bật TTL tự xóa job.
+Chọn **Create table**; chờ **Status = Active**. Không cần thêm item bằng tay. Nếu bảng có sẵn, chỉ kiểm tra cấu hình và index; không xóa bảng để tạo lại.
 
-Mở **streamora-video-jobs → Indexes → Create index**:
+Nguồn: [tạo bảng bằng Console](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/getting-started-step-1.html).
 
-| Trường | Giá trị |
-| --- | --- |
-| Partition key | `work`, **String** |
-| Sort key | `dueAt`, **Number** |
-| Index name | **`work-due`** |
-| Attribute projections | **All** |
-| Capacity | On-demand theo bảng |
+### 2.2. Tạo index phục vụ lịch Lambda
 
-Đợi index **Active**. Sai tên hoặc kiểu `dueAt` sẽ làm phục hồi/cleanup không chạy.
-
-Mở **streamora-video-jobs → Exports and streams → DynamoDB stream details → Turn on**;
-chọn **New image** rồi bật stream.
-Ở **streamora-video-jobs → Backups → Point-in-time recovery → Edit**, bật PITR và lưu.
-Nếu chưa bật deletion protection lúc tạo, vào cấu hình bảng và bật trước khi dùng.
-
-## 3. SQS — giữ sự kiện đã retry vẫn lỗi
-
-Mở [SQS Console](https://console.aws.amazon.com/sqs/) → **Queues → Create queue**:
+1. Trong **Tables**, bấm tên bảng → tab **Indexes**.
+2. Tìm phần **Global secondary indexes** → **Create index**. Nếu index `work-due` đã có, mở để kiểm tra.
+3. Điền:
 
 | Trường | Giá trị |
 | --- | --- |
-| Type | **Standard**, không dùng FIFO |
-| Name | `streamora-video-failures` |
-| Message retention period | **14 days** |
-| Visibility timeout / Delivery delay | Giữ mặc định |
-| Encryption | Enabled, **SSE-SQS** / Amazon SQS managed keys |
-| Dead-letter queue của chính queue này | Không cần cấu hình thêm |
+| Partition key | `work`, type String |
+| Sort key / Add sort key | `dueAt`, type Number |
+| Index name | `work-due` — sửa tên tự điền nếu khác |
+| Attribute projections / Projected attributes | All |
+| Capacity | Theo chế độ On-demand của bảng |
 
-Không thêm queue này làm Lambda trigger. Tạo xong, mở **streamora-video-failures → Access policy → Edit** và dùng
-[failure-queue-policy.json](../infra/t13/failure-queue-policy.json).
-Nếu queue đã có policy, gộp các statement, không bỏ quyền hợp lệ của workload khác.
+Chọn **Create index**, chờ index **Active**. Tên và kiểu phân biệt chính xác: `dueAt` là Number, không phải String. GSI kế thừa capacity mode của bảng. [Cấu hình GSI](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.OnlineOps.html), [projection All](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Projection.html).
 
-## 4. IAM role cho MediaConvert
+**Kiểm tra:** bảng có `pk/sk`; index có `work/dueAt`, projection All. Giữ Streams tắt, không bật TTL tự xóa job. PITR/deletion protection có thể bật thêm theo nhu cầu bảo vệ dữ liệu.
 
-Mở **IAM → Roles → Create role → Custom trust policy**, dán:
+## 3. IAM — quyền cho encoder và Lambda
+
+Mở [IAM Console](https://console.aws.amazon.com/iam/). Các JSON được liên kết bên dưới là file có sẵn trong repo: mở file và copy **nội dung**, không dán đường dẫn file vào AWS.
+
+### 3.1. Role MediaConvert
+
+Để không phụ thuộc danh sách use case của wizard, dùng custom trust:
+
+1. **Roles → Create role → Custom trust policy**.
+2. Thay nội dung editor bằng:
 
 ```json
 {
@@ -126,558 +128,302 @@ Mở **IAM → Roles → Create role → Custom trust policy**, dán:
 }
 ```
 
-Đi tiếp, không cần gắn policy toàn quyền. Đặt tên **`streamora-video-mediaconvert`**,
-chọn **Create role**. Mở role → **Permissions → Add permissions → Create inline policy**
-→ **JSON**, dán [mediaconvert-policy.json](../infra/t13/mediaconvert-policy.json).
-Đi tiếp, đặt policy name `streamora-video-storage`, tạo policy.
+3. Chọn **Next**; trang permissions để trống, chọn **Next**.
+4. **Role name**: `streamora-video-mediaconvert` → **Create role**.
+5. Mở role vừa tạo → **Permissions → Add permissions → Create inline policy**.
+6. Trong **Policy editor**, chọn **JSON**, dán [mediaconvert-policy.json](../infra/t13/mediaconvert-policy.json).
+7. **Next** → policy name `streamora-video-storage` → **Create policy**.
 
-Role ARN đã điền sẵn:
+Role đã có: dùng tab **Trust relationships → Edit trust policy** để kiểm tra trust; mở inline policy đang có để sửa nếu cần. Trust policy xác định dịch vụ được nhận role, còn permissions policy xác định quyền S3 — không dán hai loại vào cùng editor.
+
+Nguồn: [service role](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-service.html), [editor JSON](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_create-console.html).
+
+### 3.2. Role Lambda
+
+1. **Roles → Create role → AWS service**.
+2. Trong **Service or use case**, chọn **Lambda**, rồi **Next**.
+3. Tìm và chọn **AWSLambdaBasicExecutionRole** nếu wizard cho chọn policy.
+4. **Next**, đặt role name `streamora-video-lambda` → **Create role**.
+5. Mở role → **Permissions**. Nếu thiếu AWSLambdaBasicExecutionRole, dùng **Add permissions → Attach policies**, tìm đúng tên, chọn và thêm.
+6. Tiếp tục **Add permissions → Create inline policy → JSON**, dán [lambda-policy.json](../infra/t13/lambda-policy.json).
+7. **Next**, policy name `streamora-video-runtime` → **Create policy**.
+
+**Kiểm tra:** role Lambda có quyền ghi Logs và inline policy runtime; role MediaConvert có policy storage. ARN của role encode phải là:
 
 ```text
 arn:aws:iam::586481704097:role/streamora-video-mediaconvert
 ```
-Role có sẵn thì kiểm tra trust/permissions tương ứng thay vì tạo lại.
 
-## 5. MediaConvert — queue encode on-demand
+Nguồn: [thêm policy vào identity](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_manage-attach-detach.html).
 
-Mở **AWS Elemental MediaConvert → Queues → Create queue** tại Tokyo:
+### 3.3. MediaConvert — dùng Default
 
-| Trường | Giá trị |
-| --- | --- |
-| Name | `streamora-video` |
-| Queue type/pricing nếu được hỏi | **On-demand** |
-| Concurrent jobs | **4** trong giới hạn quota account |
-| Status | Active |
+Mở [MediaConvert tại Tokyo](https://ap-northeast-1.console.aws.amazon.com/mediaconvert/home?region=ap-northeast-1), menu trái **Queues** → mở **Default**, kiểm tra queue không bị Paused. Không cần Create job, template, preset hoặc queue riêng. Lambda tạo cấu hình encode theo từng nguồn.
 
-Chọn **Create queue**. Queue ARN đã điền sẵn:
+ARN mặc định mà code sử dụng:
 
 ```text
-arn:aws:mediaconvert:ap-northeast-1:586481704097:queues/streamora-video
+arn:aws:mediaconvert:ap-northeast-1:586481704097:queues/Default
 ```
 
-Không cần tạo job/template/preset bằng tay; Lambda đã tạo cấu hình encode theo video.
+Nguồn: [queue mặc định MediaConvert](https://docs.aws.amazon.com/mediaconvert/latest/ug/working-with-queues.html).
 
-## 6. IAM role cho Lambda
+## 4. Lambda — Event Function và upload ZIP
 
-**IAM → Roles → Create role → AWS service → Lambda**, đi tiếp và gắn
-**AWSLambdaBasicExecutionRole** để ghi CloudWatch Logs.
-Đặt role name **`streamora-video-lambda`**, tạo role.
+### 4.1. Đóng gói trên máy phát triển
 
-Mở **streamora-video-lambda → Add permissions → Create inline policy → JSON**, dán
-[lambda-policy.json](../infra/t13/lambda-policy.json); đặt tên `streamora-video-runtime`.
-
-## 7. Lambda — upload code và cấu hình xử lý
-
-### 7.1. Đóng gói trên máy local
-
-Tại root repository, dùng Node.js 22.16+ và npm 10+:
+Tại thư mục root của repo, sau khi đã cài dependencies bằng `npm ci`, chạy:
 
 ```bash
-npm ci
 npm run package:video-lambda
 ```
 
-Kết quả **`backend/dist/video-lambda.zip`**, bên trong có `index.cjs` ở gốc.
-Không upload cả repository, `node_modules`, `.env` hoặc folder bọc ngoài ZIP.
+File kết quả: **backend/dist/video-lambda.zip**; bên trong có `index.cjs` ở gốc. Không nén thêm folder bọc ngoài hoặc upload toàn bộ repo.
 
-### 7.2. Tạo function và nạp ZIP
+### 4.2. Tạo function trên giao diện mới
 
-Mở [Lambda Console](https://console.aws.amazon.com/lambda/) → **Event Functions →
-Create Event Function → Author from scratch**. Nếu tài khoản chưa nhận tên giao
-diện mới, mục tương đương là Functions/Create function.
+Mở [Lambda tại Tokyo](https://ap-northeast-1.console.aws.amazon.com/lambda/home?region=ap-northeast-1).
 
-| Trường | Giá trị |
+1. Menu trái chọn **Event Functions** → **Create Event Function**. Nếu tài khoản còn nhãn cũ thì mục tương đương là **Functions → Create function**. Không chọn Web Functions.
+2. Chọn **Author from scratch**.
+3. **Function name**: `streamora-video-pipeline`.
+4. **Runtime**: chọn **Node.js 22.x**, kể cả khi wizard mặc định Node.js 24.
+5. **Architecture**: x86_64.
+6. Mở **Permissions → Change default execution role** → **Use an existing role** → `streamora-video-lambda`.
+7. Giữ các tùy chọn nâng cao mặc định, không gắn VPC; chọn **Create Event Function**.
+
+Function đã có: bấm vào tên function và tiếp tục cập nhật dưới đây, không tạo thêm function.
+
+### 4.3. Nạp code và chỉnh handler
+
+1. Tab **Code**, trong **Code source**, chọn **Upload from → .zip file**.
+2. **Upload** → chọn `backend/dist/video-lambda.zip` → **Open → Save**.
+3. Vẫn ở tab **Code**, cuộn **xuống dưới editor** đến **Runtime settings** → **Edit**.
+4. Đặt **Handler = index.handler**, giữ runtime Node.js 22.x và x86_64 → **Save**.
+
+Nguồn cho mục 4.2–4.3: [Event Functions, upload ZIP và Runtime settings](https://docs.aws.amazon.com/lambda/latest/dg/configuration-function-zip.html).
+
+### 4.4. Memory, timeout và biến môi trường
+
+Trong tab **Configuration**:
+
+| Menu bên trái | Thao tác |
 | --- | --- |
-| Function name | `streamora-video-pipeline` |
-| Runtime | **Node.js 22.x**; chọn rõ, không để mặc định Node.js 24 |
-| Architecture | x86_64 |
-| Change default execution role | Use an existing role → `streamora-video-lambda` |
-| Durable execution / tenant isolation | Không bật cho handler này |
-| VPC | Không gắn VPC |
+| General configuration → Edit | Memory `512 MB`; Timeout `5 min 0 sec`; Save |
+| Environment variables → Edit | Add environment variable: key `VIDEO_AWS_ACCOUNT_ID`, value `586481704097`; Save |
+| Permissions | Kiểm tra Execution role là `streamora-video-lambda` |
 
-Tạo function → **Code → Code source → Upload from → .zip file** → chọn ZIP → **Save**.
-Trong **Runtime settings → Edit**, đặt **Handler = `index.handler`**, lưu.
-Nếu khu vực Runtime settings đang thu gọn, mở nó ở tab Code.
+Không đặt `AWS_REGION` hoặc access key vào env Lambda: region và credentials do runtime/execution role cấp. Mã hiện tại tự dùng Tokyo, hai bucket, bảng, role encode và queue Default ở trên; cap mặc định **2160p/4K**, không upscale nguồn. Các override nằm trong [video-config.ts](../src/modules/video-processing/video-config.ts).
 
-Trong **Configuration → General configuration → Edit**:
-**Memory = 512 MB**, **Timeout = 5 min 0 sec**, lưu.
-Trong **Configuration → Concurrency → Edit** đặt **Reserved concurrency = 2**.
-Nếu account mới có quota quá thấp để reserve, giữ unreserved, không đặt 0; có thể
-yêu cầu tăng quota rồi reserve sau. Giới hạn bốn job encode vẫn nằm ở MediaConvert.
+Nếu cấu hình cũ còn `VIDEO_MAX_QUALITY=1080`, nó vẫn giới hạn 1080p; bỏ override hoặc đổi thành `2160` nếu muốn cap 4K. Với `VIDEO_MEDIACONVERT_QUEUE_ARN` cũ, đọc mục chuyển cấu hình trước khi bỏ.
 
-Mở **streamora-video-pipeline → Configuration → Environment variables → Edit**.
-Thêm từng key/value sau; các ARN đã được điền sẵn:
+Nguồn: [Memory](https://docs.aws.amazon.com/lambda/latest/dg/configuration-memory.html), [Timeout](https://docs.aws.amazon.com/lambda/latest/dg/configuration-timeout.html), [Environment variables](https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html).
 
-```dotenv
-NODE_ENV=production
-FILES_S3_REGION=ap-northeast-1
-FILES_S3_BUCKET=streamora-file-storage
-VIDEO_MODE=aws
-VIDEO_WORKER_ENABLED=false
-VIDEO_DYNAMODB_TABLE=streamora-video-jobs
-VIDEO_AWS_ACCOUNT_ID=586481704097
-VIDEO_OUTPUT_BUCKET=streamora-video-586481704097-ap-northeast-1
-VIDEO_MAX_QUALITY=1080
-VIDEO_OPTIONAL_QUALITIES=
-VIDEO_MEDIACONVERT_ROLE_ARN=arn:aws:iam::586481704097:role/streamora-video-mediaconvert
-VIDEO_MEDIACONVERT_QUEUE_ARN=arn:aws:mediaconvert:ap-northeast-1:586481704097:queues/streamora-video
-```
+### 4.5. Test bằng input đúng
 
-Đây là env Lambda. Block dành cho EC2 nằm cuối tài liệu.
-`VIDEO_OPTIONAL_QUALITIES` có thể bỏ hẳn nếu giao diện không cho lưu chuỗi rỗng.
-Không đặt `AWS_REGION` vào Lambda env vì AWS tự cấp; code dùng `FILES_S3_REGION`.
-
-### 7.3. Retry và nơi giữ lỗi bất đồng bộ
-
-**Configuration → Asynchronous invocation → Edit**: maximum event age **1 hour**,
-retry attempts **2**, lưu. Ở function overview chọn **Add destination**:
-**Source = Asynchronous invocation**, **Condition = On failure**, **Destination type =
-SQS queue**, chọn `streamora-video-failures`. Lưu.
-Nếu function cũ đã có legacy DLQ, chuyển sang on-failure destination này và bỏ DLQ
-cũ sau khi xác nhận destination đúng; không cần hai cơ chế cùng lúc.
-
-### 7.4. CloudWatch Logs
-
-**Monitor → View CloudWatch logs** mở log group
-`/aws/lambda/streamora-video-pipeline` sau lần gọi đầu tiên.
-Trong **CloudWatch → Logs → Log groups**, mở group và đặt **Retention = 1 week**.
-Chưa có group thì chạy test ở mục 11 rồi quay lại chỉnh retention.
-
-## 8. DynamoDB trigger — bắt đầu xử lý ngay khi có job
-
-Mở **Lambda → streamora-video-pipeline → Add trigger → DynamoDB**:
-
-| Trường | Giá trị |
-| --- | --- |
-| DynamoDB table | `streamora-video-jobs`, stream vừa bật |
-| Batch size | **1** |
-| Batch window | **0 seconds** |
-| Starting position | **Trim horizon** |
-| Retry attempts | **3**, không để infinite |
-| Maximum age of record | **86400 seconds / 24 hours** |
-| Concurrent batches per shard | **1** |
-| Split batch on error | Off; batch chỉ có một record |
-| Report batch item failures | **Bật** — `ReportBatchItemFailures` |
-| On-failure destination | `arn:aws:sqs:ap-northeast-1:586481704097:streamora-video-failures` |
-| Enable trigger | Bật |
-
-Mở **Additional settings** nếu các trường trên đang ẩn. Trong **Filter criteria →
-Add filter**, dán JSON sau:
-
-```json
-{
-  "eventName": ["INSERT"],
-  "dynamodb": {
-    "NewImage": {
-      "kind": {
-        "S": ["JOB"]
-      },
-      "state": {
-        "S": ["QUEUED", "SUBMITTING", "PROCESSING", "VERIFYING"]
-      }
-    }
-  }
-}
-```
-Nếu form tạo chưa có đủ trường, tạo rồi mở **Configuration → Triggers → chọn trigger →
-Edit** để hoàn tất. Xác nhận trigger **Enabled**, không có Last processing result lỗi.
-
-## 9. EventBridge — nhận kết quả MediaConvert
-
-Mở [EventBridge Console](https://console.aws.amazon.com/events/) → **Event buses →
-default → Rules → Create rule → Advanced Builder**. Đây là trình tạo JSON hiện tại;
-không cần dùng canvas Enhanced Builder.
-
-1. Name: **`streamora-video-completion`**; event bus **default**;
-   rule type **Rule with an event pattern**; bật rule.
-2. **Creation method → Custom pattern (JSON editor)**, dán:
-
-   ```json
-   {
-     "source": ["aws.mediaconvert"],
-     "account": ["586481704097"],
-     "region": ["ap-northeast-1"],
-     "detail-type": ["MediaConvert Job State Change"],
-     "detail": {
-       "status": ["COMPLETE", "ERROR", "CANCELED", "STATUS_UPDATE"],
-       "userMetadata": {
-         "project": ["streamora"]
-       }
-     }
-   }
-   ```
-3. Target: **AWS service → Lambda function → `streamora-video-pipeline`**.
-4. Target input: **Matched events / toàn bộ sự kiện**. Không đổi thành constant:
-   handler cần account, region, detail và userMetadata gốc.
-5. Additional settings: maximum event age **1 hour**, retry attempts **2**;
-   Dead-letter queue chọn queue SQS `streamora-video-failures` cùng account.
-6. Giữ lựa chọn Console cấp quyền invoke cho target; review rồi tạo rule.
-
-Mở Lambda → **Configuration → Permissions → Resource-based policy statements**,
-kiểm tra có quyền `lambda:InvokeFunction` cho `events.amazonaws.com`, giới hạn
-Source ARN của rule vừa tạo. Nếu Console chưa thêm, chọn **Add permissions → AWS
-service → EventBridge**, điền và lưu:
-
-| Trường | Giá trị |
-| --- | --- |
-| Statement ID | `streamora-video-completion` |
-| Principal | `events.amazonaws.com` |
-| Source ARN | `arn:aws:events:ap-northeast-1:586481704097:rule/streamora-video-completion` |
-| Action | `lambda:InvokeFunction` |
-Nếu giao diện hiện thêm execution role cho target, giữ role Console tạo với quyền
-invoke đúng function; không gán role runtime của Lambda làm role EventBridge.
-
-## 10. EventBridge Scheduler — phục hồi và dọn output mỗi phút
-
-Tạo lịch bằng **Scheduler**, không dùng mục **Scheduled rule (legacy)**.
-
-Trước tiên tạo IAM role: **IAM → Roles → Create role → Custom trust policy**, dán
-[scheduler-trust.json](../infra/t13/scheduler-trust.json), đặt tên
-**`streamora-video-scheduler`**. Mở role → **Add permissions → Create inline policy →
-JSON**, dán [scheduler-policy.json](../infra/t13/scheduler-policy.json), đặt tên
-**`streamora-video-maintenance`**, tạo policy.
-Trust này giới hạn schedule group **default**, đúng account và region.
-
-Mở **EventBridge → Scheduler → Schedules → Create schedule**:
-
-| Trường | Giá trị |
-| --- | --- |
-| Schedule name | `streamora-video-maintenance` |
-| Schedule group | **default** |
-| Occurrence | Recurring schedule |
-| Schedule type | Rate-based schedule |
-| Rate | **1 minute**, tương đương `rate(1 minute)` |
-| Flexible time window | **Off** |
-| Start/end date | Không cần giới hạn |
-| Target | Templated targets → **AWS Lambda Invoke** |
-| Lambda function | `streamora-video-pipeline` |
-| Payload/Input | **`{"action":"maintenance"}`** |
-| Retry | Maximum event age 1 hour; maximum retry attempts 2 |
-| Dead-letter queue | `streamora-video-failures` |
-| Queue ARN nếu cần nhập | `arn:aws:sqs:ap-northeast-1:586481704097:streamora-video-failures` |
-| Permissions / Execution role | Use existing role → `streamora-video-scheduler` |
-| Role ARN nếu cần nhập | `arn:aws:iam::586481704097:role/streamora-video-scheduler` |
-| Schedule state | Enabled |
-
-Review rồi **Create schedule**. Không tạo thêm lịch một phút khác nếu lịch cũ vẫn
-chạy: khi chuyển từ rule maintenance cũ, disable rule cũ sau khi schedule mới đã bật.
-
-Scheduler chỉ phục hồi/cleanup. Video mới bắt đầu qua DynamoDB Streams ngay sau bàn giao.
-
-## 11. Thử Lambda
-
-Mở **Lambda → streamora-video-pipeline → Test → Create new event**,
-Event name = **maintenance-check**, dán JSON:
+1. Tab **Test** → trong **Test event**, chọn **Create new event**.
+2. Name: `maintenance-check`; **Event sharing settings = Private**.
+3. Thay toàn bộ JSON mẫu bằng:
 
 ```json
 {"action":"maintenance"}
 ```
 
-Save rồi Test, kỳ vọng `{"ok":true}`. Test này chạy phục hồi/cleanup thật nếu bảng
-đã có dữ liệu. Lỗi AccessDenied thì xem role **streamora-video-lambda**; lỗi Query
-thì kiểm tra index **work-due**, `work: String`, `dueAt: Number` và projection All.
+4. **Save** hoặc **Save changes**, rồi **Test**.
+5. Mở **Execution result → Details**. Mong đợi response `{"ok":true}`; xem thêm **Monitor → View CloudWatch logs** nếu cần.
 
-## 12. CloudFront — public key và key group
+Code không nhận input `{}` hoặc mẫu Hello World. Kết quả `ok` xác nhận lượt chạy hoàn tất, chưa chứng minh video đã encode thành công; từng job vẫn cần kiểm tra status/Logs. Khi bảng có dữ liệu, test này thực sự xử lý job đến hạn và cleanup.
 
-Nếu distribution/secret cũ đang chạy, tái sử dụng public key ID, key group và private
-key tương ứng. Trong **Secrets Manager → streamora/video-signing → Retrieve secret value**, đối chiếu
-`keyPairId` với **CloudFront → Public keys**. Không tự tạo khóa mới để thay khóa cũ.
+Nguồn: [Test tab và private event](https://docs.aws.amazon.com/lambda/latest/dg/testing-functions.html).
 
-**Với triển khai mới**, tại root chạy:
+## 5. Scheduler — gọi Lambda mỗi phút
 
-```bash
-npm run video:signing-key
-```
+Mở thẳng [EventBridge Scheduler tại Tokyo](https://ap-northeast-1.console.aws.amazon.com/scheduler/home?region=ap-northeast-1). Nếu đi từ EventBridge, chọn **Scheduler → Schedules**, không vào Rules của event bus.
 
-Script chỉ tạo cặp RSA 2048 local nếu chưa có, kiểm tra cặp khóa đã có, không gọi AWS.
-Mở `backend/infra/t13/.local/cloudfront-public.pem`, copy toàn bộ PEM.
+### 5.1. Specify schedule detail
 
-Mở [CloudFront Console](https://console.aws.amazon.com/cloudfront/v4/home) →
-**Public keys → Create public key**. Name `streamora-video`, Key value là public PEM,
-tạo key và ghi lại **Public key ID**.
-Mở **Key groups → Create/Add key group**, name `streamora-video`, thêm public key vừa
-tạo vào group, lưu. Dùng key group này ở behavior video bên dưới.
-
-## 13. Secrets Manager — lưu private key ký video
-
-Với triển khai mới, chạy lại, thay `PUBLIC_KEY_ID` bằng **ID public key**, không phải
-ID distribution hay key group:
-
-```bash
-npm run video:signing-key -- PUBLIC_KEY_ID
-```
-
-Mở `backend/infra/t13/.local/signing-secret.json`. File là JSON hợp lệ gồm
-`keyPairId` và `privateKey`, đã xử lý xuống dòng PEM; không tự bỏ các dấu `\n` trong JSON.
-
-Mở **Secrets Manager → Store a new secret → Other type of secret → Plaintext**,
-dán toàn bộ JSON. Encryption key **aws/secretsmanager**, Next. Secret name:
-**`streamora/video-signing`**. Không bật automatic rotation cho secret ký này.
-Review và **Store**, ghi lại **Secret ARN đầy đủ**, gồm hậu tố ngẫu nhiên.
-Không chọn loại database secret và không nhập `DATABASE_URL` vào đây.
-
-Secret có sẵn thì giữ nguyên nếu đúng cặp khóa và public key ID; không ghi đè bằng
-payload local chưa đối chiếu. Backend EC2 đọc secret này; Lambda encode không đọc nó.
-
-## 14. CloudFront — distribution, OAC và hai behavior bắt buộc
-
-### 14.1. Tạo/cập nhật distribution và S3 origin
-
-Mở **CloudFront → Distributions → Create distribution**, điền:
+**Schedules → Create schedule**, điền:
 
 | Trường | Giá trị |
 | --- | --- |
-| Name | `streamora-video` |
-| Distribution type | Single website or app |
-| Pricing plan nếu được hỏi | Pay-as-you-go |
-| Domain setup | Bỏ qua custom domain |
-| Origin type | Amazon S3 |
-| S3 bucket | `streamora-video-586481704097-ap-northeast-1` |
-| Origin name nếu được hỏi | `streamora-video-output` |
-| Origin path | Để trống |
-| Settings | Customize origin settings |
-| Origin access | Origin access control — OAC |
-| OAC name | `streamora-video-output` |
-| Signing | Sign requests (recommended) / Always |
-| WAF | Không cần bật thêm cho triển khai tối thiểu |
+| Schedule name | `streamora-video-maintenance` |
+| Schedule group | default |
+| Occurrence | Recurring schedule |
+| Schedule type/pattern | Rate-based schedule |
+| Rate / Value + Unit | `1` + minute/minutes, tương đương `rate(1 minute)` |
+| Flexible time window | Off |
+| Timeframe | Không cần start/end date; giữ timezone mặc định cho rate này |
 
-Review và tạo. Nếu đang dùng distribution **d2etcjbg4sxx6m.cloudfront.net**, mở nó
-để chỉnh tiếp. Origin ID cũ có thể khác ví dụ; chọn theo bucket
-**streamora-video-586481704097-ap-northeast-1**.
+Chọn **Next**. Nếu lịch cùng tên đã có, chọn lịch → **Edit** và sửa cấu hình tương ứng.
 
-Ghi lại **Distribution ID** và **Distribution domain name**.
-Mở **S3 → streamora-video-586481704097-ap-northeast-1 → Permissions → Bucket policy → Edit**.
-Dán policy dưới đây, chỉ thay **REPLACE_WITH_DISTRIBUTION_ID** bằng ID AWS cấp.
-Nếu đã có policy, gộp statement Allow này và giữ các statement cũ.
+### 5.2. Select target
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {"Service": "cloudfront.amazonaws.com"},
-    "Action": "s3:GetObject",
-    "Resource": "arn:aws:s3:::streamora-video-586481704097-ap-northeast-1/*",
-    "Condition": {"StringEquals": {
-      "AWS:SourceArn": "arn:aws:cloudfront::586481704097:distribution/REPLACE_WITH_DISTRIBUTION_ID"
-    }}
-  }]
-}
-```
+1. Chọn **Templated targets**.
+2. Tìm và chọn **AWS Lambda Invoke**.
+3. Trong **Lambda function**, chọn `streamora-video-pipeline`. Nếu danh sách trống, kiểm tra region và function đã tạo.
+4. Trong ô **Payload/Input**, nhập `{"action":"maintenance"}`. Không bọc thành chuỗi JSON có thêm dấu nháy bên ngoài.
+5. **Next**.
 
-Lưu, giữ **Block Public Access bật**. Trong **CloudFront → distribution streamora-video →
-Origins**, kiểm tra S3 origin dùng OAC **streamora-video-output**.
+### 5.3. Settings và review
 
-### 14.2. Tạo response headers policy cho CORS
+Ở màn **Settings - optional** (Step 3), chọn đúng như sau:
 
-**CloudFront → Policies → Response headers → Create response headers policy**,
-name `streamora-video-cors`. Bật **Configure CORS**:
+| Phần trên màn hình | Lựa chọn cho MVP |
+| --- | --- |
+| Schedule state → Enable schedule | Bật, công tắc màu xanh |
+| Action after schedule completion | NONE |
+| Retry policy → Retry | Tắt |
+| Dead-letter queue (DLQ) | None |
+| Encryption → Customize encryption settings (advanced) | Không tích; dùng AWS-owned key mặc định |
+| Permissions → Execution role | Create new role for this schedule |
+| Role name | Giữ tên AWS tự sinh dạng Amazon_EventBridge_Scheduler_LAMBDA_…; không bắt buộc đổi |
+
+Retry tắt nghĩa là Scheduler không gửi lại riêng lần gọi bị lỗi; lịch vẫn tiếp tục mỗi phút. Job đã lưu trong DynamoDB được lượt chạy sau lấy lại khi đến hạn/lease hết hạn. Với MVP này có thể giữ như vậy; nếu gặp lỗi cấp quyền kéo dài thì cần sửa quyền, không chỉ chờ tick sau.
+
+Role tự sinh là role **của Scheduler trong tài khoản dịch vụ**, để gọi Lambda; không phải instance role của EC2. Nếu muốn tên dễ nhận biết, có thể đổi thành streamora-video-scheduler trước khi tạo. Role tên đó đã có và đúng quyền thì chọn **Use existing role**.
+
+Bấm **Next** ở góc phải dưới → **Review and create schedule** (Step 4). Trước khi bấm **Create schedule**, kiểm tra:
+
+- Rate expression: rate(1 minute), Flexible time window: Off.
+- Target: Lambda streamora-video-pipeline ở ap-northeast-1.
+- Input: `{"action":"maintenance"}`.
+- State: Enabled; Action after completion: NONE; DLQ: None.
+
+Ảnh Step 3 chỉ xác nhận được các tùy chọn Settings; tên target và input phải kiểm tra ở Review hoặc Step 2.
+
+Nguồn cho các màn hình Scheduler: [tạo schedule trong Console](https://docs.aws.amazon.com/scheduler/latest/UserGuide/getting-started.html).
+
+**Giao diện mới còn có đường dẫn ngắn:** trong Lambda, **Function overview → Add trigger → Scheduler**, có thể tìm bằng từ `schedule`. Form này có tên lịch, nhóm, recurring schedule, payload và lựa chọn tự tạo role. Chỉ dùng một trong hai cách để tránh hai lịch chạy trùng. [Luồng Add trigger mới](https://docs.aws.amazon.com/lambda/latest/dg/with-eventbridge-scheduler.html).
+
+**Kiểm tra:** trong Schedules, lịch Enabled, target đúng ARN Lambda, input đúng. Sau vài phút, tab Monitor của Lambda có invocations theo lịch và Logs mới. Flexible window Off vẫn không có nghĩa lịch chạy chính xác ở giây 00.
+
+## 6. CloudFront — wizard mới và S3 origin
+
+Mở [CloudFront Console](https://console.aws.amazon.com/cloudfront/v4/home). Nếu giữ distribution `d2etcjbg4sxx6m.cloudfront.net`, tìm theo domain rồi mở distribution; đi thẳng mục 6.2–6.3.
+
+### 6.1. Tạo distribution mới
+
+1. **Distributions → Create distribution**.
+2. **Distribution name**: `streamora-video`; chọn **Single website or app** → **Next**.
+3. Nếu có màn **Choose a plan/Pricing plan**, dùng **Pay-as-you-go** cho cấu hình trong hướng dẫn này; không tự nâng gói của distribution đang chạy. Vị trí bước plan có thể thay đổi. [Các mô hình giá hiện tại](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html).
+4. **Domain setup**: bỏ qua custom domain, tiếp tục bằng domain CloudFront cấp.
+5. **Specify origin**: loại **Amazon S3**; **Browse S3**, chọn `streamora-file-storage-output`. Để **Origin path** trống.
+6. **Settings → Use recommended origin settings**, rồi **Next**.
+7. **Enable security protections**: chưa cần bật WAF bổ sung cho MVP → **Next**.
+8. Review → **Create distribution**.
+
+Nguồn: [wizard standard distribution](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/distribution-web-creating-console.html).
+
+Với đường tạo S3 origin được AWS khuyến nghị, CloudFront thiết lập OAC và cập nhật bucket policy tự động khi quyền cho phép. Sau khi tạo, mở tab **General**, ghi lại **Distribution domain name**. Chờ **Last modified** hết chữ Deploying và distribution Enabled. [Hướng dẫn tạo S3 origin có OAC](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/GettingStarted.SimpleDistribution.html).
+
+### 6.2. Distribution đã có hoặc OAC chưa được tự cấu hình
+
+1. Mở distribution → tab **Origins** → chọn origin output → **Edit**.
+2. Origin phải trỏ tới bucket `streamora-file-storage-output` dạng S3 REST origin, không phải S3 website endpoint.
+3. Trong **Origin access**, chọn **Origin access control settings (recommended)**.
+4. Chọn OAC đã có hoặc **Create new control**; tên `streamora-video-output`, chọn **Sign requests / Always** → tạo → **Save changes**.
+5. Nếu Console yêu cầu cấp quyền bucket, chọn **Copy policy** tại phần S3 bucket access/thông báo tương ứng. Mở S3 bucket output → **Permissions → Bucket policy → Edit**; thêm statement CloudFront vào policy hiện có → **Save changes**.
+
+Không ghi đè statement của dịch vụ khác. Nếu wizard đã thêm quyền đúng distribution ARN thì không cần dán lần nữa. Giữ S3 **Block Public Access bật**. [Cách cấp quyền S3 origin/OAC](https://repost.aws/knowledge-center/cloudfront-access-to-amazon-s3).
+
+### 6.3. Sửa behavior để HLS công khai và có CORS
+
+Tab **Behaviors** → chọn **Default (*)** → **Edit**:
 
 | Trường | Giá trị |
 | --- | --- |
-| Access-Control-Allow-Origin | `https://18-138-205-52.sslip.io`, thay bằng frontend thật nếu khác |
-| Access-Control-Allow-Credentials | true |
-| Access-Control-Allow-Methods | GET, HEAD, OPTIONS, POST |
-| Access-Control-Allow-Headers | Authorization, Content-Type, Range |
-| Access-Control-Expose-Headers | Content-Length, Content-Range, Accept-Ranges |
-| Origin override | Bật |
+| Origin / Origin and origin groups | Origin của bucket output |
+| Viewer protocol policy | Redirect HTTP to HTTPS |
+| Allowed HTTP methods | GET, HEAD |
+| Restrict viewer access / signed URLs or cookies | No |
+| Cache key and origin requests | Cache policy and origin request policy, nếu cần chọn kiểu |
+| Cache policy | Managed-CachingOptimized / CachingOptimized |
+| Origin request policy | Không cần thêm policy cho GET public này |
+| Response headers policy — optional | Managed-SimpleCORS / SimpleCORS |
 
-Tạo policy. Không dùng Allow-Origin `*` với credentials.
+**Save changes**, chờ triển khai xong. Nếu không thấy Response headers policy trong wizard tạo mới, đây chính là chỗ chỉnh sau khi tạo. Nếu có behavior riêng `groups/*` khớp HLS trước Default, cấu hình tương tự cho behavior đó.
 
-### 14.3. Default behavior bảo vệ HLS
+SimpleCORS thêm `Access-Control-Allow-Origin: *`; player hiện dùng request không gửi cookie với HLS public. Không cần tự tạo response headers policy. [Managed SimpleCORS](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html).
 
-Mở **CloudFront → distribution streamora-video → Behaviors → Default (*) → Edit**:
+Không cần API origin, media-grant behavior, key group, khóa ký hoặc Secrets Manager cho T13. Người có URL có thể xem playlist/segment mà không đăng nhập ứng dụng.
 
-| Trường | Giá trị |
-| --- | --- |
-| Origin | `streamora-video-output` — bucket `streamora-video-586481704097-ap-northeast-1`, có OAC |
-| Viewer protocol policy | HTTPS only |
-| Allowed HTTP methods | GET, HEAD, OPTIONS |
-| Restrict viewer access / Use signed URLs or signed cookies | **Yes** |
-| Trusted authorization type | **Trusted key groups** |
-| Key group | `streamora-video` |
-| Cache policy | Managed **CachingOptimized** |
-| Origin request policy | Không forward cookie/header auth đến S3 nếu không cần |
-| Response headers policy | `streamora-video-cors` |
+## 7. Quyền API và env — chỉ sửa trong tài khoản dịch vụ
 
-Lưu. Không tạo behavior rộng `groups/*` công khai có precedence cao hơn default.
+### 7.1. Policy cho identity mà backend đang dùng
 
-### 14.4. API origin và media-grant behavior
+1. Trong IAM của tài khoản **586481704097**, mở **Users → streamora-developer** nếu đây là user sở hữu access key đặt trong backend/.env. Nếu backend dùng key của user khác trong cùng tài khoản, chọn đúng user sở hữu key.
+2. **Permissions → Add permissions → Create inline policy → JSON**.
+3. Dán [api-policy.json](../infra/t13/api-policy.json) → **Next**, tên `streamora-video-api` → **Create policy**.
+4. Policy đã có thì mở để kiểm tra/sửa. Giữ quyền IVS/chat/các module khác.
 
-Mở **CloudFront → distribution streamora-video → Origins → Create origin**:
-origin type **Other / custom origin**, domain **`18-138-205-52.sslip.io`**,
-name `streamora-api`, origin path trống, protocol **HTTPS only**, port **443**,
-minimum origin SSL protocol **TLSv1.2**. Origin này không dùng OAC.
-EC2 cần HTTPS certificate hợp lệ cho domain đó và reverse proxy chuyển `/api/v1/*`
-đến backend. Không dùng IP trần hoặc nối trực tiếp HTTP port 4000 cho origin này.
+Các bước IAM này không tác động tới tài khoản EC2. Code hiện tại dùng Scheduler nên policy API trong repo chỉ cần các quyền S3/DynamoDB đã liệt kê; không cần bổ sung quyền gọi Lambda trong lần cấu hình này. [Inline policy cho user/role](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_manage-attach-detach.html).
 
-**CloudFront → distribution streamora-video → Behaviors → Create behavior**:
+### 7.2. backend/.env trên máy đang chạy API
 
-| Trường | Giá trị |
-| --- | --- |
-| Path pattern | **`/api/v1/files/*/media-grant`** |
-| Origin | `streamora-api` |
-| Viewer protocol policy | HTTPS only |
-| Allowed HTTP methods | **GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE** để có POST |
-| Restrict viewer access / signed cookies | **No** — API tự kiểm tra đăng nhập/quyền |
-| Cache policy | Managed **CachingDisabled** |
-| Origin request policy | Managed **AllViewerExceptHostHeader** |
-| Response headers policy | `streamora-video-cors` |
-
-Đặt behavior này có precedence trước default và mọi pattern rộng có thể khớp nó.
-Không cache grant hoặc `Set-Cookie`; không gắn trusted key group vào grant endpoint,
-vì người xem cần gọi endpoint này để nhận cookie đầu tiên.
-Sau khi lưu, đợi distribution triển khai xong, Status Enabled và không còn Deploying.
-
-## 15. Cấp quyền cho EC2 API
-
-EC2 đã có IAM role thì thêm policy vào role đó để giữ quyền các module khác.
-Nếu chưa có: **IAM → Roles → Create role → AWS service → EC2**,
-đặt **Role name = streamora-api**, tạo role.
-
-Mở role của EC2 → **Add permissions → Create inline policy → JSON**, dán
-[ec2-api-policy.json](../infra/t13/ec2-api-policy.json), đặt
-**Policy name = streamora-video-api**, lưu.
-
-Nếu vừa tạo role: **EC2 → Instances → chọn máy API → Actions → Security →
-Modify IAM role → streamora-api → Update IAM role**.
-
-Dùng instance role thì không cần access key tĩnh. Chỉ bỏ key cũ khỏi env sau khi
-role có đủ quyền cho IVS và các module khác; key tĩnh còn lại có thể được ưu tiên hơn role.
-
-## 16. Cập nhật backend và nghiệm thu
-
-1. Backup `backend/.env` trên EC2. Chép block ở mục 17, thay các giá trị chưa biết,
-   **thay dòng cũ cùng tên**, không nối thêm các dòng trùng. Giữ cấu hình auth/database
-   và các module khác. `NODE_ENV` là tên đúng; xóa dòng `ODE_ENV` gõ thiếu chữ N.
-2. Đưa source mới lên EC2, chạy tại root repository:
-
-   ```bash
-   npm ci
-   npm run db:migrate
-   npm run build --workspace=@streamora/api
-   pm2 restart streamora-api --update-env
-   ```
-
-   Thay `streamora-api` bằng process name thật. PostgreSQL hiện có vẫn phục vụ
-   auth/quyền/metadata/bàn giao bền vững của ứng dụng; chỉ phần xử lý job T13 ở AWS
-   dùng DynamoDB. Không xóa `DATABASE_URL` của API.
-3. Upload clip 10–30 giây **qua ứng dụng**, hoặc hoàn tất bản ghi trình duyệt.
-   Kỳ vọng `QUEUED → PROCESSING → READY`. Trong MediaConvert Jobs phải có job mới,
-   output xuất hiện dưới `groups/.../videos/...` ở bucket output.
-4. Phát HLS, đổi chất lượng. Browser Network phải thấy POST media-grant qua domain
-   CloudFront rồi các request `.m3u8`/segment thành công. Cửa sổ ẩn danh không có
-   grant phải nhận 403 khi mở trực tiếp cùng HLS URL.
-5. Kiểm tra CloudWatch Lambda Errors/Throttles, EventBridge FailedInvocations,
-   Scheduler TargetErrorCount và SQS messages. Queue rỗng trong luồng thành công.
-6. Khi đổi code Lambda, chỉ chạy `npm run package:video-lambda` rồi upload ZIP mới
-   và kiểm tra handler/env; không phải tạo lại các dịch vụ.
-
-| Triệu chứng | Kiểm tra trước |
-| --- | --- |
-| QUEUED lâu, không có MediaConvert job | API role/DynamoDB handoff, stream Enabled, filter, Lambda Logs |
-| Lambda AccessDenied MediaConvert | `mediaconvert:Probe`, CreateJob/GetJob/ListJobs và PassRole đúng role |
-| Job ERROR đọc/ghi S3 | Role MediaConvert, bucket/key/region, SSE-KMS nếu có |
-| Encode xong nhưng chưa READY | EventBridge pattern/target permission, GetJob và finalizer; Scheduler chỉ là phục hồi |
-| HLS 403 | OAC/bucket policy, trusted key group, public key ID trong secret, cookie hết hạn |
-| media-grant 403 ở CloudFront | Behavior grant phải không yêu cầu signed cookie, precedence đúng |
-| media-grant 401 | Authorization phải được chuyển đến API qua AllViewerExceptHostHeader |
-| media-grant 502 | HTTPS origin, certificate domain, port 443 và reverse proxy EC2 |
-| CORS/cookie bị chặn | Origin đúng tuyệt đối, Allow-Credentials, browser cookie policy |
-
-`sslip.io` và `cloudfront.net` khác site. Một số trình duyệt chặn cookie bên thứ ba;
-CORS đúng cũng không vượt qua được chặn này. Production ổn định nên dùng frontend/
-API/media dưới cùng domain sở hữu, ví dụ `app.example.com`, `api.example.com`,
-`media.example.com`; CloudFront alternate domain cần certificate ACM tại us-east-1.
-Khi đổi domain, cập nhật WEB_ORIGIN, S3 CORS, response headers policy và media domain.
-
-<details>
-<summary>Tài liệu AWS tham chiếu</summary>
-
-Nguồn AWS: [tạo bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/GetStartedWithS3.html),
-[CORS JSON trong giao diện hiện tại](https://docs.aws.amazon.com/AmazonS3/latest/userguide/enabling-cors-examples.html).
-
-Nguồn AWS: [tạo bảng/PITR](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/getting-started-step-1.html),
-[GSI](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.OnlineOps.html),
-[bật Streams](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Streams.html).
-
-Nguồn AWS: [Standard queue trong Console](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/creating-sqs-standard-queues.html),
-[on-failure của DynamoDB mapping](https://docs.aws.amazon.com/lambda/latest/dg/services-dynamodb-eventsourcemapping.html).
-
-Nguồn AWS: [tạo queue theo Console hiện tại](https://docs.aws.amazon.com/mediaconvert/latest/ug/creating-queues.html),
-[concurrency và quota](https://docs.aws.amazon.com/mediaconvert/latest/ug/working-with-on-demand-queues.html).
-
-Nguồn AWS: [Event Functions và upload ZIP](https://docs.aws.amazon.com/lambda/latest/dg/nodejs-package.html),
-[cấu hình function](https://docs.aws.amazon.com/lambda/latest/dg/file-processing-app.html),
-[reserved concurrency](https://docs.aws.amazon.com/lambda/latest/dg/configuration-concurrency.html),
-[async retry](https://docs.aws.amazon.com/lambda/latest/dg/invocation-async-configuring.html),
-[on-failure destination](https://docs.aws.amazon.com/lambda/latest/dg/invocation-async-retain-records.html).
-
-Nguồn AWS: [tạo mapping và các trường](https://docs.aws.amazon.com/lambda/latest/dg/services-dynamodb-eventsourcemapping.html),
-[thêm filter trong Console](https://docs.aws.amazon.com/lambda/latest/dg/invocation-eventfiltering.html),
-[partial batch response](https://docs.aws.amazon.com/lambda/latest/dg/services-ddb-batchfailurereporting.html).
-
-Nguồn AWS: [Advanced Builder hiện tại](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-create-rule-wizard.html),
-[quyền target](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-use-resource-based.html).
-
-Nguồn AWS: [Scheduler Console](https://docs.aws.amazon.com/scheduler/latest/UserGuide/getting-started.html),
-[execution role](https://docs.aws.amazon.com/scheduler/latest/UserGuide/setting-up.html),
-[scheduled rule đã là legacy](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-rules.html).
-
-Nguồn AWS: [public key và trusted key group](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-trusted-signers.html).
-
-Nguồn AWS: [Other type of secret / Plaintext](https://docs.aws.amazon.com/secretsmanager/latest/userguide/create_secret.html).
-
-Nguồn AWS: [wizard Single website or app hiện tại](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/distribution-web-creating-console.html),
-[pricing plans](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html),
-[OAC và bucket policy](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html).
-
-Nguồn AWS: [response headers policy](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/creating-response-headers-policies.html).
-
-Nguồn AWS: [gắn signer theo behavior](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-trusted-signers.html).
-
-Nguồn AWS: [AllViewerExceptHostHeader](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html).
-
-Nguồn AWS: [gắn role trong Console](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/attach-iam-role.html).
-
-</details>
-
-## 17. Danh sách cuối cùng — dán vào `.env` của backend EC2
-
-Mẫu có thể mở riêng: [ec2.env.example](../infra/t13/ec2.env.example).
-Block dưới đã điền domain và signing secret **bạn cung cấp**, dùng khi giữ tài nguyên cũ.
-Nếu tạo mới, chỉ thay `VIDEO_MEDIA_DOMAIN` và `VIDEO_SIGNING_SECRET_ARN` bằng giá trị
-AWS vừa cấp. Tên/ARN của các dịch vụ còn lại đã điền đúng trong từng bước.
+Giữ credentials hiện có nếu đúng streamora-developer. Điền hoặc cập nhật các biến sau, mỗi tên một dòng, không nối thêm bản trùng:
 
 ```dotenv
-NODE_ENV=production
-WEB_ORIGIN=https://18-138-205-52.sslip.io
-AUTH_COOKIE_SECURE=true
-AUTH_COOKIE_SAME_SITE=lax
-
+AWS_ACCESS_KEY_ID=<access key trong tài khoản dịch vụ>
+AWS_SECRET_ACCESS_KEY=<secret tương ứng>
+AWS_REGION=ap-northeast-1
 FILES_STORAGE_DRIVER=s3
 FILES_S3_BUCKET=streamora-file-storage
 FILES_S3_REGION=ap-northeast-1
-
 VIDEO_MODE=aws
 VIDEO_WORKER_ENABLED=false
-VIDEO_DYNAMODB_TABLE=streamora-video-jobs
 VIDEO_AWS_ACCOUNT_ID=586481704097
-VIDEO_OUTPUT_BUCKET=streamora-video-586481704097-ap-northeast-1
-VIDEO_MAX_QUALITY=1080
-VIDEO_OPTIONAL_QUALITIES=
 VIDEO_MEDIA_DOMAIN=d2etcjbg4sxx6m.cloudfront.net
-VIDEO_SIGNING_SECRET_ARN=arn:aws:secretsmanager:ap-northeast-1:586481704097:secret:streamora/video-signing-F3xMpv
 ```
 
-| Biến cần thay | Lấy ở đâu / lưu ý |
-| --- | --- |
-| `WEB_ORIGIN` | Đã điền `https://18-138-205-52.sslip.io`; chỉ sửa nếu đổi frontend |
-| `VIDEO_MEDIA_DOMAIN` | CloudFront distribution → General → Distribution domain name; **không** có `https://` hoặc path. Có thể giữ `d2etcjbg4sxx6m.cloudfront.net` nếu tái sử dụng đúng distribution cũ |
-| `VIDEO_SIGNING_SECRET_ARN` | Secrets Manager → `streamora/video-signing` → Secret ARN, đầy đủ hậu tố |
+Thay `VIDEO_MEDIA_DOMAIN` bằng domain ghi ở CloudFront, chỉ hostname, không có `https://` hoặc path. Hai bucket, bảng và queue Default đã có mặc định trong mã; nếu đang có override khác thì kiểm tra chúng trước khi bật pipeline. Mẫu tham khảo: [EC2 env](../infra/t13/ec2.env.example), [Lambda env](../infra/t13/lambda.env.example).
 
-Giữ nguyên `DATABASE_URL`, `ACCESS_TOKEN_SECRET`, PORT và env nghiệp vụ hiện có.
-EC2 không cần `VIDEO_MEDIACONVERT_ROLE_ARN`, `VIDEO_MEDIACONVERT_QUEUE_ARN`,
-`VIDEO_DATABASE_SECRET_ARN` hay `VIDEO_DISPATCH_QUEUE_URL`; hai ARN MediaConvert chỉ
-đặt ở Lambda. Bỏ các biến T13 cũ đó khỏi env API nếu còn. Dùng instance role thì
-không thêm AWS access key vào block này. Không xóa env SQS/IVS của module khác.
+Giữ DATABASE_URL/auth và biến của các module khác. Chỉ đặt AWS_SESSION_TOKEN khi có credentials tạm thời hợp lệ. API đọc backend/.env khi khởi động; nếu PM2 giữ biến AWS cũ, cập nhật chúng cho khớp vì biến môi trường process ưu tiên hơn .env. Lambda dùng execution role riêng, không copy access key API lên Lambda.
+
+Deploy frontend/API giữ nguyên:
+
+```bash
+npm ci
+npm run build
+pm2 restart streamora --update-env
+pm2 restart streamora-api --update-env
+pm2 save
+```
+
+Khi thay code Lambda, đóng gói và upload ZIP theo mục 4; restart PM2 không cập nhật code trên Lambda.
+
+## 8. Chuyển từ cấu hình T13 cũ
+
+1. Kiểm tra job đang encode trước khi đổi queue: chờ queue cũ xử lý xong hoặc giữ `VIDEO_MEDIACONVERT_QUEUE_ARN` trỏ queue cũ trong giai đoạn chuyển tiếp. Sau khi hết job cũ mới bỏ override để dùng Default. Không xóa job/queue đang dùng.
+2. Upload ZIP Lambda theo luồng Scheduler mới, giữ bảng và dữ liệu.
+3. Trong Lambda → **Configuration → Triggers**, tắt trigger DynamoDB cũ; EventBridge → event bus Rules, tắt `streamora-video-completion`. Chỉ tắt stream ở bảng khi không còn ứng dụng nào khác dùng.
+4. Giữ **một** lịch maintenance mỗi phút. Lịch cũ có input `{"action":"maintenance"}` vẫn dùng được.
+5. CloudFront bỏ yêu cầu signed URL/cookie trên behavior HLS, dùng SimpleCORS. Chỉ dọn origin/behavior API riêng của T13 nếu xác nhận không dùng cho chức năng khác.
+
+## 9. Nghiệm thu — làm lần lượt
+
+| Bước thử | Kết quả cần thấy |
+| --- | --- |
+| Test Lambda với input maintenance | Response ok; không có lỗi cấu hình/quyền trong Logs |
+| Đợi Scheduler | Lịch Enabled, Lambda có invocation mới |
+| Upload clip 10–30 giây qua ứng dụng | File nguồn có ở S3, trạng thái QUEUED |
+| Đợi lịch Lambda | MediaConvert → Jobs có job mới, trạng thái chuyển PROCESSING |
+| Encode hoàn tất và tick tiếp theo | Output HLS có ở bucket output, API báo READY |
+| Player chọn Tự động | Playlist/segment tải qua CloudFront, phát được và đổi chất lượng |
+| Copy URL master thật, mở cửa sổ ẩn danh | URL trả nội dung playlist hoặc tải file .m3u8; không cần cookie |
+
+Không thử bằng cách mở mỗi domain CloudFront trống: MVP không có trang index. Việc trình duyệt tải file .m3u8 thay vì phát trực tiếp không chứng minh video lỗi. Để kiểm tra CORS, dùng player ứng dụng và tab Network, xem response request .m3u8 có Access-Control-Allow-Origin.
+
+| Triệu chứng | Mở đúng chỗ để kiểm tra |
+| --- | --- |
+| Không thấy tài nguyên trong danh sách | Account ID, region Tokyo, bộ lọc tìm kiếm |
+| Không thấy Runtime settings | Lambda → Code → cuộn xuống dưới Code source |
+| HandlerNotFound / Cannot find module index | ZIP có index.cjs ở gốc; Handler index.handler |
+| Lambda timeout sau vài giây | Configuration → General configuration, timeout 5 phút |
+| VIDEO_EVENT_INVALID | Test event và Scheduler input phải là action maintenance |
+| Lỗi index / QUEUED kéo dài | DynamoDB → Indexes: work-due Active, work String/dueAt Number |
+| Lambda AccessDenied | Configuration → Permissions → mở execution role; kiểm tra runtime policy và PassRole |
+| Scheduler không gọi được Lambda | Schedules → target/input/role; kiểm tra role được tạo cho schedule |
+| MediaConvert ERROR | Jobs → mở job → error message; role encode, nguồn S3, encryption |
+| Encode xong chưa READY | Tick kế tiếp, Lambda Logs; ok của một lượt chạy không đảm bảo tất cả job thành công |
+| HLS 403 | Origins/OAC, bucket policy, đúng object key, Restrict viewer access = No |
+| HLS lỗi CORS | Behavior thực sự khớp URL có SimpleCORS; frontend/API đã cập nhật bản public HLS |

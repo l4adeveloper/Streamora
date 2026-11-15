@@ -73,10 +73,6 @@ async function createVideoDynamoFixture() {
             Projection: { ProjectionType: "ALL" },
           },
         ],
-        StreamSpecification: {
-          StreamEnabled: true,
-          StreamViewType: "NEW_IMAGE",
-        },
       }),
     );
     created = true;

@@ -4,11 +4,7 @@ import { Captions, AlignLeft } from "lucide-react";
 import type Hls from "hls.js";
 import type { VideoPlaybackResponse } from "@streamora/contracts";
 import { asApiError } from "@/lib/api";
-import {
-  getVideoPlayback,
-  getVideoProcessing,
-  acquireVideoGrant,
-} from "@/lib/files/api";
+import { getVideoPlayback, getVideoProcessing } from "@/lib/files/api";
 import { VideoPlayerControls } from "./video-player-controls";
 import {
   RecordingCaptionTrack,
@@ -81,7 +77,6 @@ export function VideoPreview({
       setError("");
       try {
         const response = await getVideoPlayback(fileId);
-        await acquireVideoGrant(response);
         if (request !== sequence.current) return;
         denied.current = false;
         if (nativeManual.current) {
@@ -154,7 +149,7 @@ export function VideoPreview({
     };
   }, [fileId, manifest?.processing.status, refresh, sourceId]);
   useEffect(() => {
-    if (!source || denied.current) return;
+    if (!source || source.public || denied.current) return;
     const timer = setTimeout(
       () => {
         if (!denied.current) void refresh(sourceId, true);
@@ -162,7 +157,7 @@ export function VideoPreview({
       Math.max(1000, Date.parse(source.expiresAt) - Date.now() - 15000),
     );
     return () => clearTimeout(timer);
-  }, [source?.expiresAt, sourceId, refresh]);
+  }, [source?.expiresAt, source?.public, sourceId, refresh]);
   useEffect(() => {
     const element = video.current;
     if (!element || !source) return;
@@ -176,6 +171,7 @@ export function VideoPreview({
       if (cancelled) return;
       // Seeking after a URL expires obtains a fresh grant with current group rights.
       if (
+        !source!.public &&
         Date.parse(source!.expiresAt) <= Date.now() + 1000 &&
         Date.now() - automaticRefreshAt.current > 5000
       ) {
@@ -224,10 +220,13 @@ export function VideoPreview({
               backBufferLength: Infinity,
               frontBufferFlushThreshold: Infinity,
               xhrSetup: (xhr) => {
-                xhr.withCredentials = true;
+                xhr.withCredentials = !source.public;
               },
               fetchSetup: (context, init) =>
-                new Request(context.url, { ...init, credentials: "include" }),
+                new Request(context.url, {
+                  ...init,
+                  credentials: source.public ? "omit" : "include",
+                }),
             });
             engine.current = instance;
             instance.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
@@ -323,7 +322,15 @@ export function VideoPreview({
       element.removeAttribute("src");
       element.load();
     };
-  }, [source?.url, source?.kind, source?.id, nativeQuality, revision, refresh]);
+  }, [
+    source?.url,
+    source?.kind,
+    source?.id,
+    source?.public,
+    nativeQuality,
+    revision,
+    refresh,
+  ]);
 
   function toggleTranscript() {
     setTranscriptOpen((previous) => !previous);
@@ -451,7 +458,7 @@ export function VideoPreview({
               <video
                 ref={video}
                 playsInline
-                crossOrigin="use-credentials"
+                crossOrigin={source?.public ? "anonymous" : "use-credentials"}
                 poster={manifest.thumbnail}
                 preload="metadata"
                 aria-label={`Xem trước video: ${name}`}

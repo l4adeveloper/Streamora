@@ -474,36 +474,6 @@ export class DynamoVideoJobs extends EventEmitter implements VideoJobStore {
     if (!(await this.finish(job, "FAILED", undefined, code)))
       throw new VideoError("LEASE_LOST");
   }
-  async expedite(id: string, attempt: number, providerId?: string) {
-    try {
-      await this.client.send(
-        new UpdateCommand({
-          TableName: this.table,
-          Key: key(`JOB#${id}`),
-          ConditionExpression:
-            "attemptNo=:attempt AND #s IN (:s,:p,:v)" +
-            (providerId
-              ? " AND (providerJobId=:provider OR attribute_not_exists(providerJobId) OR providerJobId=:nil)"
-              : ""),
-          UpdateExpression:
-            "SET dueAt=:now, nextRunAt=:date" +
-            (providerId ? ", providerJobId=:provider" : ""),
-          ExpressionAttributeNames: { "#s": "state" },
-          ExpressionAttributeValues: {
-            ":attempt": attempt,
-            ":s": "SUBMITTING",
-            ":p": "PROCESSING",
-            ":v": "VERIFYING",
-            ":now": Date.now(),
-            ":date": new Date().toISOString(),
-            ...(providerId ? { ":provider": providerId, ":nil": null } : {}),
-          },
-        }),
-      );
-    } catch (error) {
-      if (!conditional(error)) throw error;
-    }
-  }
   async deleted(fileId: string) {
     const asset = await this.asset(fileId);
     if (!asset || asset.deleted) return;

@@ -41,13 +41,6 @@ export interface SharedFile {
   kind: "document" | "recording";
   status: "uploading" | "processing" | "ready" | "failed";
 }
-/** @deprecated Legacy scaffold. Use VideoFinalizeMessage / VideoFileFinalizeMessage. */
-export interface TranscodeJob {
-  recordingId: string;
-  sourceKey: string;
-  communityId: string;
-  qualities: Array<720 | 1080>;
-}
 export interface MultipartUpload {
   uploadId: string;
   key: string;

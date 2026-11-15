@@ -13,6 +13,19 @@ before(async () => {
 after(async () => {
   await f?.cleanup();
 });
+async function dueNow(id) {
+  await f.client.send(
+    new UpdateCommand({
+      TableName: f.video.tableName,
+      Key: { pk: "JOB#" + id, sk: "DATA" },
+      UpdateExpression: "SET dueAt=:now, nextRunAt=:date",
+      ExpressionAttributeValues: {
+        ":now": Date.now() - 1000,
+        ":date": new Date(Date.now() - 1000).toISOString(),
+      },
+    }),
+  );
+}
 async function seed(changes = {}) {
   const job = videoJob(undefined, changes);
   const file = { id: job.fileId, groupId: randomUUID() };
@@ -114,7 +127,7 @@ test("recovery queries only due active jobs and terminal failure removes a job f
     nextRunAt: new Date(Date.now() + 60000),
   });
   assert.equal(await f.store.claim(randomUUID(), job.id), null);
-  await f.store.expedite(job.id, claim.attemptNo);
+  await dueNow(job.id);
   const resumed = await f.store.claim(randomUUID(), job.id);
   await f.store.fail(resumed, "ENCODE_FAILED");
   assert.equal((await f.store.job(job.id)).errorCode, "ENCODE_FAILED");
@@ -164,8 +177,11 @@ test("the complete managed pipeline publishes verified HLS using DynamoDB and S3
     close: () => {},
   };
   const worker = new VideoWorker(f.store, storage, undefined, encoder);
+  const { createVideoLambdaHandler } = require("../dist/video.lambda");
+  const tick = createVideoLambdaHandler({ video: f.video, sourceBucket: f.target.bucket }, () => ({ store: { due: async () => (await f.store.due(100)).filter(row => row.id === job.id), cleanup: async () => {} }, storage, worker }));
+  const context = { getRemainingTimeInMillis: () => 300000 };
   try {
-    assert.equal(await worker.once(job.id), true);
+    assert.deepEqual(await tick({ action: "maintenance" }, context), { ok: true });
     assert.equal((await f.store.job(job.id)).state, "PROCESSING");
     assert.equal(submitted, 1);
     const prefix = `groups/${file.groupId}/videos/${file.id}/${job.id}/1`;
@@ -183,8 +199,8 @@ test("the complete managed pipeline publishes verified HLS using DynamoDB and S3
     }
     objects.set(`${prefix}/hls/master.m3u8`, manifest.join("\n") + "\n");
     objects.set(`${prefix}/thumbnails/poster_capture.0000000.jpg`, "jpeg");
-    await f.store.expedite(job.id, 1, "managed-provider-job");
-    assert.equal(await worker.once(job.id), true);
+    await dueNow(job.id);
+    assert.deepEqual(await tick({ action: "maintenance" }, context), { ok: true });
     const state = await f.store.state(file.id);
     assert.equal(state.job.state, "READY");
     assert.equal(state.job.output.renditions.length, 3);

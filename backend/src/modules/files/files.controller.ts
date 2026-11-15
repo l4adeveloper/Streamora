@@ -204,21 +204,7 @@ export class FilesController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const result = await this.files.playback(auth.user.id, fileId);
-    return applyPlaybackCookies(result, response, false);
-  }
-  @Post(":fileId/media-grant")
-  @HttpCode(200)
-  @ApiExcludeEndpoint()
-  async mediaGrant(
-    @CurrentAuth() auth: AuthenticatedIdentity,
-    @Param("fileId", UUIDParamPipe) fileId: string,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    return applyPlaybackCookies(
-      await this.files.playback(auth.user.id, fileId),
-      response,
-      true,
-    );
+    return applyPlaybackCookies(result, response);
   }
   @Get()
   @ApiExcludeEndpoint()

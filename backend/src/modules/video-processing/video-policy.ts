@@ -102,7 +102,7 @@ export function qualityLabel(width: number, height: number) {
 }
 export function makePolicy(
   source: SourceMetadata,
-  cap = 1080,
+  cap = 2160,
   optional: number[] = [],
 ): VideoPolicy {
   const { width, height } = source;

@@ -11,7 +11,6 @@ export interface VideoConfig {
   roleArn: string;
   queueArn: string;
   mediaDomain: string;
-  signingSecretArn: string;
   tableName: string;
   accountId: string;
   region: string;
@@ -32,7 +31,7 @@ export function readVideoConfig(
     (mode === "aws" && driver !== "s3")
   )
     bad("VIDEO_MODE");
-  const maxQuality = Number(env.VIDEO_MAX_QUALITY ?? 1080);
+  const maxQuality = Number(env.VIDEO_MAX_QUALITY ?? 2160);
   if (![360, 480, 720, 1080, 1440, 2160].includes(maxQuality))
     bad("VIDEO_MAX_QUALITY");
   const optionalQualities = env.VIDEO_OPTIONAL_QUALITIES
@@ -54,12 +53,23 @@ export function readVideoConfig(
       "../../..",
       env.VIDEO_SCRATCH_DIRECTORY ?? ".local-storage/video-scratch",
     ),
-    outputBucket: env.VIDEO_OUTPUT_BUCKET ?? "",
-    roleArn: env.VIDEO_MEDIACONVERT_ROLE_ARN ?? "",
-    queueArn: env.VIDEO_MEDIACONVERT_QUEUE_ARN ?? "",
+    outputBucket:
+      env.VIDEO_OUTPUT_BUCKET ??
+      (mode === "aws" ? "streamora-file-storage-output" : ""),
+    roleArn:
+      env.VIDEO_MEDIACONVERT_ROLE_ARN ??
+      (mode === "aws"
+        ? `arn:aws:iam::${env.VIDEO_AWS_ACCOUNT_ID ?? ""}:role/streamora-video-mediaconvert`
+        : ""),
+    queueArn:
+      env.VIDEO_MEDIACONVERT_QUEUE_ARN ??
+      (mode === "aws"
+        ? `arn:aws:mediaconvert:${region}:${env.VIDEO_AWS_ACCOUNT_ID ?? ""}:queues/Default`
+        : ""),
     mediaDomain: env.VIDEO_MEDIA_DOMAIN ?? "",
-    signingSecretArn: env.VIDEO_SIGNING_SECRET_ARN ?? "",
-    tableName: env.VIDEO_DYNAMODB_TABLE ?? "",
+    tableName:
+      env.VIDEO_DYNAMODB_TABLE ??
+      (mode === "aws" ? "streamora-video-jobs" : ""),
     accountId: env.VIDEO_AWS_ACCOUNT_ID ?? "",
     region,
   };
@@ -78,12 +88,6 @@ export function readVideoConfig(
     if (!/^[A-Za-z0-9_.-]{3,255}$/.test(config.tableName))
       bad("VIDEO_DYNAMODB_TABLE");
     if (purpose === "api") {
-      if (
-        !config.signingSecretArn.startsWith(
-          `arn:aws:secretsmanager:${region}:${config.accountId}:secret:`,
-        )
-      )
-        bad("VIDEO_SIGNING_SECRET_ARN");
       if (!/^[a-z0-9.-]+$/.test(config.mediaDomain)) bad("VIDEO_MEDIA_DOMAIN");
     }
     if (purpose === "lambda") {

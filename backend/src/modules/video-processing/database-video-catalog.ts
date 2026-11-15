@@ -33,9 +33,12 @@ export class DatabaseVideoCatalog extends VideoRenditionCatalog {
     if (published?.state === "READY" && published.output) {
       const output = published.output as unknown as VideoOutput;
       const grant = await this.delivery.grant(file.id, published.id, output);
-      result.hls = { url: grant.url, expiresAt: grant.expiresAt };
+      result.hls = {
+        url: grant.url,
+        expiresAt: grant.expiresAt,
+        public: grant.public,
+      };
       result.deliveryCookies = grant.cookies;
-      result.grantUrl = grant.grantUrl;
       result.qualities = output.renditions
         .map((r) => ({
           id: r.id,

@@ -84,6 +84,7 @@ export interface FolderResponse {
 export type VideoProcessingStatus =
   "NOT_REQUESTED" | "QUEUED" | "PROCESSING" | "READY" | "FAILED";
 export interface VideoPlaybackSource extends FileDownloadResponse {
+  public?: boolean;
   id: string;
   label: string;
   kind: "file" | "hls";
@@ -97,7 +98,6 @@ export interface VideoPlaybackResponse {
   sources: VideoPlaybackSource[];
   qualities?: VideoQuality[];
   thumbnail?: string;
-  grantUrl?: string;
 }
 export interface VideoQuality extends FileDownloadResponse {
   id: string;
@@ -112,18 +112,4 @@ export interface VideoProcessingResponse {
   renditions: { height: number; bitrate: number; status: "READY" }[];
   thumbnailReady: boolean;
   errorCode?: string;
-}
-/** SQS message attribute contract=video.finalize.v1; recording compatibility. */
-export interface VideoFinalizeMessage {
-  jobId: string;
-  recordingId: string;
-  sourceObjectKey: string;
-  outputVersion: string;
-  requestedAt: string;
-}
-export interface VideoFileFinalizeMessage {
-  type: "video.file.finalize.v1";
-  jobId: string;
-  fileId: string;
-  requestedAt: string;
 }

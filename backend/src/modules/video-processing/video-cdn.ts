@@ -7,14 +7,13 @@ export interface DeliveryCookie {
   name: string;
   value: string;
   path: string;
-  domain?: string;
   secure: boolean;
 }
 export interface MediaGrant {
+  public?: boolean;
   url: string;
   expiresAt: string;
   cookies: DeliveryCookie[];
-  grantUrl?: string;
   assetUrl(key: string): string;
 }
 
