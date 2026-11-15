@@ -1581,11 +1581,19 @@ export function Workspace({
               <>
                 {activeMeetingId && workspaceGroup.groupId && (
                   <div
+                    className={
+                      view === "meetings" && !meetingMinimized
+                        ? "workspace-meeting-frame active"
+                        : "workspace-meeting-frame hidden"
+                    }
                     style={{
                       display:
                         view === "meetings" && !meetingMinimized
-                          ? "contents"
+                          ? "flex"
                           : "none",
+                      flexDirection: "column",
+                      flex: 1,
+                      minHeight: 0,
                     }}
                   >
                     <WorkspaceMeetingRoom
