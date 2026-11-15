@@ -1,0 +1,31 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyInsecureTransport",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "sqs:*",
+      "Resource": "arn:aws:sqs:ap-northeast-1:586481704097:streamora-video-failures",
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "false"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "arn:aws:sqs:ap-northeast-1:586481704097:streamora-video-failures",
+      "Sid": "AllowCompletionRule",
+      "Principal": {
+        "Service": "events.amazonaws.com"
+      },
+      "Condition": {
+        "ArnEquals": {
+          "aws:SourceArn": "arn:aws:events:ap-northeast-1:586481704097:rule/streamora-video-completion"
+        }
+      }
+    }
+  ]
+}

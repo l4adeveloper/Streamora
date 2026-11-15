@@ -4,7 +4,10 @@ import {
   VideoRenditionCatalog,
   type VideoProcessingSnapshot,
 } from "../files/video-rendition-catalog";
-import { VideoProcessingService } from "./video-processing.service";
+import {
+  VideoProcessingService,
+  processingSnapshot,
+} from "./video-processing.service";
 import { VideoDelivery } from "./video-delivery";
 import { qualityLabel, type VideoOutput } from "./video-policy";
 
@@ -20,13 +23,8 @@ export class DatabaseVideoCatalog extends VideoRenditionCatalog {
     file: LibraryFile,
     tx: Prisma.TransactionClient,
   ): Promise<VideoProcessingSnapshot> {
-    const status = await this.service.snapshot(file.id, tx);
-    const asset = await tx.videoAsset.findUnique({
-      where: { fileId: file.id },
-    });
-    const published = asset?.publishedJobId
-      ? await tx.videoJob.findUnique({ where: { id: asset.publishedJobId } })
-      : null;
+    const { asset, job, published } = await this.service.state(file.id, tx);
+    const status = processingSnapshot(job, published);
     const result: VideoProcessingSnapshot = {
       ...status,
       renditions: [],

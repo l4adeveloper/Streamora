@@ -7,13 +7,12 @@ export interface VideoConfig {
   ffmpegPath: string;
   ffprobePath: string;
   scratchDirectory: string;
-  dispatchQueueUrl: string;
-  completionQueueUrl: string;
   outputBucket: string;
   roleArn: string;
   queueArn: string;
   mediaDomain: string;
   signingSecretArn: string;
+  tableName: string;
   accountId: string;
   region: string;
 }
@@ -55,13 +54,12 @@ export function readVideoConfig(
       "../../..",
       env.VIDEO_SCRATCH_DIRECTORY ?? ".local-storage/video-scratch",
     ),
-    dispatchQueueUrl: env.VIDEO_DISPATCH_QUEUE_URL ?? "",
-    completionQueueUrl: env.VIDEO_COMPLETION_QUEUE_URL ?? "",
     outputBucket: env.VIDEO_OUTPUT_BUCKET ?? "",
     roleArn: env.VIDEO_MEDIACONVERT_ROLE_ARN ?? "",
     queueArn: env.VIDEO_MEDIACONVERT_QUEUE_ARN ?? "",
     mediaDomain: env.VIDEO_MEDIA_DOMAIN ?? "",
     signingSecretArn: env.VIDEO_SIGNING_SECRET_ARN ?? "",
+    tableName: env.VIDEO_DYNAMODB_TABLE ?? "",
     accountId: env.VIDEO_AWS_ACCOUNT_ID ?? "",
     region,
   };
@@ -77,6 +75,8 @@ export function readVideoConfig(
     if (!/^\d{12}$/.test(config.accountId)) bad("VIDEO_AWS_ACCOUNT_ID");
     if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(config.outputBucket))
       bad("VIDEO_OUTPUT_BUCKET");
+    if (!/^[A-Za-z0-9_.-]{3,255}$/.test(config.tableName))
+      bad("VIDEO_DYNAMODB_TABLE");
     if (purpose === "api") {
       if (
         !config.signingSecretArn.startsWith(
@@ -85,7 +85,8 @@ export function readVideoConfig(
       )
         bad("VIDEO_SIGNING_SECRET_ARN");
       if (!/^[a-z0-9.-]+$/.test(config.mediaDomain)) bad("VIDEO_MEDIA_DOMAIN");
-    } else {
+    }
+    if (purpose === "lambda") {
       if (!config.roleArn.startsWith(`arn:aws:iam::${config.accountId}:role/`))
         bad("VIDEO_MEDIACONVERT_ROLE_ARN");
       if (
@@ -95,27 +96,6 @@ export function readVideoConfig(
       )
         bad("VIDEO_MEDIACONVERT_QUEUE_ARN");
     }
-    if (purpose === "lambda")
-      for (const [key, value] of [
-        ["VIDEO_DISPATCH_QUEUE_URL", config.dispatchQueueUrl],
-        ["VIDEO_COMPLETION_QUEUE_URL", config.completionQueueUrl],
-      ]) {
-        try {
-          const url = new URL(value);
-          if (
-            url.protocol !== "https:" ||
-            url.hostname !== `sqs.${region}.amazonaws.com` ||
-            !new RegExp(`^/${config.accountId}/[\\w-]+$`).test(url.pathname) ||
-            url.search ||
-            url.hash ||
-            url.username ||
-            url.password
-          )
-            bad(key);
-        } catch {
-          bad(key);
-        }
-      }
   }
   return config;
 }

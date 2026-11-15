@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import {
   GetObjectCommand,
   ListObjectsV2Command,
@@ -10,13 +10,18 @@ import { createReadStream } from "node:fs";
 import { realpath, stat, rm } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
-import { StorageLocationsService } from "../files/storage-locations.service";
+import type { StorageLocationsService } from "../files/storage-locations.service";
 import { byteRange } from "../files/byte-range";
 import { objectKey, VideoError } from "./video-policy";
 
+export const VIDEO_STORAGE_LOCATIONS = Symbol("VIDEO_STORAGE_LOCATIONS");
+
 @Injectable()
 export class VideoStorage {
-  constructor(readonly locations: StorageLocationsService) {}
+  constructor(
+    @Inject(VIDEO_STORAGE_LOCATIONS)
+    readonly locations: Pick<StorageLocationsService, "resolve">,
+  ) {}
   async localPath(location: string, key: string, prefix?: string) {
     objectKey(key);
     const target = await this.locations.resolve(location);

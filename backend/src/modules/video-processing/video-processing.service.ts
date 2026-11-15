@@ -1,9 +1,10 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
 import type {
   LibraryFile,
   Prisma,
+  VideoJob,
 } from "../../generated/prisma/client";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
@@ -11,11 +12,30 @@ import { GroupAccessService } from "../memberships/group-access.service";
 import { ApiError } from "../../common/api-error";
 import { readSource, type VideoOutput, type VideoSource } from "./video-policy";
 
+import { VideoCloudBridge } from "./video-cloud-bridge";
 import { VideoJobsService } from "./video-jobs.service";
-export { ACTIVE } from "./video-jobs.service";
-export function publicState(state: string) {
+function publicState(state: string) {
   return ["SUBMITTING", "VERIFYING"].includes(state) ? "PROCESSING" : state;
 }
+export function processingSnapshot(
+  job: VideoJob | null,
+  published: VideoJob | null,
+) {
+  const output = published?.output as unknown as VideoOutput | undefined;
+  return {
+    status: (job ? publicState(job.state) : "NOT_REQUESTED") as
+      "NOT_REQUESTED" | "QUEUED" | "PROCESSING" | "READY" | "FAILED",
+    progressPercent: job?.progressPercent ?? null,
+    renditions: (output?.renditions ?? []).map((r) => ({
+      height: r.height,
+      bitrate: r.bitrate,
+      status: "READY" as const,
+    })),
+    thumbnailReady: !!output?.thumbnailKey,
+    ...(job?.errorCode ? { errorCode: job.errorCode } : {}),
+  };
+}
+
 // Called inside the caller's metadata transaction; never performs storage/queue I/O.
 export async function enqueueVideo(
   tx: Prisma.TransactionClient,
@@ -65,6 +85,7 @@ export class VideoProcessingService extends VideoJobsService {
     db: PrismaService,
     private readonly access: GroupAccessService,
     @Inject(APP_CONFIG) config: EnvironmentConfig,
+    @Optional() readonly cloud?: VideoCloudBridge,
   ) {
     super(db, config);
   }
@@ -109,6 +130,14 @@ export class VideoProcessingService extends VideoJobsService {
     return this.snapshot(fileId);
   }
   async snapshot(fileId: string, tx: Prisma.TransactionClient = this.db) {
+    const { job, published } = await this.state(fileId, tx);
+    return processingSnapshot(job, published);
+  }
+  async state(fileId: string, tx: Prisma.TransactionClient = this.db) {
+    if (this.cloud?.store) {
+      const remote = await this.cloud.state(fileId);
+      if (remote.asset) return remote;
+    }
     const asset = await tx.videoAsset.findUnique({ where: { fileId } });
     const job = asset?.currentJobId
       ? await tx.videoJob.findUnique({ where: { id: asset.currentJobId } })
@@ -116,19 +145,14 @@ export class VideoProcessingService extends VideoJobsService {
     const published = asset?.publishedJobId
       ? await tx.videoJob.findUnique({ where: { id: asset.publishedJobId } })
       : null;
-    const output = published?.output as unknown as VideoOutput | undefined;
-    return {
-      status: (job ? publicState(job.state) : "NOT_REQUESTED") as
-        "NOT_REQUESTED" | "QUEUED" | "PROCESSING" | "READY" | "FAILED",
-      progressPercent: job?.progressPercent ?? null,
-      renditions: (output?.renditions ?? []).map((r) => ({
-        height: r.height,
-        bitrate: r.bitrate,
-        status: "READY" as const,
-      })),
-      thumbnailReady: !!output?.thumbnailKey,
-      ...(job?.errorCode ? { errorCode: job.errorCode } : {}),
-    };
+    return { asset: asset ?? undefined, job, published };
+  }
+  async queueCommitted(fileId: string) {
+    this.notifyQueued();
+    await this.cloud?.request(fileId);
+  }
+  async cloudDeleted(fileId: string) {
+    await this.cloud?.deleted(fileId);
   }
   async retry(userId: string, fileId: string, key: string) {
     if (typeof key !== "string" || !/^[\x21-\x7e]{1,128}$/.test(key))
@@ -137,8 +161,12 @@ export class VideoProcessingService extends VideoJobsService {
         "IDEMPOTENCY_KEY_REQUIRED",
         "Cần Idempotency-Key hợp lệ.",
       );
+    if (this.cloud?.store) {
+      await this.authorize(userId, fileId, true);
+      await this.cloud.deliver(fileId);
+    }
     const retryKeyHash = createHash("sha256").update(key).digest("hex");
-    return this.db.$transaction(async (tx) => {
+    const result = await this.db.$transaction(async (tx) => {
       const target = await this.authorize(userId, fileId, true, tx);
       await tx.$queryRaw`SELECT id FROM groups WHERE id=${target.groupId}::uuid FOR SHARE`;
       await tx.$queryRaw`SELECT id FROM files WHERE id=${fileId}::uuid FOR UPDATE`;
@@ -185,5 +213,7 @@ export class VideoProcessingService extends VideoJobsService {
       });
       return { jobId: job.id, status: "QUEUED" as const };
     });
+    await this.queueCommitted(fileId);
+    return result;
   }
 }

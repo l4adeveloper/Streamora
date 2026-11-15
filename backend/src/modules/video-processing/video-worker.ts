@@ -1,4 +1,5 @@
 import {
+  Inject,
   Injectable,
   Logger,
   OnApplicationBootstrap,
@@ -8,12 +9,14 @@ import {
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
-import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { Prisma, VideoJob } from "../../generated/prisma/client";
-import { VideoJobsService, ACTIVE } from "./video-jobs.service";
+import {
+  VIDEO_JOBS,
+  VIDEO_LOCAL_FILES,
+  type VideoJobStore,
+} from "./video-job-store";
 import { VideoStorage } from "./video-storage";
-import { FileStorageService } from "../files/file-storage.service";
+import type { FileStorageService } from "../files/file-storage.service";
 import {
   makePolicy,
   readSource,
@@ -25,33 +28,33 @@ import { encodeFfmpeg } from "./ffmpeg-encoder";
 import { verifyHls } from "./video-finalizer";
 import { prepareScratch } from "./video-scratch";
 import {
-  MediaConvertEncoder,
-  mediaConvertSettings,
-} from "./mediaconvert-encoder";
-import {
-  locationId,
-  type StorageTarget,
-} from "../files/storage-locations.service";
-import type {
-  VideoFinalizeMessage,
-  VideoFileFinalizeMessage,
-} from "@streamora/contracts";
+  VIDEO_MANAGED_ENCODER,
+  type ManagedVideoEncoder,
+} from "./managed-video-encoder";
 
 @Injectable()
 export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly owner = randomUUID();
   private stopped = false;
   private readonly aborts = new Set<AbortController>();
-  private sqs?: SQSClient;
-  private encoder?: MediaConvertEncoder;
+  private idle?: () => void;
+  private queued = false;
+  private readonly wake = () => {
+    this.queued = true;
+    this.idle?.();
+  };
+  private encoder?: ManagedVideoEncoder;
   private running?: Promise<void>;
   private lastRetentionAt = 0;
   private retentionCursor?: string;
   private readonly logger = new Logger(VideoWorker.name);
   constructor(
-    readonly service: VideoJobsService,
+    @Inject(VIDEO_JOBS) readonly service: VideoJobStore,
     readonly storage: VideoStorage,
-    @Optional() readonly files?: FileStorageService,
+    @Optional() @Inject(VIDEO_LOCAL_FILES) readonly files?: FileStorageService,
+    @Optional()
+    @Inject(VIDEO_MANAGED_ENCODER)
+    readonly managedEncoder?: ManagedVideoEncoder,
   ) {}
   get config() {
     const c = this.service.config.video;
@@ -66,28 +69,43 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
     if (this.config.mode === "local") {
       await runProcess(this.config.ffprobePath, ["-version"]);
       await runProcess(this.config.ffmpegPath, ["-version"]);
-      this.running = this.localLoop();
     } else throw new VideoError("AWS_VIDEO_REQUIRES_LAMBDA");
+    this.stopped = false;
+    this.service.on("queued", this.wake);
+    this.running = this.loop();
   }
   private cloud() {
     if (this.config.mode !== "aws")
       throw new VideoError("VIDEO_NOT_CONFIGURED");
-    this.sqs ??= new SQSClient({ region: this.config.region, maxAttempts: 2 });
-    this.encoder ??= new MediaConvertEncoder(this.config);
+    this.encoder ??= this.managedEncoder;
+    if (!this.encoder) throw new VideoError("VIDEO_NOT_CONFIGURED");
   }
   private log(code: string) {
     this.logger.warn(JSON.stringify({ event: "video_worker", code }));
   }
-  private async localLoop() {
+  private async wait(ms: number) {
+    if (this.stopped || this.queued) return;
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        this.idle = undefined;
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      this.idle = done;
+    });
+  }
+  private async loop() {
     while (!this.stopped) {
+      this.queued = false;
       try {
         if (!(await this.once())) {
           await this.retention();
-          await delay(1500);
+          await this.wait(1500);
         }
       } catch {
         this.log("WORKER_RETRY");
-        await delay(2000);
+        await this.wait(2000);
       }
     }
   }
@@ -121,12 +139,7 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
     let providerComplete = false;
     try {
       if (job.attemptNo > 3) throw new VideoError("ENCODE_FAILED");
-      const asset = await this.service.db.videoAsset.findUniqueOrThrow({
-        where: { fileId: job.fileId },
-      });
-      const file = await this.service.db.libraryFile.findUniqueOrThrow({
-        where: { id: job.fileId },
-      });
+      const { file, asset } = await this.service.load(job);
       if (file.status !== "AVAILABLE" || file.deletedAt)
         throw new VideoError("SOURCE_MISSING");
       const source = readSource(asset.source);
@@ -159,21 +172,22 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
         job.state === "SUBMITTING" &&
         !job.providerJobId
       ) {
-        const found = await this.encoder!.reconcile(job.id, job.attemptNo);
-        if (!found?.Id) {
+        const found = await this.encoder!.recover(job.id, job.attemptNo);
+        if (!found) {
           this.log("SUBMISSION_UNCERTAIN");
           await this.release(job, 30000);
           return;
         }
-        await this.service.db.videoJob.updateMany({
-          where: this.fence(job),
-          data: { providerJobId: found.Id, state: "PROCESSING" },
-        });
-        job.providerJobId = found.Id;
+        if (
+          !(await this.service.update(job, {
+            providerJobId: found,
+            state: "PROCESSING",
+          }))
+        )
+          throw new VideoError("LEASE_LOST");
+        job.providerJobId = found;
       }
       if (job.encoder === "mediaconvert" && job.providerJobId) {
-        const provider = await this.encoder!.inspect(job.providerJobId);
-        if (!provider) throw new VideoError("PROVIDER_MISMATCH");
         const sourceTarget = await this.storage.locations.resolve(
           source.storageLocationId,
         );
@@ -181,32 +195,30 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
           throw new VideoError("SOURCE_MISSING");
         const policy = job.policy as unknown as VideoPolicy;
         const outputTarget = await this.storage.locations.resolve(
-          policy.outputLocationId ?? (await this.outputLocation()),
+          policy.outputLocationId ?? (await this.service.outputLocation()),
         );
         if (outputTarget.driver !== "s3")
           throw new VideoError("STORAGE_FAILED");
-        this.encoder!.verify(
-          provider,
-          job.id,
-          job.attemptNo,
-          `s3://${sourceTarget.bucket}/${source.key}`,
-          `s3://${outputTarget.bucket}/${prefix}`,
+        const provider = await this.encoder!.status(job.providerJobId, {
+          jobId: job.id,
+          attempt: job.attemptNo,
+          source: `s3://${sourceTarget.bucket}/${source.key}`,
+          destination: `s3://${outputTarget.bucket}/${prefix}`,
           policy,
-        );
-        if (["ERROR", "CANCELED"].includes(provider.Status ?? ""))
-          throw new VideoError("ENCODE_FAILED");
-        if (provider.Status !== "COMPLETE") {
-          if (provider.JobPercentComplete !== undefined)
+        });
+        if (provider.state === "FAILED") throw new VideoError("ENCODE_FAILED");
+        if (provider.state !== "COMPLETE") {
+          if (provider.progressPercent !== undefined)
             await this.service.heartbeat(
               job,
-              Math.min(99, provider.JobPercentComplete),
+              Math.min(99, provider.progressPercent),
             );
           await this.release(job, 10000);
           return;
         }
         providerComplete = true;
         const location =
-          policy.outputLocationId ?? (await this.outputLocation());
+          policy.outputLocationId ?? (await this.service.outputLocation());
         await this.finish(
           job,
           location,
@@ -229,7 +241,7 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
           this.config.optionalQualities,
         );
       if (job.encoder === "mediaconvert" && !policy.outputLocationId)
-        policy.outputLocationId = await this.outputLocation();
+        policy.outputLocationId = await this.service.outputLocation();
       // Bound scratch before launching an encode; source duration and ladder are server-probed.
       if (
         job.encoder === "ffmpeg" &&
@@ -239,12 +251,9 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
           8 * 1024 ** 3
       )
         throw new VideoError("SCRATCH_LIMIT_EXCEEDED");
-      await this.service.db.videoAsset.update({
-        where: { fileId: job.fileId },
-        data: { sourceMetadata: metadata as unknown as Prisma.InputJsonValue },
-      });
+      await this.service.saveMetadata(job, metadata);
       if (
-        !(await this.update(job, {
+        !(await this.service.update(job, {
           policy: policy as unknown as Prisma.InputJsonValue,
         }))
       )
@@ -255,7 +264,7 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
         );
         if (target.driver !== "s3") throw new VideoError("SOURCE_MISSING");
         if (
-          !(await this.update(job, {
+          !(await this.service.update(job, {
             state: "SUBMITTING",
             submittedAt: new Date(),
           }))
@@ -268,32 +277,24 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
           );
           if (outputTarget.driver !== "s3")
             throw new VideoError("STORAGE_FAILED");
-          providerJobId = await this.encoder!.submit(
-            job.id,
-            job.attemptNo,
-            mediaConvertSettings(
-              `s3://${target.bucket}/${source.key}`,
-              `s3://${outputTarget.bucket}/${prefix}`,
-              policy,
-            ),
-          );
+          providerJobId = await this.encoder!.start({
+            jobId: job.id,
+            attempt: job.attemptNo,
+            source: `s3://${target.bucket}/${source.key}`,
+            destination: `s3://${outputTarget.bucket}/${prefix}`,
+            policy,
+          });
         } catch (error) {
-          const status = (error as { $metadata?: { httpStatusCode?: number } })
-            .$metadata?.httpStatusCode;
           if (
-            status &&
-            status >= 400 &&
-            status < 500 &&
-            ![408, 429].includes(status)
+            error instanceof VideoError &&
+            error.code !== "SUBMISSION_UNCERTAIN"
           )
-            throw new VideoError(
-              status === 403 ? "PROVIDER_ACCESS_DENIED" : "ENCODE_FAILED",
-            );
+            throw error;
           this.log("SUBMISSION_UNCERTAIN");
           await this.release(job, 30000);
           return;
         }
-        await this.update(job, { providerJobId, state: "PROCESSING" });
+        await this.service.update(job, { providerJobId, state: "PROCESSING" });
         await this.release(job, 10000);
         return;
       }
@@ -359,7 +360,7 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
         ) {
           // A failed status request is not evidence that the provider stopped encoding.
           this.log("PROVIDER_STATUS_UNCERTAIN");
-          await this.update(job, { errorCount: { increment: 1 } });
+          await this.service.update(job, { errorCount: { increment: 1 } });
           await this.release(
             job,
             Math.min(60000, 3000 * 2 ** Math.min(job.errorCount, 5)),
@@ -372,7 +373,7 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
           job.errorCount < 2 &&
           job.encoder === "mediaconvert"
         ) {
-          await this.update(job, { errorCount: { increment: 1 } });
+          await this.service.update(job, { errorCount: { increment: 1 } });
           await this.release(job, 3000);
         } else await this.service.fail(job, code);
       }
@@ -393,15 +394,6 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
       }
     }
   }
-  private fence(job: VideoJob) {
-    return {
-      id: job.id,
-      attemptNo: job.attemptNo,
-      leaseOwner: job.leaseOwner,
-      leaseUntil: { gt: new Date() },
-      state: { in: ACTIVE },
-    };
-  }
   private async inspectMedia(
     location: string,
     key: string,
@@ -413,39 +405,12 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
       ? this.encoder!.probe(input)
       : probe(this.config.ffprobePath, input, signal);
   }
-  private async update(
-    job: VideoJob,
-    data: Prisma.VideoJobUpdateManyMutationInput,
-  ) {
-    return (
-      (
-        await this.service.db.videoJob.updateMany({
-          where: this.fence(job),
-          data,
-        })
-      ).count === 1
-    );
-  }
   private async release(job: VideoJob, ms: number) {
-    await this.update(job, {
+    await this.service.update(job, {
       leaseOwner: null,
       leaseUntil: null,
       nextRunAt: new Date(Date.now() + ms),
     });
-  }
-  private async outputLocation() {
-    const target: StorageTarget = {
-        driver: "s3",
-        bucket: this.config.outputBucket,
-        region: this.config.region,
-      },
-      id = locationId(target);
-    await this.service.db.storageLocation.upsert({
-      where: { id },
-      create: { id, driver: "s3", config: target },
-      update: {},
-    });
-    return id;
   }
   private async finish(
     job: VideoJob,
@@ -454,7 +419,7 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
     master: string,
     policy: VideoPolicy,
   ) {
-    if (!(await this.update(job, { state: "VERIFYING" })))
+    if (!(await this.service.update(job, { state: "VERIFYING" })))
       throw new VideoError("LEASE_LOST");
     const output = await verifyHls(
       this.storage,
@@ -468,176 +433,14 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
     if (!(await this.service.publish(job, output)))
       throw new VideoError("LEASE_LOST");
   }
-  async dispatch() {
-    this.cloud();
-    const jobs = await this.service.db.videoJob.findMany({
-      where: {
-        state: "QUEUED",
-        encoder: { in: ["mediaconvert", "ivs"] },
-        nextRunAt: { lte: new Date() },
-        OR: [
-          { lastDispatchAt: null },
-          { lastDispatchAt: { lt: new Date(Date.now() - 300000) } },
-        ],
-      },
-      take: 10,
-    });
-    for (const job of jobs) {
-      const file = await this.service.db.libraryFile.findUniqueOrThrow({
-        where: { id: job.fileId },
-        include: { classRecording: true },
-      });
-      const recordingId = file.recordingId ?? file.classRecording?.id;
-      const body: VideoFinalizeMessage | VideoFileFinalizeMessage = recordingId
-        ? {
-            jobId: job.id,
-            recordingId,
-            sourceObjectKey: file.objectKey,
-            outputVersion: job.id,
-            requestedAt: job.createdAt.toISOString(),
-          }
-        : {
-            type: "video.file.finalize.v1",
-            jobId: job.id,
-            fileId: file.id,
-            requestedAt: job.createdAt.toISOString(),
-          };
-      await this.sqs!.send(
-        new SendMessageCommand({
-          QueueUrl: this.config.dispatchQueueUrl,
-          MessageBody: JSON.stringify(body),
-          MessageAttributes: {
-            contract: {
-              DataType: "String",
-              StringValue: recordingId
-                ? "video.finalize.v1"
-                : "video.file.finalize.v1",
-            },
-          },
-        }),
-      );
-      await this.service.db.videoJob.updateMany({
-        where: { id: job.id, state: "QUEUED" },
-        data: { lastDispatchAt: new Date() },
-      });
-    }
-  }
-  async handleMessage(body: string, completion: boolean) {
-    this.cloud();
-    const data = JSON.parse(body);
-    let id: string;
-    if (completion) {
-      if (
-        data.source !== "aws.mediaconvert" ||
-        data.account !== this.config.accountId ||
-        data.region !== this.config.region ||
-        data["detail-type"] !== "MediaConvert Job State Change" ||
-        !["COMPLETE", "ERROR", "CANCELED", "STATUS_UPDATE"].includes(
-          data.detail?.status,
-        )
-      )
-        throw new VideoError("PROVIDER_MISMATCH");
-      const metadata = data.detail.userMetadata;
-      if (metadata?.project !== "streamora")
-        throw new VideoError("PROVIDER_MISMATCH");
-      id = metadata.jobId;
-      const row = await this.service.db.videoJob.findUnique({ where: { id } });
-      if (!row) throw new VideoError("PROVIDER_MISMATCH");
-      if (
-        row.attemptNo !== Number(metadata.attemptNo) ||
-        ["READY", "FAILED"].includes(row.state)
-      )
-        return;
-      if (row.providerJobId && row.providerJobId !== data.detail.jobId)
-        throw new VideoError("PROVIDER_MISMATCH");
-      if (!row.providerJobId) {
-        // Early completion: persist the mapping under a claim after GetJob confirms metadata.
-        const provider = await this.encoder!.inspect(data.detail.jobId);
-        if (
-          provider?.UserMetadata?.jobId !== id ||
-          provider.UserMetadata.attemptNo !== metadata.attemptNo ||
-          provider.UserMetadata.project !== "streamora"
-        )
-          throw new VideoError("PROVIDER_MISMATCH");
-        await this.service.db.videoJob.updateMany({
-          where: { id, state: { in: ACTIVE }, providerJobId: null },
-          data: { providerJobId: data.detail.jobId },
-        });
-      }
-      await this.service.db.videoJob.updateMany({
-        where: { id, state: { in: ACTIVE } },
-        data: { nextRunAt: new Date() },
-      });
-      await this.once(id);
-      const current = await this.service.db.videoJob.findUnique({
-        where: { id },
-      });
-      if (
-        ["COMPLETE", "ERROR", "CANCELED"].includes(data.detail.status) &&
-        (!current || !["READY", "FAILED"].includes(current.state))
-      )
-        throw new VideoError("VIDEO_COMPLETION_PENDING");
-      return;
-    }
-    id = data.jobId;
-    const initial = await this.service.db.videoJob.findUnique({
-      where: { id },
-      include: { file: { include: { classRecording: true } } },
-    });
-    if (
-      !initial ||
-      (data.recordingId
-        ? data.recordingId !==
-            (initial.file.recordingId ?? initial.file.classRecording?.id) ||
-          data.sourceObjectKey !== initial.file.objectKey ||
-          data.outputVersion !== id
-        : data.type !== "video.file.finalize.v1" ||
-          data.fileId !== initial.fileId)
-    )
-      throw new VideoError("SOURCE_MISSING");
-    if (["READY", "FAILED"].includes(initial.state)) return;
-    if (initial.encoder === "ffmpeg")
-      throw new VideoError("VIDEO_SOURCE_NOT_CLOUD");
-    await this.once(id);
-    const current = await this.service.db.videoJob.findUnique({
-      where: { id },
-    });
-    // Dispatch is a short submission command. Its durable DB state is the handoff
-    // to completion/reconcile, rather than keeping a Lambda alive during encoding.
-    if (
-      !current ||
-      !(
-        ["READY", "FAILED", "SUBMITTING"].includes(current.state) ||
-        current.providerJobId
-      )
-    )
-      throw new VideoError("VIDEO_DISPATCH_PENDING");
-  }
-  async maintenance(remaining: () => number = () => Infinity) {
-    this.cloud();
-    await this.dispatch();
-    const jobs = await this.service.db.videoJob.findMany({
-      where: {
-        encoder: { in: ["mediaconvert", "ivs"] },
-        state: { in: ["SUBMITTING", "PROCESSING", "VERIFYING"] },
-        nextRunAt: { lte: new Date() },
-        OR: [{ leaseUntil: null }, { leaseUntil: { lt: new Date() } }],
-      },
-      orderBy: { nextRunAt: "asc" },
-      take: 4,
-    });
-    for (const job of jobs) {
-      if (remaining() < 60000) break;
-      await this.once(job.id);
-    }
-    if (remaining() >= 60000) await this.retention(remaining);
-  }
-  private async retention(remaining: () => number = () => Infinity) {
-    if (Date.now() - this.lastRetentionAt < 300000) return;
+  private async retention() {
+    const db = this.service.db;
+    if (!db || Date.now() - this.lastRetentionAt < 300000) return;
     this.lastRetentionAt = Date.now();
-    const jobs = await this.service.db.videoJob.findMany({
+    const jobs = await db.videoJob.findMany({
       where: {
         mode: "TRANSCODE",
+        encoder: "ffmpeg",
         state: { in: ["READY", "FAILED"] },
         updatedAt: { lt: new Date(Date.now() - 7 * 86400000) },
         ...(this.retentionCursor ? { id: { gt: this.retentionCursor } } : {}),
@@ -651,9 +454,8 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
       return;
     }
     for (const job of jobs) {
-      if (remaining() < 30000) break;
       this.retentionCursor = job.id;
-      const asset = await this.service.db.videoAsset.findUnique({
+      const asset = await db.videoAsset.findUnique({
         where: { fileId: job.fileId },
       });
       const root = `groups/${job.file.groupId}/videos/${job.fileId}/${job.id}`;
@@ -671,7 +473,7 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
         (job.policy as unknown as VideoPolicy)?.outputLocationId ??
         (source?.kind === "FILE" ? source.storageLocationId : undefined);
       for (const prefix of prefixes) {
-        const references = await this.service.db.$queryRaw<
+        const references = await db.$queryRaw<
           { file_id: string }[]
         >`SELECT file_id FROM video_assets WHERE source->>'kind'='HLS' AND (source->>'prefix'=${prefix} OR starts_with(source->>'prefix',${prefix + "/"}) OR starts_with(${prefix},(source->>'prefix') || '/')) LIMIT 1`;
         if (location && !references.length)
@@ -681,9 +483,10 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
   }
   async onModuleDestroy() {
     this.stopped = true;
+    this.service.off("queued", this.wake);
+    this.idle?.();
     for (const abort of this.aborts) abort.abort();
     await this.running;
-    this.sqs?.destroy();
-    this.encoder?.client.destroy();
+    this.encoder?.close();
   }
 }

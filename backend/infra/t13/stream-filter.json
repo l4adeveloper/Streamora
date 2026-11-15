@@ -1,0 +1,13 @@
+{
+  "eventName": ["INSERT"],
+  "dynamodb": {
+    "NewImage": {
+      "kind": {
+        "S": ["JOB"]
+      },
+      "state": {
+        "S": ["QUEUED", "SUBMITTING", "PROCESSING", "VERIFYING"]
+      }
+    }
+  }
+}

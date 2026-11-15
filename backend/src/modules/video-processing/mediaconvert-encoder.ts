@@ -12,6 +12,10 @@ import { createHash } from "node:crypto";
 import type { VideoConfig } from "./video-config";
 import { VideoError, type VideoPolicy } from "./video-policy";
 import { parseProbe } from "./video-probe";
+import type {
+  EncodeRequest,
+  ManagedVideoEncoder,
+} from "./managed-video-encoder";
 
 // Normalize managed Probe metadata through the same validation used by local FFprobe.
 export function parseMediaConvertProbe(result?: ProbeResult) {
@@ -166,13 +170,66 @@ export function mediaConvertSettings(
     ],
   };
 }
-export class MediaConvertEncoder {
+export class MediaConvertEncoder implements ManagedVideoEncoder {
   readonly client: MediaConvertClient;
   constructor(readonly config: VideoConfig) {
     this.client = new MediaConvertClient({
       region: config.region,
       maxAttempts: 2,
     });
+  }
+  async start(request: EncodeRequest) {
+    try {
+      return await this.submit(
+        request.jobId,
+        request.attempt,
+        mediaConvertSettings(
+          request.source,
+          request.destination,
+          request.policy,
+        ),
+      );
+    } catch (error) {
+      const status = (error as { $metadata?: { httpStatusCode?: number } })
+        .$metadata?.httpStatusCode;
+      if (
+        status &&
+        status >= 400 &&
+        status < 500 &&
+        ![408, 429].includes(status)
+      )
+        throw new VideoError(
+          status === 403 ? "PROVIDER_ACCESS_DENIED" : "ENCODE_FAILED",
+        );
+      throw new VideoError("SUBMISSION_UNCERTAIN");
+    }
+  }
+  async status(id: string, request: EncodeRequest) {
+    const job = await this.inspect(id);
+    if (!job) throw new VideoError("PROVIDER_MISMATCH");
+    this.verify(
+      job,
+      request.jobId,
+      request.attempt,
+      request.source,
+      request.destination,
+      request.policy,
+    );
+    return {
+      state:
+        job.Status === "COMPLETE"
+          ? ("COMPLETE" as const)
+          : ["ERROR", "CANCELED"].includes(job.Status ?? "")
+            ? ("FAILED" as const)
+            : ("PROCESSING" as const),
+      progressPercent: job.JobPercentComplete,
+    };
+  }
+  async recover(jobId: string, attempt: number) {
+    return (await this.reconcile(jobId, attempt))?.Id;
+  }
+  close() {
+    this.client.destroy();
   }
   async submit(jobId: string, attempt: number, settings: JobSettings) {
     const result = await this.client.send(

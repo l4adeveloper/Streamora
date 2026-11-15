@@ -1,7 +1,0 @@
-{
-  "app": "node bin/app.cjs",
-  "context": {
-    "@aws-cdk/core:validateAgainstDefaultRules": true,
-    "@aws-cdk/aws-lambda:useCdkManagedLogGroup": false
-  }
-}

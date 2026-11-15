@@ -1,0 +1,12 @@
+{
+  "source": ["aws.mediaconvert"],
+  "account": ["586481704097"],
+  "region": ["ap-northeast-1"],
+  "detail-type": ["MediaConvert Job State Change"],
+  "detail": {
+    "status": ["COMPLETE", "ERROR", "CANCELED", "STATUS_UPDATE"],
+    "userMetadata": {
+      "project": ["streamora"]
+    }
+  }
+}

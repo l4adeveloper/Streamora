@@ -423,7 +423,11 @@ test(
   },
   { timeout: 180000 },
 );
-test("multipart completion detects video content and atomically enqueues processing and transcription once", async () => {
+test("multipart completion detects video content and atomically enqueues processing and transcription once", async (t) => {
+  let signals = 0;
+  const notified = () => signals++;
+  service.on("queued", notified);
+  t.after(() => service.off("queued", notified));
   const bytes = await readFile(clip);
   const multipart = f.app.get(
     require("../../dist/modules/uploads/multipart-storage.service")
@@ -458,6 +462,7 @@ test("multipart completion detects video content and atomically enqueues process
     "complete",
   );
   assert.equal(completed.status, 200, JSON.stringify(completed.body));
+  assert.equal(signals, 1, "upload completion must wake the shared worker");
   const upload = await db.uploadSession.findUnique({ where: { id } }),
     asset = await db.videoAsset.findUnique({
       where: { fileId: upload.fileId },
@@ -511,4 +516,119 @@ test("multipart completion detects video content and atomically enqueues process
     (await f.api(owner, "GET", `/files/${upload.fileId}/transcript`)).body,
     { status: "READY", cues },
   );
+});
+
+test("API and local workers cannot claim managed outbox jobs", async () => {
+  const {
+    VideoJobsService,
+  } = require("../../dist/modules/video-processing/video-jobs.service");
+  const apiStore = new VideoJobsService(db, {
+    video: { ...f.config.video, mode: "aws" },
+  });
+  const managed = await file();
+  await db.videoJob.update({
+    where: { id: managed.jobId },
+    data: { encoder: "mediaconvert" },
+  });
+  assert.equal(await service.claim(randomUUID(), managed.jobId), null);
+  assert.equal(await apiStore.claim(randomUUID(), managed.jobId), null);
+});
+
+test("finished recordings wake the worker after registration while pending and rejected registrations do not", async () => {
+  const session = await db.classSession.create({
+    data: {
+      groupId: group.id,
+      createdById: owner.id,
+      title: "Recording signal",
+      kind: "GROUP",
+      scheduledAt: new Date(),
+      joinCode: randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase(),
+    },
+  });
+  const recording = await db.recordingAsset.create({
+    data: { id: randomUUID(), sessionId: session.id },
+  });
+  const files = f.app.get(FilesService);
+  let signals = 0;
+  const notified = () => signals++;
+  service.on("queued", notified);
+  try {
+    const input = {
+      recordingId: recording.id,
+      groupId: group.id,
+      sourceObjectKey: "recordings/complete.mp4",
+      size: 12,
+      mimeType: "video/mp4",
+      status: "PENDING",
+    };
+    const pending = await files.registerRecording(input);
+    assert.equal(signals, 0);
+    assert.equal(
+      await db.videoJob.count({ where: { fileId: pending.fileId } }),
+      0,
+    );
+    const done = await files.registerRecording({
+      ...input,
+      status: "AVAILABLE",
+    });
+    assert.equal(signals, 1);
+    assert.equal(
+      await db.videoJob.count({
+        where: { fileId: done.fileId, state: "QUEUED" },
+      }),
+      1,
+    );
+    await files.registerRecording({ ...input, status: "AVAILABLE" });
+    assert.equal(
+      await db.videoJob.count({ where: { fileId: done.fileId } }),
+      1,
+    );
+    const before = signals;
+    await assert.rejects(
+      files.registerRecording({
+        ...input,
+        sourceObjectKey: "wrong.mp4",
+        status: "AVAILABLE",
+      }),
+    );
+    assert.equal(signals, before, "a rolled-back registration must not notify");
+  } finally {
+    service.off("queued", notified);
+  }
+});
+
+test("local retention does not clean mirrored AWS jobs", async () => {
+  const { row } = await file();
+  const old = new Date(Date.now() - 8 * 86400000);
+  const jobs = [];
+  for (const encoder of ["ffmpeg", "mediaconvert"])
+    jobs.push(
+      await db.videoJob.create({
+        data: {
+          fileId: row.id,
+          mode: "TRANSCODE",
+          encoder,
+          state: "FAILED",
+          createdAt: old,
+          updatedAt: old,
+        },
+      }),
+    );
+  const prefixes = [],
+    remove = worker.storage.removePrefix;
+  worker.storage.removePrefix = async (_location, prefix) =>
+    prefixes.push(prefix);
+  worker.lastRetentionAt = 0;
+  worker.retentionCursor = undefined;
+  try {
+    await worker.retention();
+    const root = `groups/${group.id}/videos/${row.id}/`;
+    assert.ok(prefixes.includes(root + jobs[0].id));
+    assert.ok(
+      !prefixes.includes(root + jobs[1].id),
+      "DynamoDB/Lambda owns cleanup of AWS outputs",
+    );
+  } finally {
+    worker.storage.removePrefix = remove;
+  }
 });

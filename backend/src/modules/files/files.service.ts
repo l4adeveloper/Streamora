@@ -26,7 +26,7 @@ import { VIDEO_TYPES, VideoPlaybackService } from "./video-playback.service";
 import type { FileListQueryDto } from "./files.dto";
 import { FolderUploadCancellation } from "./folder-upload-cancellation";
 import { presentFile as present, presentFolder } from "./file-presenter";
-import { enqueueVideo } from "../video-processing/video-processing.service";
+import { enqueueVideo, VideoProcessingService } from "../video-processing/video-processing.service";
 import { readSource, type VideoSource } from "../video-processing/video-policy";
 
 function cursorFor(file: DbFile, groupId: string, query: FileListQueryDto) {
@@ -78,6 +78,7 @@ export class FilesService {
     private readonly storage: FileStorageService,
     private readonly video: VideoPlaybackService,
     @Optional() private readonly cancellation?: FolderUploadCancellation,
+    @Optional() private readonly processing?: VideoProcessingService,
   ) {}
 
   async list(userId: string, groupId: string, query: FileListQueryDto) {
@@ -322,6 +323,7 @@ export class FilesService {
     if (force) this.cancellation?.requestCleanup();
     for (const file of deleted) {
       try {
+        await this.processing?.cloudDeleted(file.id);
         await this.storage.delete(file.objectKey, file.storageLocationId);
         await this.prisma.fileObjectDeletion.update({
           where: { fileId: file.id },
@@ -530,6 +532,7 @@ export class FilesService {
     });
     // The durable deletion request is committed first; never hold DB locks for storage I/O.
     try {
+      await this.processing?.cloudDeleted(fileId);
       await this.storage.delete(deletion.objectKey, deletion.storageLocationId);
       await this.prisma.fileObjectDeletion.update({
         where: { fileId },
@@ -693,7 +696,7 @@ export class FilesService {
     }
     if (storageLocationId)
       await this.storage.locations.resolve(storageLocationId);
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM recording_assets WHERE id = ${input.recordingId}::uuid FOR UPDATE`;
       const recording = await tx.recordingAsset.findUnique({
         where: { id: input.recordingId },
@@ -759,6 +762,8 @@ export class FilesService {
       await enqueueVideo(tx,file,this.storage.locations.target.driver === "s3" ? "mediaconvert" : "ffmpeg",input.videoSource);
       return { fileId: file.id };
     });
+    if (input.status === "AVAILABLE") await this.processing?.queueCommitted(result.fileId);
+    return result;
   }
 
   async listFolders(

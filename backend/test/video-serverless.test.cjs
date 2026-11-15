@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   MediaConvertEncoder,
+  mediaConvertSettings,
   parseMediaConvertProbe,
 } = require("../dist/modules/video-processing/mediaconvert-encoder");
 const {
@@ -106,6 +107,7 @@ test("AWS metadata uses MediaConvert Probe with the server-bound URL", async () 
 
 const awsEnv = {
   VIDEO_MODE: "aws",
+  VIDEO_DYNAMODB_TABLE: "streamora-video-jobs",
   VIDEO_WORKER_ENABLED: "false",
   VIDEO_AWS_ACCOUNT_ID: "123456789012",
   VIDEO_OUTPUT_BUCKET: "streamora-video-test",
@@ -114,46 +116,30 @@ const awsEnv = {
     "arn:aws:mediaconvert:ap-northeast-1:123456789012:queues/video",
   VIDEO_SIGNING_SECRET_ARN:
     "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:video",
-  VIDEO_DISPATCH_QUEUE_URL:
-    "https://sqs.ap-northeast-1.amazonaws.com/123456789012/dispatch",
-  VIDEO_COMPLETION_QUEUE_URL:
-    "https://sqs.ap-northeast-1.amazonaws.com/123456789012/completion",
   VIDEO_MEDIA_DOMAIN: "media.example.com",
 };
 
-test("AWS never starts a polling worker on EC2; local startup remains explicit", async () => {
+test("AWS uses Lambda and DynamoDB without starting a background worker on the API", async () => {
   const config = readVideoConfig(awsEnv, "s3", "ap-northeast-1");
-  const worker = new VideoWorker({ config: { video: config } }, {}, {});
+  const worker = new VideoWorker({ config: { video: config } }, {});
   await worker.onApplicationBootstrap();
-  assert.equal(worker.encoder, undefined);
+  assert.equal(worker.running, undefined);
   await assert.rejects(worker.start(), /AWS_VIDEO_REQUIRES_LAMBDA/);
-  assert.throws(
-    () =>
-      readVideoConfig(
-        { ...awsEnv, VIDEO_WORKER_ENABLED: "true" },
-        "s3",
-        "ap-northeast-1",
-      ),
-    /VIDEO_WORKER_ENABLED/,
-  );
-  assert.throws(
-    () =>
-      readVideoConfig(
-        { ...awsEnv, VIDEO_WORKER_ENABLED: "yes" },
-        "s3",
-        "ap-northeast-1",
-      ),
-    /VIDEO_WORKER_ENABLED/,
-  );
-  assert.throws(
-    () =>
-      readVideoConfig(
-        { ...awsEnv, VIDEO_MEDIACONVERT_ROLE_ARN: "" },
-        "s3",
-        "ap-northeast-1",
-        "lambda",
-      ),
-    /VIDEO_MEDIACONVERT_ROLE_ARN/,
+  for (const change of [
+    { VIDEO_WORKER_ENABLED: "true" },
+    { VIDEO_WORKER_ENABLED: "yes" },
+    { VIDEO_DYNAMODB_TABLE: "" },
+  ])
+    assert.throws(() =>
+      readVideoConfig({ ...awsEnv, ...change }, "s3", "ap-northeast-1"),
+    );
+  assert.throws(() =>
+    readVideoConfig(
+      { ...awsEnv, VIDEO_MEDIACONVERT_ROLE_ARN: "" },
+      "s3",
+      "ap-northeast-1",
+      "lambda",
+    ),
   );
 });
 
@@ -182,31 +168,21 @@ test("AWS submission and finalization use managed metadata and publish only veri
     fail: async (_job, code) => {
       failures.push(code);
     },
-    db: {
-      libraryFile: {
-        findUniqueOrThrow: async () => ({
-          id: "file",
-          groupId: "group",
-          status: "AVAILABLE",
-        }),
-      },
-      videoAsset: {
-        findUniqueOrThrow: async () => ({
-          source: {
-            kind: "FILE",
-            storageLocationId: "a".repeat(64),
-            key: "source.mp4",
-          },
-        }),
-        update: async () => ({}),
-      },
-      videoJob: {
-        updateMany: async ({ data }) => {
-          Object.assign(job, data);
-          return { count: 1 };
+    load: async () => ({
+      file: { id: "file", groupId: "group", status: "AVAILABLE" },
+      asset: {
+        source: {
+          kind: "FILE",
+          storageLocationId: "a".repeat(64),
+          key: "source.mp4",
         },
       },
-      storageLocation: { upsert: async () => ({}) },
+    }),
+    saveMetadata: async () => {},
+    outputLocation: async () => "b".repeat(64),
+    update: async (_job, data) => {
+      Object.assign(job, data);
+      return true;
     },
   };
   const storage = {
@@ -237,15 +213,19 @@ test("AWS submission and finalization use managed metadata and publish only veri
         ),
       );
     },
-    submit: async (_id, _attempt, settings) => {
-      submitted = settings;
+    start: async (request) => {
+      submitted = mediaConvertSettings(
+        request.source,
+        request.destination,
+        request.policy,
+      );
       return "provider";
     },
-    inspect: async () => ({ Status: "COMPLETE" }),
-    verify: (_provider, _id, _attempt, source, destination, policy) => {
+    status: async (_id, { source, destination, policy }) => {
       assert.equal(source, "s3://source/source.mp4");
       assert.equal(destination, `s3://${config.outputBucket}/${prefix}`);
       assert.equal(policy.renditions.length, 3);
+      return { state: "COMPLETE" };
     },
   };
   await worker.process({ ...job });
@@ -277,13 +257,59 @@ test("AWS submission and finalization use managed metadata and publish only veri
   await worker.process({ ...job });
   assert.equal(published.length, 1); // Missing output must never be published.
   for (const status of [403, 400, 503]) {
-    Object.assign(job, { state: "PROCESSING", providerJobId: null, policy: null, errorCount: 0 });
-    worker.encoder.submit = async () => { throw { $metadata: { httpStatusCode: status } }; };
+    Object.assign(job, {
+      state: "PROCESSING",
+      providerJobId: null,
+      policy: null,
+      errorCount: 0,
+    });
+    worker.encoder.start = async () => {
+      throw new (require("../dist/modules/video-processing/video-policy").VideoError)(
+        status === 503
+          ? "SUBMISSION_UNCERTAIN"
+          : status === 403
+            ? "PROVIDER_ACCESS_DENIED"
+            : "ENCODE_FAILED",
+      );
+    };
     const before = failures.length;
     await worker.process({ ...job });
     if (status === 503) {
       assert.equal(failures.length, before);
       assert.equal(job.state, "SUBMITTING");
-    } else assert.equal(failures.at(-1), status === 403 ? "PROVIDER_ACCESS_DENIED" : "ENCODE_FAILED");
+    } else
+      assert.equal(
+        failures.at(-1),
+        status === 403 ? "PROVIDER_ACCESS_DENIED" : "ENCODE_FAILED",
+      );
+  }
+});
+
+test("managed adapter normalizes definitive rejections and ambiguous submissions", async () => {
+  const encoder = new MediaConvertEncoder(
+    readVideoConfig(awsEnv, "s3", "ap-northeast-1"),
+  );
+  try {
+    for (const status of [400, 403, 408, 429, 503]) {
+      encoder.submit = async () => {
+        throw { $metadata: { httpStatusCode: status } };
+      };
+      await assert.rejects(
+        encoder.start({
+          source: "source",
+          destination: "dest",
+          policy: { renditions: [] },
+        }),
+        new RegExp(
+          status === 403
+            ? "PROVIDER_ACCESS_DENIED"
+            : status === 400
+              ? "ENCODE_FAILED"
+              : "SUBMISSION_UNCERTAIN",
+        ),
+      );
+    }
+  } finally {
+    encoder.close();
   }
 });

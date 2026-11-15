@@ -20,7 +20,7 @@ import { ApiError } from "../../common/api-error";
 import { safeErrorCode } from "../../common/safe-error-code";
 import { MultipartStorageService } from "./multipart-storage.service";
 import type { CreateUploadDto, CompleteUploadDto } from "./uploads.dto";
-import { enqueueVideo } from "../video-processing/video-processing.service";
+import { enqueueVideo, VideoProcessingService } from "../video-processing/video-processing.service";
 import { sniffVideo } from "../video-processing/video-sniff";
 
 const ALLOWED_TYPES = new Set([
@@ -73,6 +73,7 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
     @Inject(APP_CONFIG) private readonly config: EnvironmentConfig,
     private readonly files: FileStorageService,
     @Optional() private readonly folderCancellation?: FolderUploadCancellation,
+    @Optional() private readonly processing?: VideoProcessingService,
   ) {}
 
   async create(userId: string, dto: CreateUploadDto) {
@@ -561,6 +562,7 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
         await stopLease();
       }
     }
+    await this.processing?.queueCommitted(upload.fileId!);
     await this.storage
       .releaseLocal(upload.storageId, upload.storageLocationId)
       .catch(() => {});

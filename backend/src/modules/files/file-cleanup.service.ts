@@ -3,11 +3,13 @@ import {
   Injectable,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from "@nestjs/common";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
 import { PrismaService } from "../../database/prisma.service";
 import { FileStorageService } from "./file-storage.service";
+import { VideoProcessingService } from "../video-processing/video-processing.service";
 import { safeErrorCode } from "../../common/safe-error-code";
 
 @Injectable()
@@ -18,6 +20,7 @@ export class FileCleanupService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly storage: FileStorageService,
     @Inject(APP_CONFIG) private readonly config: EnvironmentConfig,
+    @Optional() private readonly processing?: VideoProcessingService,
   ) {}
   onModuleInit() {
     if (
@@ -64,6 +67,7 @@ export class FileCleanupService implements OnModuleInit, OnModuleDestroy {
       const claimed = jobs[0];
       if (!claimed) break;
       try {
+        await this.processing?.cloudDeleted(claimed.file_id);
         await this.storage.delete(
           claimed.object_key,
           claimed.storage_location_id,

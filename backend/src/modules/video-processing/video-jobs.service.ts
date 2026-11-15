@@ -1,68 +1,90 @@
+import { EventEmitter } from "node:events";
 import type { PrismaService } from "../../database/prisma.service";
-import type { Prisma, VideoJob } from "../../generated/prisma/client";
+import { Prisma, type VideoJob } from "../../generated/prisma/client";
 import type { EnvironmentConfig } from "../../config/environment";
-import type { VideoOutput } from "./video-policy";
+import {
+  VideoError,
+  type SourceMetadata,
+  type VideoOutput,
+} from "./video-policy";
+import { ACTIVE } from "./video-job-store";
 
-export const ACTIVE = ["QUEUED", "SUBMITTING", "PROCESSING", "VERIFYING"];
-
-// Database state machine shared by the API and Lambda; no HTTP/auth startup.
-export class VideoJobsService {
+// Local job execution; AWS uses this SQL data only for durable metadata handoff.
+export class VideoJobsService extends EventEmitter {
   constructor(
     readonly db: PrismaService,
     readonly config: Pick<EnvironmentConfig, "video">,
-  ) {}
+  ) {
+    super();
+  }
+  notifyQueued() {
+    this.emit("queued");
+  }
+  async load(job: VideoJob) {
+    const [file, asset] = await Promise.all([
+      this.db.libraryFile.findUniqueOrThrow({ where: { id: job.fileId } }),
+      this.db.videoAsset.findUniqueOrThrow({ where: { fileId: job.fileId } }),
+    ]);
+    return { file, asset };
+  }
+  saveMetadata(job: VideoJob, metadata: SourceMetadata) {
+    return this.db.videoAsset.update({
+      where: { fileId: job.fileId },
+      data: { sourceMetadata: metadata as unknown as Prisma.InputJsonValue },
+    });
+  }
+  async outputLocation(): Promise<string> {
+    throw new VideoError("VIDEO_SOURCE_NOT_CLOUD");
+  }
+  async update(job: VideoJob, data: Prisma.VideoJobUpdateManyMutationInput) {
+    return (
+      (
+        await this.db.videoJob.updateMany({
+          where: {
+            id: job.id,
+            attemptNo: job.attemptNo,
+            leaseOwner: job.leaseOwner,
+            leaseUntil: { gt: new Date() },
+            state: { in: ACTIVE },
+          },
+          data,
+        })
+      ).count === 1
+    );
+  }
   async claim(owner: string, id?: string): Promise<VideoJob | null> {
+    if (this.config.video?.mode === "aws") return null;
     return this.db.$transaction(async (tx) => {
-      const rows = id
-        ? await tx.$queryRaw<
-            { id: string }[]
-          >`SELECT id FROM video_jobs WHERE id=${id}::uuid AND state IN ('QUEUED','SUBMITTING','PROCESSING','VERIFYING') AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) FOR UPDATE SKIP LOCKED LIMIT 1`
-        : await tx.$queryRaw<
-            { id: string }[]
-          >`SELECT id FROM video_jobs WHERE state IN ('QUEUED','SUBMITTING','PROCESSING','VERIFYING') AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`;
+      const rows = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT id FROM video_jobs
+        WHERE state IN ('QUEUED','SUBMITTING','PROCESSING','VERIFYING')
+          AND encoder IN ('ivs','ffmpeg')
+          AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now())
+          ${id ? Prisma.sql`AND id=${id}::uuid` : Prisma.empty}
+        ORDER BY CASE WHEN state='QUEUED' THEN 1 ELSE 0 END, next_run_at, created_at
+        FOR UPDATE SKIP LOCKED LIMIT 1
+      `);
       if (!rows[0]) return null;
       const job = (await tx.videoJob.findUnique({
         where: { id: rows[0].id },
       }))!;
-      if (job.encoder === "mediaconvert" && job.state === "QUEUED") {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(713013)`;
-        const inFlight = await tx.videoJob.count({
-          where: {
-            encoder: "mediaconvert",
-            state: { in: ["SUBMITTING", "PROCESSING", "VERIFYING"] },
-          },
-        });
-        if (inFlight >= 4) return null;
-      }
-      // AWS SUBMITTING is an uncertain handoff. Never advance its attempt or resubmit blindly.
-      const resume = job.encoder === "mediaconvert" && job.state !== "QUEUED";
       return tx.videoJob.update({
         where: { id: job.id },
         data: {
           leaseOwner: owner,
           leaseUntil: new Date(Date.now() + 30000),
-          attemptNo: resume ? job.attemptNo : { increment: 1 },
-          state: resume ? job.state : "PROCESSING",
+          attemptNo: { increment: 1 },
+          state: "PROCESSING",
           deliveryCount: { increment: 1 },
         },
       });
     });
   }
   async heartbeat(job: VideoJob, progressPercent?: number) {
-    const result = await this.db.videoJob.updateMany({
-      where: {
-        id: job.id,
-        attemptNo: job.attemptNo,
-        leaseOwner: job.leaseOwner,
-        leaseUntil: { gt: new Date() },
-        state: { in: ACTIVE },
-      },
-      data: {
-        leaseUntil: new Date(Date.now() + 30000),
-        ...(progressPercent !== undefined ? { progressPercent } : {}),
-      },
+    return this.update(job, {
+      leaseUntil: new Date(Date.now() + 30000),
+      ...(progressPercent !== undefined ? { progressPercent } : {}),
     });
-    return result.count === 1;
   }
   async publish(job: VideoJob, output: VideoOutput) {
     return this.db.$transaction(async (tx) => {

@@ -135,37 +135,30 @@ Chat trong nhóm dùng API/realtime thật; phần demo không gắn nhóm vẫn
 | `npm run demo:auth`      | Chạy kịch bản demo auth                                                        |
 | `npm run files:import`   | Nhập file local; xem [hướng dẫn T15](backend/docs/t15-local.md) trước khi dùng |
 
-### Cập nhật trên EC2 bằng PM2
+### Triển khai T13 bằng AWS Management Console
 
-Chạy `npm run setup:t13` từ local theo [setup CDK T13](backend/docs/t13-cdk-local.md), hoặc tạo
-thủ công theo [setup AWS Console](backend/docs/t13-aws-setup.md), rồi điền
-`backend/.env` với `VIDEO_MODE=aws`, `VIDEO_WORKER_ENABLED=false` và cấu hình CDN.
-Lambda điều phối SQS/MediaConvert; EC2 chỉ phục vụ API và cấp quyền phát video.
-Các lệnh CDK tự đóng gói và cập nhật ZIP/trigger. Nếu dùng Console, đóng gói bằng
-`npm run package:video-lambda`, upload và nối trigger theo tài liệu.
-Xem [handoff và test local](backend/docs/t13-handoff.md) để hiểu luồng xử lý.
+Tạo/cấu hình dịch vụ theo [hướng dẫn từng bước](backend/docs/t13-aws-console.md).
+Tài liệu có IAM policy để dán vào Console, cấu hình Lambda/CloudFront và danh sách
+biến môi trường cần đưa vào backend EC2 ở cuối tài liệu.
 
-Tại thư mục gốc repository, sau khi cập nhật code và sao lưu database, chạy từng lệnh;
-chỉ tiếp tục khi lệnh trước thành công. `db:migrate` áp mọi migration đang pending.
+Đóng gói code Lambda từ máy local:
 
 ```bash
 npm ci
-npm run build
-npm run db:migrate
-pm2 restart streamora --update-env
-pm2 restart streamora-api --update-env
-pm2 save
-pm2 status
-pm2 logs streamora-api --lines 50
+npm run package:video-lambda
 ```
 
-Tên PM2 phải khớp tiến trình thực tế. Nếu trước đây đã tạo `streamora-video-worker`,
-dừng và xóa tiến trình đó bằng `pm2 delete streamora-video-worker` trước khi restart
-API với `VIDEO_WORKER_ENABLED=false`, rồi `pm2 save`. Lambda tiếp tục job qua
-lease/providerJobId trong database. Trên AWS không chạy `dev:video-worker`.
+Upload `backend/dist/video-lambda.zip` trong Lambda Console. Luồng xử lý vẫn là
+DynamoDB Streams → Lambda → MediaConvert; EventBridge trả kết quả, Scheduler phục hồi
+và dọn output. Lambda không cần PostgreSQL, DB secret, VPC hoặc NAT.
+Xem [luồng xử lý/test local](backend/docs/t13-handoff.md).
 
-Upload MP4 ngắn và kiểm tra MediaConvert `COMPLETE` → processing `READY` → player
-phát được các chất lượng thật. Tạo tài nguyên AWS là bước bạn thực hiện trong Console.
+Frontend được cập nhật theo quy trình hiện có, ví dụ:
+
+```bash
+npm run build --workspace=@streamora/web
+pm2 restart streamora --update-env
+```
 
 ### Kiểm thử
 
@@ -179,7 +172,7 @@ phát được các chất lượng thật. Tạo tài nguyên AWS là bước b
 | T04 — lịch học, tham gia và realtime            | `npm run test:t04`                                                         |
 | T05 — mic/camera IVS | `npm run test:t05` / `npm run test:t05:integration` / `npm run test:t05:frontend` |
 | T13 — video nhiều chất lượng | `npm run test:t13` / `npm run test:t13:browser` |
-| T13 — Lambda ZIP | `npm run package:video-lambda` / `npm run test:t13:lambda` |
+| T13 — triển khai AWS | [AWS Management Console](backend/docs/t13-aws-console.md) |
 | T15 — thư viện và UI                            | `npm run test:t15` / `npm run test:t15:frontend`                           |
 | T16 — multipart và UI                           | `npm run test:t16` / `npm run test:t16:frontend`                           |
 | T17 — resume và điều phối, không cần PostgreSQL | `npm run test:t17`                                                         |
@@ -204,7 +197,7 @@ phát được các chất lượng thật. Tạo tài nguyên AWS là bước b
 | T15 — thư viện               | [Bàn giao](backend/docs/t15-handoff.md)                | [Nhập file và chạy local](backend/docs/t15-local.md)                                                  |
 | T16 — upload multipart       | [Bàn giao local/AWS](backend/docs/t16-handoff.md)      | API, quota, storage và nghiệm thu multipart                                                           |
 | T17 — tiếp tục upload        | [Bàn giao mới nhất](backend/docs/t17-handoff.md)       | Pause/resume, reload hàng đợi, tối ưu truyền và các giới hạn                                          |
-| T13 — Pipeline video | [Setup AWS](backend/docs/t13-aws-setup.md), [Handoff và test local](backend/docs/t13-handoff.md) | MediaConvert serverless, SQS, HLS nhiều chất lượng và preview private |
+| T13 — Pipeline video | [Setup AWS Console](backend/docs/t13-aws-console.md), [Handoff và test local](backend/docs/t13-handoff.md) | DynamoDB, Lambda, MediaConvert, HLS nhiều chất lượng và preview private |
 
 ### Quy ước dùng chung
 
