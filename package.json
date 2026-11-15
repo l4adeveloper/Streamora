@@ -9,6 +9,15 @@
     "backend/contracts"
   ],
   "scripts": {
+    "setup:t13": "node backend/infra/t13-cdk/scripts/setup.cjs",
+    "cdk:t13:install": "npm --prefix backend/infra/t13-cdk ci",
+    "cdk:t13:test": "npm --prefix backend/infra/t13-cdk test",
+    "cdk:t13:keys": "npm --prefix backend/infra/t13-cdk run keys",
+    "cdk:t13:synth": "npm run package:video-lambda && npm --prefix backend/infra/t13-cdk run synth --",
+    "cdk:t13:diff": "npm run package:video-lambda && npm --prefix backend/infra/t13-cdk run diff --",
+    "cdk:t13:deploy": "npm run setup:t13",
+    "cdk:t13:secrets": "npm --prefix backend/infra/t13-cdk run init-secrets --",
+    "cdk:t13:api-env": "npm --prefix backend/infra/t13-cdk run api-env",
     "setup:env": "node backend/scripts/setup-env.mjs",
     "dev": "npm run build:contracts && npm run dev --workspace=@streamora/web",
     "build": "npm run build:contracts && npm run build --workspaces --if-present",

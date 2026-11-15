@@ -1,5 +1,9 @@
 # T13 — Setup Lambda và CloudFront bằng AWS Management Console
 
+Muốn triển khai và kiểm soát từ máy local, dùng [setup AWS CDK T13](t13-cdk-local.md).
+Tài liệu dưới đây dành cho cách tạo thủ công bằng Console; không làm đồng thời hai
+cách với cùng tên tài nguyên. CDK sử dụng CloudFormation để quản lý hạ tầng.
+
 ## 1. Cấu hình và kiến trúc
 
 Account **586481704097**, region **Tokyo — ap-northeast-1**. IAM và CloudFront là
@@ -210,7 +214,7 @@ Sau khi tạo:
 2. **Runtime settings → Edit → Handler: `index.handler`**.
 3. **Configuration → General configuration:** Memory **512 MB**, Timeout
    **5 phút (300 giây)**, ephemeral storage **512 MB**.
-4. **Concurrency → Reserved concurrency: 5**. Mỗi runtime dùng pool tối đa hai
+4. **Concurrency → Use unreserved account concurrency**. Mỗi runtime dùng pool tối đa hai
    connection; DB lock giới hạn toàn hệ thống bốn job MediaConvert active.
 5. **Environment variables → Edit**, nhập từng key/value:
 

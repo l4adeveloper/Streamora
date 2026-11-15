@@ -17,3 +17,9 @@ coverage/
 .local-storage/
 backend/src/generated/prisma/
 .DS_Store
+# T13 local deployment state and signing material.
+backend/infra/t13-cdk/.local/
+backend/infra/t13-cdk/t13.config.json
+backend/infra/t13-cdk/cdk.out/
+backend/infra/t13-cdk/cdk.outputs.json
+backend/infra/t13-cdk/cdk.context.json

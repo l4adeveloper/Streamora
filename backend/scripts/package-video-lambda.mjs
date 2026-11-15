@@ -40,5 +40,5 @@ console.log(
   `Lambda ZIP: backend/dist/video-lambda.zip (${((await stat(zip)).size / 1024 ** 2).toFixed(1)} MiB)`,
 );
 console.log(
-  "Upload ZIP in the Lambda Console; runtime Node.js 22.x; handler index.handler. No automatic AWS changes.",
+  "ZIP ready for local CDK or Lambda Console; runtime Node.js 22.x; handler index.handler. No automatic AWS changes.",
 );

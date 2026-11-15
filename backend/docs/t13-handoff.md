@@ -16,8 +16,8 @@ SQS có retry/DLQ và chống job trùng; output chỉ được quảng bá khi 
 
 AWS dùng **một Lambda ZIP** để dispatch/submit/verify/reconcile/cleanup, MediaConvert
 mã hóa. EC2 giữ API/quyền xem và không chạy worker AWS. Local vẫn FFmpeg cùng API
-như trước. Tạo service thủ công theo [setup AWS](t13-aws-setup.md); không có script
-tự tạo hạ tầng. Lambda dùng DB secret riêng và kết nối PostgreSQL hiện có, không
+như trước. Triển khai từ local bằng [AWS CDK](t13-cdk-local.md), hoặc tạo thủ công
+theo [setup AWS Console](t13-aws-setup.md). Lambda dùng DB secret riêng và kết nối PostgreSQL hiện có, không
 bắt buộc RDS. Lambda không đọc được .env EC2.
 
 ## Logic chính và tính năng giữ lại

@@ -1,0 +1,16 @@
+{
+  "account": "586481704097",
+  "region": "ap-northeast-1",
+  "stackName": "StreamoraT13",
+  "namePrefix": "streamora-video",
+  "sourceBucketName": "streamora-file-storage",
+  "outputBucketName": "streamora-video-586481704097-ap-northeast-1",
+  "apiOriginDomain": "18-138-205-52.sslip.io",
+  "webOrigin": "https://18-138-205-52.sslip.io",
+  "publicKeyPath": ".local/cloudfront-public.pem",
+  "pipelineEnabled": false,
+  "maxQuality": 1080,
+  "optionalQualities": [],
+  "databaseSecretName": "streamora/video-database",
+  "signingSecretName": "streamora/video-signing"
+}

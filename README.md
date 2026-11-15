@@ -137,10 +137,12 @@ Chat trong nhóm dùng API/realtime thật; phần demo không gắn nhóm vẫn
 
 ### Cập nhật trên EC2 bằng PM2
 
-Tạo từng tài nguyên theo [setup AWS T13](backend/docs/t13-aws-setup.md), rồi điền
+Chạy `npm run setup:t13` từ local theo [setup CDK T13](backend/docs/t13-cdk-local.md), hoặc tạo
+thủ công theo [setup AWS Console](backend/docs/t13-aws-setup.md), rồi điền
 `backend/.env` với `VIDEO_MODE=aws`, `VIDEO_WORKER_ENABLED=false` và cấu hình CDN.
 Lambda điều phối SQS/MediaConvert; EC2 chỉ phục vụ API và cấp quyền phát video.
-Đóng gói ZIP bằng `npm run package:video-lambda`, upload và nối trigger theo tài liệu.
+Các lệnh CDK tự đóng gói và cập nhật ZIP/trigger. Nếu dùng Console, đóng gói bằng
+`npm run package:video-lambda`, upload và nối trigger theo tài liệu.
 Xem [handoff và test local](backend/docs/t13-handoff.md) để hiểu luồng xử lý.
 
 Tại thư mục gốc repository, sau khi cập nhật code và sao lưu database, chạy từng lệnh;
