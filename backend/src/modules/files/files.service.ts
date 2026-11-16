@@ -581,9 +581,11 @@ export class FilesService {
     return response;
   }
   playback(userId: string, fileId: string) {
-    return this.withReadableFile(userId, fileId, (file, tx) =>
-      this.video.manifest(file, tx),
-    );
+    return this.withReadableFile(userId, fileId, async (file, tx) => ({
+      ...(await this.video.manifest(file, tx)),
+      canProcess: (await this.access.require(userId, file.groupId, undefined, tx))
+        .canHost,
+    }));
   }
   transcript(
     userId: string,
@@ -740,7 +742,11 @@ export class FilesService {
           });
         if (input.status === "AVAILABLE") {
           const ready = await tx.libraryFile.findUniqueOrThrow({where:{id:previous.id}});
-          await enqueueVideo(tx,ready,this.storage.locations.target.driver === "s3" ? "mediaconvert" : "ffmpeg",input.videoSource);
+          await enqueueVideo(
+            tx, ready,
+            this.processing?.config.video?.mode === "aws" ? "mediaconvert" : "ffmpeg",
+            input.videoSource,
+          );
         }
         return { fileId: previous.id };
       }
@@ -759,7 +765,11 @@ export class FilesService {
           storageLocationId,
         },
       });
-      await enqueueVideo(tx,file,this.storage.locations.target.driver === "s3" ? "mediaconvert" : "ffmpeg",input.videoSource);
+      await enqueueVideo(
+        tx, file,
+        this.processing?.config.video?.mode === "aws" ? "mediaconvert" : "ffmpeg",
+        input.videoSource,
+      );
       return { fileId: file.id };
     });
     if (input.status === "AVAILABLE") await this.processing?.queueCommitted(result.fileId);

@@ -50,6 +50,7 @@ class VideoProcessingDto {
 }
 export class VideoPlaybackResponseDto {
   @ApiProperty({ format: "uuid" }) fileId!: string;
+  @ApiPropertyOptional() canProcess?: boolean;
   @ApiProperty({ type: VideoProcessingDto }) processing!: VideoProcessingDto;
   @ApiProperty({ type: [VideoSourceDto] }) sources!: VideoSourceDto[];
   @ApiPropertyOptional({ type: [Object] }) qualities?: object[];

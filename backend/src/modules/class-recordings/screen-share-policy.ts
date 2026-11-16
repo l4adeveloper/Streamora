@@ -21,7 +21,13 @@ export function activeRecordingWhere(
   return {
     sessionId,
     status: "RECORDING",
-    lastSeenAt: { gte: new Date(now.getTime() - RECORDING_STALE_MS) },
+    OR: [
+      { provider: "IVS" },
+      {
+        provider: "BROWSER",
+        lastSeenAt: { gte: new Date(now.getTime() - RECORDING_STALE_MS) },
+      },
+    ],
   };
 }
 
@@ -45,7 +51,11 @@ export function liveScreenWhere(
 
 /** Earliest activation first: the first person who shared keeps the screen. */
 export const screenShareOrder: Prisma.ClassMediaConnectionOrderByWithRelationInput[] =
-  [{ activatedAt: { sort: "asc", nulls: "last" } }, { lastSeenAt: "asc" }, { id: "asc" }];
+  [
+    { activatedAt: { sort: "asc", nulls: "last" } },
+    { lastSeenAt: "asc" },
+    { id: "asc" },
+  ];
 
 export async function recordingChanged(tx: Tx, sessionId: string) {
   await tx.$executeRaw`SELECT class_realtime_change(${sessionId}::uuid, 'recording.changed')`;
@@ -61,6 +71,7 @@ export async function expireStaleRecordings(
     where: {
       sessionId,
       status: "RECORDING",
+      provider: "BROWSER",
       lastSeenAt: { lt: new Date(now.getTime() - RECORDING_STALE_MS) },
     },
     data: { status: "FAILED", stoppedAt: now, version: { increment: 1 } },
@@ -69,6 +80,7 @@ export async function expireStaleRecordings(
     where: {
       sessionId,
       status: "SAVING",
+      provider: "BROWSER",
       stoppedAt: { lt: new Date(now.getTime() - SAVING_STALE_MS) },
     },
     data: { status: "FAILED", version: { increment: 1 } },

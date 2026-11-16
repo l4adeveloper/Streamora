@@ -15,6 +15,8 @@ import type {
 } from "../../generated/prisma/client";
 import { ClassMediaService } from "../class-media/class-media.service";
 import { ClassSessionAccessService } from "../class-sessions/class-session-access.service";
+import { CloudRecordingWorker } from "./cloud-recording.worker";
+import { FileStorageService } from "../files/file-storage.service";
 import {
   activeRecordingWhere,
   expireStaleRecordings,
@@ -28,7 +30,11 @@ type Tx = Prisma.TransactionClient;
 type Revocation = Awaited<ReturnType<ClassRecordingsService["revokeScreens"]>>;
 
 const notFound = () =>
-  new ApiError(404, "RECORDING_NOT_FOUND", "Không tìm thấy bản ghi của buổi học này.");
+  new ApiError(
+    404,
+    "RECORDING_NOT_FOUND",
+    "Không tìm thấy bản ghi của buổi học này.",
+  );
 const notLive = () =>
   new ApiError(409, "SESSION_NOT_LIVE", "Buổi học chưa mở hoặc đã kết thúc.");
 
@@ -39,9 +45,16 @@ export class ClassRecordingsService {
     private readonly db: PrismaService,
     private readonly access: ClassSessionAccessService,
     private readonly media: ClassMediaService,
+    private readonly storage: FileStorageService,
+    private readonly worker: CloudRecordingWorker,
   ) {}
 
-  private async session(tx: Tx, userId: string, sessionId: string, manage: boolean) {
+  private async session(
+    tx: Tx,
+    userId: string,
+    sessionId: string,
+    manage: boolean,
+  ) {
     await this.access.lockUsers(tx, [userId]);
     const session = await this.access.load(tx, sessionId, "share");
     await this.access.authorize(tx, userId, session, manage);
@@ -68,6 +81,8 @@ export class ClassRecordingsService {
     ]);
     return {
       id: row.id,
+      starting: row.provider === "IVS" && !row.compositionArn,
+      ...(row.errorCode ? { errorCode: row.errorCode } : {}),
       sessionId: row.sessionId,
       status: row.status as ClassRecording["status"],
       recorderId: row.recorderId,
@@ -98,7 +113,10 @@ export class ClassRecordingsService {
     return row;
   }
 
-  async state(userId: string, sessionId: string): Promise<ClassRecordingStateResponse> {
+  async state(
+    userId: string,
+    sessionId: string,
+  ): Promise<ClassRecordingStateResponse> {
     return this.db.$transaction(async (tx) => {
       const session = await this.session(tx, userId, sessionId, false);
       await expireStaleRecordings(tx, sessionId);
@@ -109,6 +127,7 @@ export class ClassRecordingsService {
       return {
         recording: row ? await this.view(tx, row) : null,
         canRecord:
+          !!this.media.ivs.config.ivs?.recording &&
           session.status === "LIVE" &&
           !!session.groupId &&
           (await this.access.eligible(tx, userId, session)),
@@ -149,7 +168,10 @@ export class ClassRecordingsService {
     );
     if (results.some(({ status }) => status === "rejected"))
       this.logger.warn(
-        JSON.stringify({ event: "recording_screen_revoke_pending", count: rows.length }),
+        JSON.stringify({
+          event: "recording_screen_revoke_pending",
+          count: rows.length,
+        }),
       );
   }
 
@@ -170,6 +192,25 @@ export class ClassRecordingsService {
           "RECORDING_REQUIRES_PARTICIPATION",
           "Hãy vào phòng trước khi bắt đầu ghi hình.",
         );
+      const recordingConfig = this.media.ivs.config.ivs?.recording;
+      const target = this.storage.locations.target;
+      if (
+        !recordingConfig ||
+        target.driver !== "s3" ||
+        target.region !== this.media.ivs.config.ivs?.region
+      )
+        throw new ApiError(
+          503,
+          "RECORDING_UNAVAILABLE",
+          "Chưa cấu hình ghi hình IVS vào S3.",
+        );
+      const room = await tx.classMediaRoom.findUnique({ where: { sessionId } });
+      if (!room?.stageArn || room.state !== "READY")
+        throw new ApiError(
+          409,
+          "RECORDING_REQUIRES_MEDIA",
+          "Hãy kết nối phòng video trước khi ghi hình.",
+        );
       await lockScreenShares(tx, sessionId);
       await expireStaleRecordings(tx, sessionId);
       const active = await tx.classRecording.findFirst({
@@ -186,13 +227,21 @@ export class ClassRecordingsService {
         );
       }
       const row = await tx.classRecording.create({
-        data: { id: randomUUID(), sessionId, recorderId: userId },
+        data: {
+          id: randomUUID(),
+          sessionId,
+          recorderId: userId,
+          provider: "IVS",
+          stageArn: room.stageArn,
+          storageLocationId: this.storage.locations.id,
+        },
       });
       const revoked = await this.revokeScreens(tx, sessionId);
       await recordingChanged(tx, sessionId);
       return { recording: await this.view(tx, row), revoked };
     });
     await this.disconnect(revoked);
+    this.worker.wake(recording.id);
     return { recording };
   }
 
@@ -205,6 +254,12 @@ export class ClassRecordingsService {
     return this.db.$transaction(async (tx) => {
       const session = await this.session(tx, userId, sessionId, false);
       const row = await this.current(tx, sessionId, recordingId);
+      if (row.provider === "IVS")
+        throw new ApiError(
+          409,
+          "RECORDING_LAYOUT_MANAGED",
+          "Bố cục bản ghi do IVS tự sắp xếp; màn hình chia sẻ được ưu tiên.",
+        );
       if (row.status !== "RECORDING")
         throw new ApiError(409, "RECORDING_NOT_ACTIVE", "Bản ghi đã dừng.");
       const presenting = await tx.classMediaConnection.findFirst({
@@ -221,7 +276,9 @@ export class ClassRecordingsService {
         where: { id: row.id },
         data: {
           ...(dto.cameraPosition ? { cameraPosition: dto.cameraPosition } : {}),
-          ...(dto.cameraVisible !== undefined ? { cameraVisible: dto.cameraVisible } : {}),
+          ...(dto.cameraVisible !== undefined
+            ? { cameraVisible: dto.cameraVisible }
+            : {}),
           version: { increment: 1 },
         },
       });
@@ -243,13 +300,23 @@ export class ClassRecordingsService {
       row.recorderId !== userId &&
       !(allowManager && (await this.access.eligible(tx, userId, session)))
     )
-      throw new ApiError(403, "FORBIDDEN", "Bạn không phải người đang ghi hình.");
+      throw new ApiError(
+        403,
+        "FORBIDDEN",
+        "Bạn không phải người đang ghi hình.",
+      );
     return { session, row };
   }
 
   async heartbeat(userId: string, sessionId: string, recordingId: string) {
     return this.db.$transaction(async (tx) => {
-      const { row } = await this.recorderRow(tx, userId, sessionId, recordingId, false);
+      const { row } = await this.recorderRow(
+        tx,
+        userId,
+        sessionId,
+        recordingId,
+        false,
+      );
       const saved = await tx.classRecording.updateMany({
         where: { id: row.id, ...activeRecordingWhere(sessionId) },
         data: { lastSeenAt: new Date() },
@@ -261,19 +328,38 @@ export class ClassRecordingsService {
   }
 
   async stop(userId: string, sessionId: string, recordingId: string) {
-    return this.db.$transaction(async (tx) => {
-      const { row } = await this.recorderRow(tx, userId, sessionId, recordingId, true);
-      if (row.status !== "RECORDING") return { recording: await this.view(tx, row) };
+    const result = await this.db.$transaction(async (tx) => {
+      const { row } = await this.recorderRow(
+        tx,
+        userId,
+        sessionId,
+        recordingId,
+        true,
+      );
+      if (row.status !== "RECORDING")
+        return { recording: await this.view(tx, row) };
       const saved = await tx.classRecording.update({
         where: { id: row.id },
-        data: { status: "SAVING", stoppedAt: new Date(), version: { increment: 1 } },
+        data: {
+          status: "SAVING",
+          stoppedAt: new Date(),
+          nextCheckAt: new Date(),
+          version: { increment: 1 },
+        },
       });
       await recordingChanged(tx, sessionId);
       return { recording: await this.view(tx, saved) };
     });
+    this.worker.wake(recordingId);
+    return result;
   }
 
-  async complete(userId: string, sessionId: string, recordingId: string, fileId: string) {
+  async complete(
+    userId: string,
+    sessionId: string,
+    recordingId: string,
+    fileId: string,
+  ) {
     return this.db.$transaction(async (tx) => {
       const { session, row } = await this.recorderRow(
         tx,
@@ -282,9 +368,20 @@ export class ClassRecordingsService {
         recordingId,
         false,
       );
+      if (row.provider === "IVS")
+        throw new ApiError(
+          409,
+          "RECORDING_MANAGED_BY_SERVER",
+          "Bản ghi được lưu tự động từ IVS.",
+        );
       if (row.status === "SAVED") {
-        if (row.fileId === fileId) return { recording: await this.view(tx, row) };
-        throw new ApiError(409, "RECORDING_ALREADY_SAVED", "Bản ghi đã được lưu.");
+        if (row.fileId === fileId)
+          return { recording: await this.view(tx, row) };
+        throw new ApiError(
+          409,
+          "RECORDING_ALREADY_SAVED",
+          "Bản ghi đã được lưu.",
+        );
       }
       // The upload pipeline creates the file; only the recorder's own session
       // recording can be linked, so a file of another group cannot be attached.
@@ -320,7 +417,19 @@ export class ClassRecordingsService {
 
   async fail(userId: string, sessionId: string, recordingId: string) {
     return this.db.$transaction(async (tx) => {
-      const { row } = await this.recorderRow(tx, userId, sessionId, recordingId, false);
+      const { row } = await this.recorderRow(
+        tx,
+        userId,
+        sessionId,
+        recordingId,
+        false,
+      );
+      if (row.provider === "IVS")
+        throw new ApiError(
+          409,
+          "RECORDING_MANAGED_BY_SERVER",
+          "Bản ghi được quản lý bởi backend.",
+        );
       if (!["RECORDING", "SAVING"].includes(row.status))
         return { recording: await this.view(tx, row) };
       const saved = await tx.classRecording.update({

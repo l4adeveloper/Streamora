@@ -154,7 +154,7 @@ export class VideoProcessingService extends VideoJobsService {
   async cloudDeleted(fileId: string) {
     await this.cloud?.deleted(fileId);
   }
-  async retry(userId: string, fileId: string, key: string) {
+  async retry(userId: string, fileId: string, key: string, reprocess = false) {
     if (typeof key !== "string" || !/^[\x21-\x7e]{1,128}$/.test(key))
       throw new ApiError(
         400,
@@ -186,27 +186,48 @@ export class VideoProcessingService extends VideoJobsService {
         ? await tx.videoJob.findUnique({ where: { id: asset.currentJobId } })
         : null;
       if (
-        !asset ||
-        previous?.state !== "FAILED" ||
-        target.status !== "AVAILABLE"
+        target.status !== "AVAILABLE" ||
+        (!reprocess && (!asset || previous?.state !== "FAILED")) ||
+        (!asset &&
+          (!target.mimeType.startsWith("video/") || !target.storageLocationId))
       )
         throw new ApiError(
           409,
           "JOB_NOT_RETRYABLE",
-          "Chỉ có thể thử lại video xử lý lỗi.",
+          "Video chưa sẵn sàng để xử lý.",
         );
+      // Concurrent clicks share the running job; published output stays usable.
+      if (previous && !["READY", "FAILED"].includes(previous.state))
+        return { jobId: previous.id, status: "QUEUED" as const };
+      const source = readSource(
+        asset?.source ?? {
+          kind: "FILE",
+          key: target.objectKey,
+          storageLocationId: target.storageLocationId,
+        },
+      );
       const job = await tx.videoJob.create({
         data: {
           fileId,
-          mode: previous.mode,
-          encoder: previous.encoder,
+          mode: source.kind === "HLS" ? "IMPORT_HLS" : "TRANSCODE",
+          encoder:
+            source.kind === "HLS"
+              ? "ivs"
+              : this.config.video?.mode === "aws"
+                ? "mediaconvert"
+                : "ffmpeg",
           retryKeyHash,
           retryActor: userId,
         },
       });
-      await tx.videoAsset.update({
+      await tx.videoAsset.upsert({
         where: { fileId },
-        data: { currentJobId: job.id },
+        update: { currentJobId: job.id },
+        create: {
+          fileId,
+          currentJobId: job.id,
+          source: source as unknown as Prisma.InputJsonValue,
+        },
       });
       await tx.fileUsage.create({
         data: { fileId, reference: `video:${job.id}` },

@@ -159,7 +159,9 @@ test(
         .getByRole("button", { name: "Cài đặt video", exact: true })
         .click();
       await page.getByRole("menuitem", { name: /^Chất lượng/ }).click();
-      await page.getByRole("menuitemradio", { name: "480p", exact: true }).waitFor();
+      await page
+        .getByRole("menuitemradio", { name: "480p", exact: true })
+        .waitFor();
       assert.deepEqual(
         await page.getByRole("menuitemradio").allTextContents(),
         ["Bản gốc", "Tự động", "1080p", "720p", "480p", "360p"],
@@ -548,9 +550,20 @@ test(
       await page
         .getByRole("button", { name: "Cài đặt video", exact: true })
         .click();
+      const processingRequest = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`/files/${file.id}/processing`) &&
+          response.request().method() === "POST",
+      );
       await page
         .getByRole("menuitem", { name: "Cập nhật chất lượng", exact: true })
         .click();
+      assert.equal((await processingRequest).status(), 202);
+      const rebuilt = await fixture.prisma.videoAsset.findUniqueOrThrow({
+        where: { fileId: file.id },
+      });
+      assert.notEqual(rebuilt.currentJobId, jobId);
+      assert.equal(rebuilt.publishedJobId, jobId);
       await page.waitForFunction(
         () =>
           document.querySelector(".video-preview video")?.videoHeight === 360,

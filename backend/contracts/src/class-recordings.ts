@@ -17,6 +17,8 @@ export interface ClassRecordingPresenter {
   participantId: string | null;
 }
 export interface ClassRecording {
+  starting?: boolean;
+  errorCode?: string;
   id: string;
   sessionId: string;
   status: ClassRecordingStatus;

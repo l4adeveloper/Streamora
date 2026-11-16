@@ -317,9 +317,13 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
           if (entry.isDirectory()) await copy(path);
           else if (entry.isFile()) {
             if (abort.signal.aborted) throw new VideoError("LEASE_LOST");
-            await this.files!.importLocalFile(
+            const key = `${prefix}/${relative(directory!, path).split(sep).join("/")}`;
+            await this.files!.writeFile(
               path,
-              `${prefix}/${relative(directory!, path).split(sep).join("/")}`,
+              key,
+              key.endsWith(".m3u8")
+                ? "application/vnd.apple.mpegurl"
+                : key.endsWith(".ts") ? "video/mp2t" : "image/jpeg",
               source.storageLocationId,
             );
           }

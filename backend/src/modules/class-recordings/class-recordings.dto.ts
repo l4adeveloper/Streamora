@@ -46,6 +46,8 @@ class ClassRecordingPresenterModel {
   @ApiProperty({ type: String, nullable: true }) participantId!: string | null;
 }
 export class ClassRecordingModel {
+  @ApiPropertyOptional() starting?: boolean;
+  @ApiPropertyOptional() errorCode?: string;
   @ApiProperty({ format: "uuid" }) id!: string;
   @ApiProperty({ format: "uuid" }) sessionId!: string;
   @ApiProperty({ enum: ["RECORDING", "SAVING", "SAVED", "FAILED"] }) status!: string;

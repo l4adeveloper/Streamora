@@ -33,6 +33,7 @@ export interface EnvironmentConfig {
     tokenTtlSeconds: number;
     eventsQueueUrl: string;
     workerEnabled: boolean;
+    recording?: { storageArn: string; encoderArn: string };
   };
   uploads?: {
     maxSize: number;
@@ -259,6 +260,32 @@ export function readEnvironment(
   }
   if (ivsWorker === "true" && (ivsEnabled !== "true" || !eventsQueueUrl))
     invalid("IVS_WORKER_ENABLED");
+  const recordingStorageArn = env.IVS_RECORDING_STORAGE_ARN?.trim();
+  const recordingEncoderArn = env.IVS_RECORDING_ENCODER_ARN?.trim();
+  if (recordingStorageArn || recordingEncoderArn) {
+    if (
+      !recordingStorageArn?.match(
+        new RegExp(
+          `^arn:aws:ivs:${ivsRegion}:\\d{12}:storage-configuration/[A-Za-z0-9]+$`,
+        ),
+      )
+    )
+      invalid("IVS_RECORDING_STORAGE_ARN");
+    if (
+      !recordingEncoderArn?.match(
+        new RegExp(
+          `^arn:aws:ivs:${ivsRegion}:\\d{12}:encoder-configuration/[A-Za-z0-9]+$`,
+        ),
+      )
+    )
+      invalid("IVS_RECORDING_ENCODER_ARN");
+    if (
+      fileDriver !== "s3" ||
+      fileRegion !== ivsRegion ||
+      ivsEnabled !== "true"
+    )
+      invalid("IVS_RECORDING_STORAGE_ARN");
+  }
   return {
     video: readVideoConfig(env, fileDriver, fileRegion),
     nodeEnv: nodeEnv as EnvironmentConfig["nodeEnv"],
@@ -286,6 +313,14 @@ export function readEnvironment(
       tokenTtlSeconds: ivsTtl,
       eventsQueueUrl,
       workerEnabled: ivsWorker === "true",
+      ...(recordingStorageArn && recordingEncoderArn
+        ? {
+            recording: {
+              storageArn: recordingStorageArn,
+              encoderArn: recordingEncoderArn,
+            },
+          }
+        : {}),
     },
     files: {
       driver: fileDriver as "local" | "s3",
@@ -368,7 +403,8 @@ function readAzureSpeechConfig(
   const region = env.AZURE_SPEECH_REGION?.trim();
   const key = env.AZURE_SPEECH_KEY?.trim();
   if (!region && !key) return undefined;
-  if (!region || !/^[a-z][a-z0-9]+$/.test(region)) invalid("AZURE_SPEECH_REGION");
+  if (!region || !/^[a-z][a-z0-9]+$/.test(region))
+    invalid("AZURE_SPEECH_REGION");
   if (!key) invalid("AZURE_SPEECH_KEY");
 
   const locales = (env.AZURE_SPEECH_LOCALES ?? "vi-VN,en-US")
@@ -379,7 +415,9 @@ function readAzureSpeechConfig(
   let canonical: string[];
   try {
     canonical = Intl.getCanonicalLocales(locales);
-    const languages = new Set(canonical.map((locale) => new Intl.Locale(locale).language));
+    const languages = new Set(
+      canonical.map((locale) => new Intl.Locale(locale).language),
+    );
     if (languages.size !== locales.length) invalid("AZURE_SPEECH_LOCALES");
   } catch {
     invalid("AZURE_SPEECH_LOCALES");

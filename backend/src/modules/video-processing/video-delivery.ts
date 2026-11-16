@@ -41,7 +41,7 @@ export class VideoDelivery {
     objectKey(output.masterKey);
     const target = await this.locations?.resolve(output.storageLocationId);
     if (
-      target ? target.driver === "local" : this.config.video?.mode !== "aws"
+      this.config.video?.mode !== "aws" || target?.driver === "local"
     ) {
       const path = `/api/v1/video-media/${fileId}/${jobId}`;
       const payload = Buffer.from(

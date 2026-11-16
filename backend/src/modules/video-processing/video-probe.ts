@@ -8,12 +8,14 @@ export async function runProcess(
     signal?: AbortSignal;
     timeout?: number;
     onProgress?: (line: string) => void;
+    cwd?: string;
   } = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, {
       shell: false,
       windowsHide: true,
+      cwd: options.cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "",

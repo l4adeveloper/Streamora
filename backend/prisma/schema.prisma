@@ -796,11 +796,21 @@ enum RecordingTranscriptStatus {
   TOO_LONG
 }
 
-// Session recording composed in the recorder's browser and saved through the
-// upload pipeline. While RECORDING, at most one screen share stays published.
+// IVS composes new recordings directly into S3; BROWSER preserves legacy rows.
+// While RECORDING, at most one screen share stays published.
 // The partial unique index (one RECORDING row per session) lives in the migration.
 model ClassRecording {
   id String @id @db.Uuid
+  // Existing browser recordings remain readable; new recordings use IVS.
+  provider String @default("BROWSER") @db.VarChar(12)
+  stageArn String? @map("stage_arn")
+  compositionArn String? @map("composition_arn")
+  recordingPrefix String? @map("recording_prefix")
+  storageLocationId String? @map("storage_location_id") @db.VarChar(64)
+  nextCheckAt DateTime @default(now()) @map("next_check_at") @db.Timestamptz(3)
+  workerLeaseUntil DateTime? @map("worker_lease_until") @db.Timestamptz(3)
+  workerLeaseOwner String? @map("worker_lease_owner") @db.Uuid
+  errorCode String? @map("error_code") @db.VarChar(64)
   sessionId String @map("session_id") @db.Uuid
   recorderId String @map("recorder_id") @db.Uuid
   status String @default("RECORDING") @db.VarChar(20)

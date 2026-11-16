@@ -273,7 +273,7 @@ VIDEO_OPTIONAL_QUALITIES=480,1440
 
 Copy khối trên, thay access key/secret của `streamora-developer`. Domain CloudFront mới đã điền sẵn: `VIDEO_MEDIA_DOMAIN=d1t5ktmqzfd56b.cloudfront.net`, **chỉ hostname**, không thêm `https://` hoặc path. Nếu backend/PM2 còn domain cũ `d2etcjbg4sxx6m.cloudfront.net`, thay bằng `d1t5ktmqzfd56b.cloudfront.net` trước khi restart. Tên bảng, bucket, role và queue đã được điền đầy đủ trong cùng khối.
 
-Video encode mới có mức cao nhất theo nguồn/cap, rồi các mức thấp hơn 2160/1440/1080/720/480/360p phù hợp, không upscale. Player giữ **Bản gốc**, **Tự động** và các mức đã encode. Output cũ không tự có thêm 480p/1440p sau khi deploy; cần encode lại nguồn hoặc upload lại qua ứng dụng. Không thêm nhãn cho chất lượng chưa tồn tại.
+Video encode mới có mức cao nhất theo nguồn/cap, rồi các mức thấp hơn 2160/1440/1080/720/480/360p phù hợp, không upscale. Player giữ **Bản gốc**, **Tự động** và các mức đã encode. Output cũ không tự có thêm 480p/1440p sau khi deploy; dùng “Cập nhật chất lượng” trong cài đặt video player để xử lý lại nguồn. Không thêm nhãn cho chất lượng chưa tồn tại.
 
 Chỉ dùng `AWS_SESSION_TOKEN` khi có credentials tạm thời còn hiệu lực. Biến process ưu tiên hơn `.env`; PM2/ecosystem giữ giá trị cũ thì sửa cho khớp, đặc biệt worker=true và key. Giữ `streamora-api` một instance fork như hiện tại; không thêm process worker. EC2 cần HTTPS ra AWS và kết nối PostgreSQL; không mở cổng inbound mới cho video.
 
@@ -324,3 +324,10 @@ Các lệnh `package:video-lambda`, `test:t13:lambda` đã bỏ. Restart PM2 c�
 | HLS CORS / HTTP 200 nhưng Chrome chặn | Behavior Default (*) có `streamora-video-public-cors`; chờ Deployed, Disable cache và kiểm tra header trên cả .m3u8/.ts |
 
 Không cần vào Lambda/Scheduler để debug sau khi chuyển đổi. Khi EC2/API dừng, MediaConvert tiếp tục encode nhưng gửi job mới và chuyển READY chờ API chạy lại.
+
+## Ghi hình cuộc họp
+
+Xem [cấu hình record trên AWS Management Console](recording-aws-console.md).
+Giữ toàn bộ cấu hình T13 ở trên: chỉ luồng thu bản ghi dùng IVS → S3 và polling;
+sau khi hoàn tất, chất lượng video vẫn được xử lý bởi pipeline hiện có.
+API production tự chạy migration trước khi nhận request; năm lệnh deploy không đổi.

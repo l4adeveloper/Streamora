@@ -1,9 +1,12 @@
 import { Readable } from "node:stream";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { Inject, Injectable, OnModuleDestroy, Optional } from "@nestjs/common";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
   S3Client,
+  PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { APP_CONFIG } from "../../config/configuration.module";
@@ -203,6 +206,31 @@ export class FileStorageService implements OnModuleDestroy {
         "Chức năng nhập file chỉ dùng cho chế độ local.",
       );
     return backend.local.importFile(sourcePath, objectKey);
+  }
+  /** Stores worker output in the same storage as its source, including S3. */
+  async writeFile(
+    sourcePath: string,
+    objectKey: string,
+    mimeType: string,
+    locationId?: string | null,
+  ) {
+    const backend = await this.backend(locationId);
+    if (backend.local) return backend.local.importFile(sourcePath, objectKey);
+    const info = await stat(sourcePath);
+    const body = createReadStream(sourcePath);
+    try {
+      await backend.client!.send(
+        new PutObjectCommand({
+          Bucket: this.bucket(backend.target),
+          Key: objectKey,
+          Body: body,
+          ContentLength: info.size,
+          ContentType: mimeType,
+        }),
+      );
+    } finally {
+      body.destroy();
+    }
   }
   async localSize(objectKey: string, locationId?: string | null) {
     return (await this.backend(locationId)).local!.size(objectKey);

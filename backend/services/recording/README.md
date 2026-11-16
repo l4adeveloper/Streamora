@@ -1,15 +1,7 @@
-# Recording — điểm tích hợp
+# Ghi hình IVS → S3
 
-T11 sẽ dùng IVS server-side composition sau khi kiểm tra quyền của thành viên.
-Composition trộn âm thanh và nội dung màn hình/camera từ Stage T05, lưu kết quả
-đến S3. Sự kiện composition/recording đi qua EventBridge → SQS của T05.
+Đã triển khai tại `src/modules/class-recordings`: backend gọi IVS Composition,
+kiểm tra hoàn tất bằng polling và metadata S3, sau đó mới tạo job chất lượng/phụ đề.
+Không cần SQS/EventBridge cho luồng ghi hình.
 
-Chưa triển khai StartComposition/StopComposition hoặc handler ghi hình.
-Web Audio API cho ghi cục bộ thuộc T10. Thông tin xác thực AWS chỉ ở backend.
-
-T04 đã có [điểm tích hợp cho T05/T11](../../docs/t04-integration.md):
-ClassParticipantService/RequireClassParticipation kiểm tra đúng lượt LIVE;
-ClassSessionEventsService đọc `session.ended.v1` với checkpoint bền vững theo
-consumer. T11 sẽ ghi job riêng cùng transaction/dedupe eventId rồi để worker làm
-I/O; hiện chưa có handler ghi hình hoặc consumer chạy tự động. Không dùng sự kiện
-Socket.IO `session.ended` làm lệnh dừng composition.
+Xem [cấu hình MVP](../../docs/recording-mvp.md).

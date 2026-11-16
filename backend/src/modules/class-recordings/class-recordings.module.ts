@@ -6,6 +6,7 @@ import { FilesModule } from "../files/files.module";
 import { RecordingTranscriptWorker } from "./recording-transcript.worker";
 import { ClassRecordingsController } from "./class-recordings.controller";
 import { ClassRecordingsService } from "./class-recordings.service";
+import { CloudRecordingWorker } from "./cloud-recording.worker";
 
 @Module({
   imports: [
@@ -15,6 +16,6 @@ import { ClassRecordingsService } from "./class-recordings.service";
     FilesModule,
   ],
   controllers: [ClassRecordingsController],
-  providers: [ClassRecordingsService, RecordingTranscriptWorker],
+  providers: [ClassRecordingsService, CloudRecordingWorker, RecordingTranscriptWorker],
 })
 export class ClassRecordingsModule {}

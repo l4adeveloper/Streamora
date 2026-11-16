@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 export interface VideoConfig {
   mode: "local" | "aws";
   workerEnabled: boolean;
@@ -24,11 +25,7 @@ export function readVideoConfig(
     throw new Error(`Cấu hình ${key} không hợp lệ.`);
   };
   const mode = env.VIDEO_MODE ?? (driver === "local" ? "local" : "aws");
-  if (
-    !["local", "aws"].includes(mode) ||
-    (mode === "local" && driver !== "local") ||
-    (mode === "aws" && driver !== "s3")
-  )
+  if (!["local", "aws"].includes(mode) || (mode === "aws" && driver !== "s3"))
     bad("VIDEO_MODE");
   const maxQuality = Number(env.VIDEO_MAX_QUALITY ?? 2160);
   if (![360, 480, 720, 1080, 1440, 2160].includes(maxQuality))
@@ -45,10 +42,8 @@ export function readVideoConfig(
       (env.VIDEO_WORKER_ENABLED === undefined && env.VIDEO_MODE === "aws"),
     maxQuality,
     optionalQualities,
-    ffmpegPath:
-      env.VIDEO_FFMPEG_PATH ?? localExecutable("ffmpeg", env.NODE_ENV),
-    ffprobePath:
-      env.VIDEO_FFPROBE_PATH ?? localExecutable("ffprobe", env.NODE_ENV),
+    ffmpegPath: env.VIDEO_FFMPEG_PATH ?? localExecutable("ffmpeg"),
+    ffprobePath: env.VIDEO_FFPROBE_PATH ?? localExecutable("ffprobe"),
     scratchDirectory: resolve(
       __dirname,
       "../../..",
@@ -99,17 +94,20 @@ export function readVideoConfig(
   }
   return config;
 }
-function localExecutable(name: "ffmpeg" | "ffprobe", nodeEnv?: string) {
-  if (nodeEnv !== "production") {
-    try {
-      return require(
-        name === "ffmpeg"
-          ? "@ffmpeg-installer/ffmpeg"
-          : "@ffprobe-installer/ffprobe",
-      ).path as string;
-    } catch {
-      /* System executable in production/minimal installs. */
-    }
+function localExecutable(name: "ffmpeg" | "ffprobe") {
+  // npm ci already installs this production dependency, also in managed-video mode.
+  if (name === "ffmpeg") {
+    const bundled = require("ffmpeg-static") as string | null;
+    if (bundled && existsSync(bundled)) return bundled;
+  }
+  try {
+    return require(
+      name === "ffmpeg"
+        ? "@ffmpeg-installer/ffmpeg"
+        : "@ffprobe-installer/ffprobe",
+    ).path as string;
+  } catch {
+    /* Use the system executable if no bundled binary is installed. */
   }
   return name;
 }

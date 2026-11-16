@@ -31,17 +31,19 @@ test("API loads service-account credentials from backend env without EC2 instanc
       const { DynamoVideoJobs } = require('./backend/dist/modules/video-processing/dynamodb-video-jobs');
       const { S3Client } = require('@aws-sdk/client-s3');
       const { MediaConvertEncoder } = require('./backend/dist/modules/video-processing/mediaconvert-encoder');
+      const { IvsService } = require('./backend/dist/modules/class-media/ivs.service');
       loadEnvironmentFile(process.argv[1]);
       const store = new DynamoVideoJobs({ region: 'ap-northeast-1' }, 'source');
       const s3 = new S3Client({ region: 'ap-northeast-1' });
       const encoder = new MediaConvertEncoder({ region: 'ap-northeast-1' });
+      const ivs = new IvsService({ ivs: { enabled: true, region: 'ap-northeast-1' } });
       (async () => {
-        for (const client of [store.client, s3, encoder.client]) {
+        for (const client of [store.client, s3, encoder.client, ivs.client]) {
           const credentials = await client.config.credentials();
           assert.equal(credentials.accessKeyId, 'test-service-account');
           assert.equal(credentials.secretAccessKey, 'test-service-secret');
         }
-        store.close(); s3.destroy(); encoder.close(); console.log('ok');
+        store.close(); s3.destroy(); encoder.close(); ivs.onModuleDestroy(); console.log('ok');
       })().catch(() => { process.exitCode = 1; });
     `,
         path,

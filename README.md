@@ -4,6 +4,10 @@ Nền tảng học trực tuyến, cộng đồng và phát trực tiếp có tu
 
 Chat workspace dùng DynamoDB; chat cuộc họp giữ trong RAM. Xem [bàn giao chat, tìm kiếm và thread hỏi đáp](backend/docs/workspace-chat-dynamodb-handoff.md) để chạy DynamoDB Local, chuyển lịch sử cũ và cấu hình AWS.
 
+Ghi hình cuộc họp dùng IVS ghi trực tiếp vào S3; backend chỉ xử lý các chất lượng
+và phụ đề sau khi bản ghi hoàn tất. Xem [cấu hình ghi hình trên AWS Console](backend/docs/recording-aws-console.md)
+để dùng bucket có sẵn. Chỉ luồng thu bản ghi không cần SQS/EventBridge; các luồng cũ giữ nguyên.
+
 ## 1. Chạy local
 
 ### Chuẩn bị

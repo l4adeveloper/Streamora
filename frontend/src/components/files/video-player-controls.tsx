@@ -42,6 +42,7 @@ export function VideoPlayerControls({
   quality,
   onQualityChange,
   onRefresh,
+  processing = false,
   loading,
   transcriptControls,
 }: {
@@ -51,7 +52,8 @@ export function VideoPlayerControls({
   qualities: Quality[];
   quality: string;
   onQualityChange(value: string): void;
-  onRefresh(): void;
+  onRefresh?: () => void;
+  processing?: boolean;
   loading: boolean;
   transcriptControls?: ReactNode;
 }) {
@@ -640,18 +642,24 @@ export function VideoPlayerControls({
                         </small>
                         <ChevronRight size={16} />
                       </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={loading}
-                        onClick={() => {
-                          onRefresh();
-                          closeMenu();
-                        }}
-                      >
-                        <RefreshCw size={16} />
-                        <span>Cập nhật chất lượng</span>
-                      </button>
+                      {onRefresh && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={loading || processing}
+                          onClick={() => {
+                            onRefresh();
+                            closeMenu();
+                          }}
+                        >
+                          <RefreshCw size={16} />
+                          <span>
+                            {processing
+                              ? "Đang xử lý chất lượng…"
+                              : "Cập nhật chất lượng"}
+                          </span>
+                        </button>
+                      )}
                     </>
                   ) : renderedMenu === "quality" ? (
                     qualities.map((item) => (

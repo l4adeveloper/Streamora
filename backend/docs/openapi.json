@@ -41,7 +41,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -66,7 +68,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -91,7 +95,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -116,7 +122,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -141,7 +149,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               },
               "Retry-After": {
@@ -173,7 +183,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -198,7 +210,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -213,7 +227,9 @@
         },
         "security": [],
         "summary": "T01-01 — Tạo tài khoản",
-        "tags": ["Auth"]
+        "tags": [
+          "Auth"
+        ]
       }
     },
     "/api/v1/auth/login": {
@@ -256,7 +272,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               },
               "Set-Cookie": {
@@ -287,7 +305,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -312,7 +332,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -337,7 +359,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -362,7 +386,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               },
               "Retry-After": {
@@ -394,7 +420,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -419,7 +447,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -434,7 +464,9 @@
         },
         "security": [],
         "summary": "T01-02 — Đăng nhập",
-        "tags": ["Auth"]
+        "tags": [
+          "Auth"
+        ]
       }
     },
     "/api/v1/auth/refresh": {
@@ -467,7 +499,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               },
               "Set-Cookie": {
@@ -498,7 +532,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -523,7 +559,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -548,7 +586,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -573,7 +613,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -598,7 +640,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -617,7 +661,9 @@
           }
         ],
         "summary": "T01-03 — Xoay refresh token",
-        "tags": ["Auth"]
+        "tags": [
+          "Auth"
+        ]
       }
     },
     "/api/v1/auth/logout": {
@@ -650,7 +696,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               },
               "Set-Cookie": {
@@ -674,7 +722,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -699,7 +749,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -724,7 +776,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -749,7 +803,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -769,7 +825,9 @@
           }
         ],
         "summary": "T01-04 — Đăng xuất",
-        "tags": ["Auth"]
+        "tags": [
+          "Auth"
+        ]
       }
     },
     "/api/v1/users/me": {
@@ -791,7 +849,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -816,7 +876,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -841,7 +903,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -866,7 +930,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -891,7 +957,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -910,7 +978,9 @@
           }
         ],
         "summary": "T01-05 — Xem tài khoản của tôi",
-        "tags": ["Users"]
+        "tags": [
+          "Users"
+        ]
       },
       "patch": {
         "description": "Chỉ nhận fullName; từ chối email, password, globalRole và trường bổ sung. Cần Bearer còn phiên hợp lệ.",
@@ -940,7 +1010,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -965,7 +1037,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -990,7 +1064,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -1015,7 +1091,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -1040,7 +1118,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -1065,7 +1145,9 @@
               "Cache-Control": {
                 "schema": {
                   "type": "string",
-                  "enum": ["no-store"]
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             },
@@ -1084,7 +1166,9 @@
           }
         ],
         "summary": "T01-06 — Sửa họ tên",
-        "tags": ["Users"]
+        "tags": [
+          "Users"
+        ]
       }
     }
   },
@@ -1142,7 +1226,11 @@
             "example": "Họ tên phải có từ 1 đến 100 ký tự."
           }
         },
-        "required": ["field", "code", "message"]
+        "required": [
+          "field",
+          "code",
+          "message"
+        ]
       },
       "ErrorDetailsDto": {
         "type": "object",
@@ -1170,7 +1258,10 @@
             "$ref": "#/components/schemas/ErrorDetailsDto"
           }
         },
-        "required": ["code", "message"]
+        "required": [
+          "code",
+          "message"
+        ]
       },
       "ApiErrorResponseDto": {
         "type": "object",
@@ -1184,7 +1275,10 @@
             "description": "Trùng header X-Request-ID của response."
           }
         },
-        "required": ["error", "requestId"]
+        "required": [
+          "error",
+          "requestId"
+        ]
       },
       "RegisterDto": {
         "type": "object",
@@ -1212,12 +1306,19 @@
             "description": "Trim, đếm Unicode code point."
           }
         },
-        "required": ["email", "password", "fullName"],
+        "required": [
+          "email",
+          "password",
+          "fullName"
+        ],
         "additionalProperties": false
       },
       "GlobalRole": {
         "type": "string",
-        "enum": ["USER", "ADMIN"]
+        "enum": [
+          "USER",
+          "ADMIN"
+        ]
       },
       "PublicUserDto": {
         "type": "object",
@@ -1247,7 +1348,12 @@
             ]
           }
         },
-        "required": ["id", "email", "fullName", "globalRole"]
+        "required": [
+          "id",
+          "email",
+          "fullName",
+          "globalRole"
+        ]
       },
       "UserResponseDto": {
         "type": "object",
@@ -1256,7 +1362,9 @@
             "$ref": "#/components/schemas/PublicUserDto"
           }
         },
-        "required": ["user"]
+        "required": [
+          "user"
+        ]
       },
       "LoginDto": {
         "type": "object",
@@ -1275,7 +1383,10 @@
             "maxLength": 128
           }
         },
-        "required": ["email", "password"],
+        "required": [
+          "email",
+          "password"
+        ],
         "additionalProperties": false
       },
       "LoginResponseDto": {
@@ -1296,7 +1407,11 @@
             "$ref": "#/components/schemas/PublicUserDto"
           }
         },
-        "required": ["accessToken", "expiresIn", "user"]
+        "required": [
+          "accessToken",
+          "expiresIn",
+          "user"
+        ]
       },
       "AccessTokenResponseDto": {
         "type": "object",
@@ -1313,7 +1428,10 @@
             "description": "Thời gian sống access token, tính bằng giây theo cấu hình server."
           }
         },
-        "required": ["accessToken", "expiresIn"]
+        "required": [
+          "accessToken",
+          "expiresIn"
+        ]
       },
       "UpdateProfileDto": {
         "type": "object",
@@ -1326,7 +1444,9 @@
             "description": "Chỉ nhận fullName; trim trước khi lưu."
           }
         },
-        "required": ["fullName"],
+        "required": [
+          "fullName"
+        ],
         "additionalProperties": false
       }
     }

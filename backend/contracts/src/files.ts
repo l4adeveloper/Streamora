@@ -94,6 +94,7 @@ export interface VideoPlaybackSource extends FileDownloadResponse {
 }
 export interface VideoPlaybackResponse {
   fileId: string;
+  canProcess?: boolean;
   processing: { status: VideoProcessingStatus; progressPercent: number | null };
   sources: VideoPlaybackSource[];
   qualities?: VideoQuality[];

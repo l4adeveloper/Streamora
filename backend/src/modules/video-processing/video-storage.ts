@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
   S3Client,
@@ -192,18 +193,24 @@ export class VideoStorage {
             : createReadStream(path, part ?? {}),
       };
     }
-    // Cloud playback uses CloudFront/OAC. This read path is worker-only metadata I/O.
+    // MVP mode can serve private S3 media through the existing signed API grant.
     const client = new S3Client({ region: target.region });
     try {
-      const out = await client.send(
-        new GetObjectCommand({ Bucket: target.bucket, Key: key }),
-      );
-      const stream = out.Body as Readable;
+      const input = {
+        Bucket: target.bucket,
+        Key: key,
+        ...(range ? { Range: range } : {}),
+      };
+      const out = head
+        ? await client.send(new HeadObjectCommand(input))
+        : await client.send(new GetObjectCommand(input));
+      const stream = "Body" in out ? (out.Body as Readable) : Readable.from([]);
+      if (head) client.destroy();
       stream.once("close", () => client.destroy());
       return {
-        status: 200,
+        status: out.ContentRange ? 206 : 200,
         size: out.ContentLength ?? 0,
-        contentRange: undefined,
+        contentRange: out.ContentRange,
         stream,
       };
     } catch (error) {

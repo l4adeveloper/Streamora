@@ -57,9 +57,12 @@ export function getVideoPlayback(fileId: string) {
 }
 
 export function getRecordingTranscript(fileId: string) {
-  return apiRequest<RecordingTranscriptResponse>(`/files/${fileId}/transcript`, {
-    method: "GET",
-  });
+  return apiRequest<RecordingTranscriptResponse>(
+    `/files/${fileId}/transcript`,
+    {
+      method: "GET",
+    },
+  );
 }
 
 export function listFolders(groupId: string, parentId?: string | null) {
@@ -142,5 +145,15 @@ export function getVideoProcessing(fileId: string) {
   return apiRequest<import("@streamora/contracts").VideoProcessingResponse>(
     `/files/${fileId}/processing`,
     { method: "GET" },
+  );
+}
+export function requestVideoProcessing(fileId: string, key: string) {
+  return apiRequest<{ jobId: string; status: "QUEUED" }>(
+    `/files/${fileId}/processing`,
+    {
+      method: "POST",
+      idempotencyKey: key,
+      body: {},
+    },
   );
 }

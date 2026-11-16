@@ -27,40 +27,18 @@ import {
   MonitorOff,
   Circle,
   Square,
-  ArrowUpLeft,
-  ArrowUpRight,
-  ArrowDownLeft,
-  ArrowDownRight,
-  Eye,
-  EyeOff,
-  Download,
 } from "lucide-react";
-import type {
-  ClassParticipationWithUser,
-  ClassRecordingCameraPosition,
-} from "@streamora/contracts";
+import type { ClassParticipationWithUser } from "@streamora/contracts";
 import { listClassParticipants } from "@/lib/class-sessions/api";
 import {
   useClassMedia,
   type MediaPeer,
 } from "@/lib/class-sessions/use-class-media";
 import { useClassRecording } from "@/lib/class-sessions/use-class-recording";
-import type { RecorderScene } from "@/lib/class-sessions/class-recorder";
 import { InlineNotice } from "@/components/common/feedback";
 import { useToast } from "@/components/common/toast-provider";
 import { useAuth } from "@/components/auth/auth-provider";
 import "./media.css";
-
-const CAMERA_CORNERS: {
-  position: ClassRecordingCameraPosition;
-  label: string;
-  icon: typeof ArrowUpLeft;
-}[] = [
-  { position: "top-left", label: "Góc trên trái", icon: ArrowUpLeft },
-  { position: "top-right", label: "Góc trên phải", icon: ArrowUpRight },
-  { position: "bottom-left", label: "Góc dưới trái", icon: ArrowDownLeft },
-  { position: "bottom-right", label: "Góc dưới phải", icon: ArrowDownRight },
-];
 
 function useAudioSpeaking(
   stream?: MediaStream,
@@ -200,7 +178,8 @@ function MediaTile({
   }, [stream]);
 
   const isAudioSpeaking = useAudioSpeaking(stream, !screen, speaking);
-  const isSpeaking = speaking !== undefined ? speaking || isAudioSpeaking : isAudioSpeaking;
+  const isSpeaking =
+    speaking !== undefined ? speaking || isAudioSpeaking : isAudioSpeaking;
 
   const isVideoMirrored = isLocal && !screen;
   const isVideoEnhanced = !screen && enhanced;
@@ -231,8 +210,8 @@ function MediaTile({
           <MonitorUp size={42} aria-hidden="true" />
           <strong>Bạn đang chia sẻ màn hình</strong>
           <p>
-            Bản xem trước của bạn được ẩn khi toàn màn hình để tránh hình ảnh lặp
-            lại. Nhấn Esc để xem lại bản xem trước.
+            Bản xem trước của bạn được ẩn khi toàn màn hình để tránh hình ảnh
+            lặp lại. Nhấn Esc để xem lại bản xem trước.
           </p>
         </div>
       )}
@@ -319,7 +298,9 @@ function MediaTray({
             />
           ) : (
             <p className="workspace-media-tray-empty">
-              {label === "SHARING" ? "Chưa có chia sẻ màn hình" : "Chưa có camera"}
+              {label === "SHARING"
+                ? "Chưa có chia sẻ màn hình"
+                : "Chưa có camera"}
             </p>
           ))}
       </div>
@@ -380,7 +361,9 @@ function MediaTrayRow({
         <div className="workspace-media-peer-list">
           {tiles.map((tile) => {
             const selected = tile.id === featuredId;
-            const name = tile.isScreenShare ? `${tile.name} · Màn hình` : tile.name;
+            const name = tile.isScreenShare
+              ? `${tile.name} · Màn hình`
+              : tile.name;
             const action = selected ? "Bỏ ghim" : "Phóng to";
             return (
               <div key={tile.id} className="workspace-media-peer">
@@ -497,7 +480,8 @@ function RoomAudio({ peers }: { peers: MediaPeer[] }) {
           className="button secondary compact"
           onClick={() => {
             // Each play() must start during the same browser user gesture.
-            for (const audio of playback.current?.querySelectorAll("audio") ?? [])
+            for (const audio of playback.current?.querySelectorAll("audio") ??
+              [])
               if (audio.paused) void audio.play().catch(() => {});
           }}
         >
@@ -546,7 +530,11 @@ export function ClassMediaRoom({
   onState?: (state: ClassMediaState) => void;
   micLocked?: boolean;
 }) {
-  const media = useClassMedia(sessionId, disabled ? null : participationId, micLocked);
+  const media = useClassMedia(
+    sessionId,
+    disabled ? null : participationId,
+    micLocked,
+  );
   const { user } = useAuth();
   const { notify } = useToast();
   const recording = useClassRecording({
@@ -607,7 +595,11 @@ export function ClassMediaRoom({
     },
   }));
   useEffect(() => {
-    onState?.({ micEnabled: micOn, busy: media.busy, publishLocked: media.publishLocked });
+    onState?.({
+      micEnabled: micOn,
+      busy: media.busy,
+      publishLocked: media.publishLocked,
+    });
   }, [onState, micOn, media.busy, media.publishLocked]);
   const labels = {
     idle: "Chưa kết nối video",
@@ -621,7 +613,10 @@ export function ClassMediaRoom({
   const recordingLive = recording.recording;
   // While recording, a second screen share would be revoked by the server.
   const shareBlocked =
-    !!recordingLive && !sharing && !media.screenPending && screenPeers.length > 0;
+    !!recordingLive &&
+    !sharing &&
+    !media.screenPending &&
+    screenPeers.length > 0;
   const shareLabel = sharing
     ? "Dừng chia sẻ màn hình"
     : media.screenPending
@@ -644,7 +639,8 @@ export function ClassMediaRoom({
       disabled={
         disabled ||
         shareBlocked ||
-        (!sharing && !media.screenPending &&
+        (!sharing &&
+          !media.screenPending &&
           (media.publishLocked || media.status !== "connected"))
       }
     >
@@ -659,12 +655,6 @@ export function ClassMediaRoom({
   const people =
     participationId && roster?.visitId === participationId ? roster.people : [];
   const cameraPeers = media.peers.filter((peer) => !peer.isScreenShare);
-  const presenterIsMe =
-    !!recordingLive &&
-    sharing &&
-    !!media.screenParticipantId &&
-    (recordingLive.presenter?.participantId ?? media.screenParticipantId) ===
-      media.screenParticipantId;
   const presenterParticipant = recordingLive?.presenter?.participantId ?? null;
   const visibleScreens = screenPeers.map((peer) => peer.id).join(",");
   const endScreenShare = media.endScreenShare;
@@ -687,113 +677,59 @@ export function ClassMediaRoom({
     recordingLive?.presenter?.fullName,
     visibleScreens,
   ]);
-  const cameraVisible = recordingLive?.layout.cameraVisible ?? true;
-  const recordingPanel = (recordingLive ||
-    recording.phase === "saving" ||
-    recording.fallback) && (
+  const recordingPanel = (recordingLive || recording.phase === "saving") && (
     <div className="class-recording-status">
       {recordingLive && (
         <span className="class-recording-badge" role="status">
           <span className="class-recording-dot" aria-hidden="true" />
-          {recording.isRecorder
-            ? "Bạn đang ghi hình buổi học"
-            : `${recordingLive.recorderName} đang ghi hình buổi học`}
+          {recordingLive.starting
+            ? "Đang bắt đầu ghi hình trên máy chủ…"
+            : "Buổi học đang được ghi hình trên máy chủ"}
         </span>
       )}
       {recording.phase === "saving" && (
         <span className="class-recording-saving" role="status">
-          Đang lưu bản ghi
-          {recording.progress !== null
-            ? ` ${Math.round(recording.progress)}%`
-            : "…"}
+          Đang hoàn tất bản ghi trên S3…
         </span>
       )}
-      {recording.fallback && (
-        <button
-          type="button"
-          className="button secondary compact"
-          onClick={recording.downloadFallback}
-        >
-          <Download size={15} />
-          Tải bản ghi về máy
-        </button>
-      )}
-      {presenterIsMe && recordingLive && (
-        <div
-          className="class-recording-layout"
-          role="group"
-          aria-label="Camera của bạn trong bản ghi"
-        >
-          <span>Camera trong bản ghi</span>
-          {CAMERA_CORNERS.map(({ position, label, icon: Icon }) => (
-            <button
-              key={position}
-              type="button"
-              className={`device-button ${
-                cameraVisible && recordingLive.layout.cameraPosition === position
-                  ? "enabled"
-                  : ""
-              }`}
-              aria-label={label}
-              title={label}
-              aria-pressed={
-                cameraVisible && recordingLive.layout.cameraPosition === position
-              }
-              onClick={() =>
-                void recording.setLayout({
-                  cameraPosition: position,
-                  cameraVisible: true,
-                })
-              }
-            >
-              <Icon size={15} />
-            </button>
-          ))}
-          <button
-            type="button"
-            className="button secondary compact"
-            aria-pressed={!cameraVisible}
-            onClick={() =>
-              void recording.setLayout({ cameraVisible: !cameraVisible })
-            }
-          >
-            {cameraVisible ? <EyeOff size={15} /> : <Eye size={15} />}
-            {cameraVisible ? "Ẩn camera" : "Hiện camera"}
-          </button>
-        </div>
+      {recordingLive?.errorCode && (
+        <span role="status">
+          Chưa đồng bộ được bản ghi. Máy chủ đang thử lại.
+        </span>
       )}
     </div>
   );
-  const recordLabel = recording.isRecorder
+  const recordLabel = recording.canStop
     ? "Dừng ghi hình"
     : recording.phase === "starting"
       ? "Đang bắt đầu ghi…"
       : recordingLive
         ? `${recordingLive.recorderName} đang ghi hình`
         : "Ghi hình buổi học";
-  const recordButton = (recording.canRecord || recording.isRecorder) && (
+  const recordButton = (recording.canRecord || recording.canStop) && (
     <button
       type="button"
       className={
         layout === "workspace"
-          ? `device-button class-record-button ${recording.isRecorder ? "recording" : ""}`
-          : `button secondary compact class-record-button ${recording.isRecorder ? "recording" : ""}`
+          ? `device-button class-record-button ${recording.canStop ? "recording" : ""}`
+          : `button secondary compact class-record-button ${recording.canStop ? "recording" : ""}`
       }
       onClick={() =>
-        recording.isRecorder ? recording.stop() : void recording.start(buildScene())
+        recording.canStop ? recording.stop() : void recording.start()
       }
       aria-label={recordLabel}
       title={recordLabel}
-      aria-pressed={recording.isRecorder}
+      aria-pressed={recording.canStop}
       disabled={
         disabled ||
         recording.phase === "starting" ||
+        recording.phase === "stopping" ||
         recording.phase === "saving" ||
-        (!recording.isRecorder &&
+        (!recording.canStop &&
           (!!recordingLive || media.status !== "connected"))
       }
     >
-      {recording.isRecorder ? <Square size={16} /> : <Circle size={16} />}
+      {recording.canStop ? <Square size={16} /> : <Circle size={16} />}
       {layout === "panel" && recordLabel}
     </button>
   );
@@ -803,7 +739,8 @@ export function ClassMediaRoom({
       {media.error && <InlineNotice tone="error">{media.error}</InlineNotice>}
       {media.publishLocked && (
         <InlineNotice>
-          Mic, camera và chia sẻ màn hình đang bị khóa. Bạn vẫn có thể nghe và xem.
+          Mic, camera và chia sẻ màn hình đang bị khóa. Bạn vẫn có thể nghe và
+          xem.
         </InlineNotice>
       )}
       {media.unavailablePeers.length > 0 && (
@@ -839,70 +776,13 @@ export function ClassMediaRoom({
     }));
   const participants = [...cameraPeers, ...quietPeers];
   const localName = user?.fullName ?? "Bạn";
-  // Mirrors the room for the recorder: the presenter's screen with their
-  // camera in the chosen corner, or a camera grid when nobody presents.
-  function buildScene(): RecorderScene {
-    const presenterId = recordingLive?.presenter?.participantId;
-    const remoteScreen =
-      screenPeers.find((peer) => peer.id === presenterId) ?? screenPeers[0];
-    const localPresents =
-      !!media.screenPreview &&
-      (!remoteScreen || presenterId === media.screenParticipantId);
-    const screen = localPresents
-      ? { key: "local-screen", name: localName, stream: media.screenPreview! }
-      : remoteScreen
-        ? { key: remoteScreen.id, name: remoteScreen.name, stream: remoteScreen.stream }
-        : null;
-    const presenterUser = localPresents ? user?.id : remoteScreen?.userId;
-    const remoteCamera = cameraPeers.find(
-      (peer) => peer.userId === presenterUser && peer.cameraEnabled,
-    );
-    const presenterCamera = !screen
-      ? null
-      : localPresents
-        ? cameraOn && media.preview
-          ? { key: "local-camera", stream: media.preview }
-          : null
-        : remoteCamera
-          ? { key: remoteCamera.id, stream: remoteCamera.stream }
-          : null;
-    return {
-      screen,
-      presenterCamera,
-      layout: recordingLive?.layout ?? {
-        cameraPosition: "bottom-right",
-        cameraVisible: true,
-      },
-      tiles: [
-        {
-          key: "local",
-          name: localName,
-          stream: media.preview ?? undefined,
-          camera: cameraOn,
-        },
-        ...participants.map((peer) => ({
-          key: peer.id,
-          name: peer.name,
-          stream: peer.stream,
-          camera: peer.cameraEnabled,
-        })),
-      ],
-      // Every voice once: my mic (only while on), shared-screen audio and all
-      // remote participants, including the remote screen share's audio.
-      audio: [
-        ...(micOn ? (media.preview?.getAudioTracks() ?? []) : []),
-        ...(media.screenPreview?.getAudioTracks() ?? []),
-        ...media.peers.flatMap((peer) => peer.stream.getAudioTracks()),
-      ],
-    };
-  }
-  const updateRecordingScene = recording.updateScene;
-  const recorderActive = recording.isRecorder;
-  useEffect(() => {
-    if (recorderActive) updateRecordingScene(buildScene());
-  });
   const localScreen = media.screenPreview && (
-    <MediaTile stream={media.screenPreview} name="Bạn · Màn hình" screen isLocal />
+    <MediaTile
+      stream={media.screenPreview}
+      name="Bạn · Màn hình"
+      screen
+      isLocal
+    />
   );
   if (layout === "workspace") {
     const localCamera: WorkspaceMediaTile | undefined =
@@ -930,7 +810,9 @@ export function ClassMediaRoom({
     const screens: WorkspaceMediaTile[] = localShare
       ? [localShare, ...screenPeers]
       : screenPeers;
-    const pinned = [...screens, ...cameras].find((tile) => tile.id === featuredId);
+    const pinned = [...screens, ...cameras].find(
+      (tile) => tile.id === featuredId,
+    );
     const featured: WorkspaceMediaTile | undefined =
       pinned ?? screens[0] ?? participants[0] ?? localCamera;
     return (

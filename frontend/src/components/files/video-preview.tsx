@@ -4,7 +4,11 @@ import { Captions, AlignLeft } from "lucide-react";
 import type Hls from "hls.js";
 import type { VideoPlaybackResponse } from "@streamora/contracts";
 import { asApiError } from "@/lib/api";
-import { getVideoPlayback, getVideoProcessing } from "@/lib/files/api";
+import {
+  getVideoPlayback,
+  getVideoProcessing,
+  requestVideoProcessing,
+} from "@/lib/files/api";
 import { VideoPlayerControls } from "./video-player-controls";
 import {
   RecordingCaptionTrack,
@@ -40,6 +44,9 @@ export function VideoPreview({
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
+  const [requestingProcessing, setRequestingProcessing] = useState(false);
+  const [processingError, setProcessingError] = useState("");
+  const processingRequest = useRef<string | null>(null);
   const video = useRef<HTMLVideoElement>(null);
   const layout = useRef<HTMLDivElement>(null);
   const transcriptId = useId();
@@ -488,7 +495,32 @@ export function VideoPreview({
                 })),
               ]}
               onQualityChange={changeQuality}
-              onRefresh={() => void refresh(sourceId)}
+              onRefresh={
+                manifest.canProcess
+                  ? async () => {
+                      if (requestingProcessing) return;
+                      setRequestingProcessing(true);
+                      setProcessingError("");
+                      processingRequest.current ??= crypto.randomUUID();
+                      try {
+                        await requestVideoProcessing(
+                          fileId,
+                          processingRequest.current,
+                        );
+                        processingRequest.current = null;
+                        await refresh(sourceId);
+                      } catch (failure) {
+                        setProcessingError(asApiError(failure).message);
+                      } finally {
+                        setRequestingProcessing(false);
+                      }
+                    }
+                  : undefined
+              }
+              processing={
+                requestingProcessing ||
+                ["QUEUED", "PROCESSING"].includes(manifest.processing.status)
+              }
               transcriptControls={
                 <>
                   <button
@@ -543,6 +575,7 @@ export function VideoPreview({
               />
             )}
           </div>
+          {processingError && <p role="alert">{processingError}</p>}
           {manifest.processing.status === "NOT_REQUESTED" &&
             manifest.sources.length === 1 && (
               <p className="video-preview-note">

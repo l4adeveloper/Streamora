@@ -57,6 +57,28 @@ export class FileProcessingController {
   ) {
     return this.service.processing(auth.user.id, fileId);
   }
+  @Post()
+  @HttpCode(202)
+  @ApiSuccess(202, VideoRetryResponseDto)
+  @ApiErrors(
+    [400, "IDEMPOTENCY_KEY_REQUIRED"],
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FILE_NOT_FOUND"],
+    [409, "JOB_NOT_RETRYABLE"],
+  )
+  @ApiHeader({ name: "Idempotency-Key", required: true })
+  @ApiOperation({
+    summary: "Tạo hoặc xử lý lại các chất lượng video; HOST/OWNER/ADMIN",
+  })
+  request(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("fileId", UUIDParamPipe) fileId: string,
+    @Headers("idempotency-key") key: string,
+    @Body() _body: RetryVideoDto,
+  ) {
+    return this.service.retry(auth.user.id, fileId, key, true);
+  }
   @Post("retry")
   @HttpCode(202)
   @ApiSuccess(202, VideoRetryResponseDto)
@@ -172,7 +194,7 @@ export class VideoMediaController {
     if (!/\.(m3u8|ts|m4s|mp4|aac|jpe?g)$/.test(key))
       throw new ApiError(403, "FORBIDDEN", "Đường dẫn video không hợp lệ.");
     const target = await this.storage.locations.resolve(grant.location);
-    if (target.driver !== "local")
+    if (target.driver !== "local" && this.delivery.config.video?.mode === "aws")
       throw new ApiError(404, "NOT_FOUND", "Không tìm thấy video local.");
     let file;
     try {

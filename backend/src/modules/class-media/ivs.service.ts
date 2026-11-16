@@ -9,13 +9,20 @@ import {
   DeleteStageCommand,
   ListParticipantsCommand,
   ListCompositionsCommand,
+  StartCompositionCommand,
+  StopCompositionCommand,
+  GetCompositionCommand,
+  GetStorageConfigurationCommand,
 } from "@aws-sdk/client-ivs-realtime";
 import type { ClassMediaSource, MediaCapability } from "@streamora/contracts";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
 import { ApiError } from "../../common/api-error";
 
-export function mediaCapabilities(source: ClassMediaSource, canPublish = true): MediaCapability[] {
+export function mediaCapabilities(
+  source: ClassMediaSource,
+  canPublish = true,
+): MediaCapability[] {
   if (!canPublish) return ["SUBSCRIBE"];
   return source === "SCREEN" ? ["PUBLISH"] : ["PUBLISH", "SUBSCRIBE"];
 }
@@ -84,7 +91,9 @@ export class IvsService implements OnModuleDestroy {
         duration: 1,
         capabilities: mediaCapabilities(source, canPublish),
         attributes:
-          source === "SCREEN" ? { fullName, "screen-share": "true" } : { fullName },
+          source === "SCREEN"
+            ? { fullName, "screen-share": "true" }
+            : { fullName },
       }),
     );
     const value = result.participantToken;
@@ -149,6 +158,87 @@ export class IvsService implements OnModuleDestroy {
     } while (nextToken);
     await this.client.send(new DeleteStageCommand({ arn: stageArn }));
     return true;
+  }
+  async recordingBucket() {
+    this.available();
+    const recording = this.config.ivs?.recording;
+    if (!recording)
+      throw new ApiError(
+        503,
+        "RECORDING_UNAVAILABLE",
+        "Chưa cấu hình ghi hình IVS vào S3.",
+      );
+    const result = await this.client.send(
+      new GetStorageConfigurationCommand({ arn: recording.storageArn }),
+    );
+    return result.storageConfiguration?.s3?.bucketName;
+  }
+  async findRecording(stageArn: string, recordingId: string) {
+    // Recover an accepted request whose response was lost before the DB write.
+    let nextToken: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListCompositionsCommand({
+          filterByStageArn: stageArn,
+          nextToken,
+          maxResults: 100,
+        }),
+      );
+      const existing = page.compositions?.find(
+        (item) => item.tags?.streamoraRecordingId === recordingId,
+      );
+      if (existing?.arn)
+        return (
+          await this.client.send(
+            new GetCompositionCommand({ arn: existing.arn }),
+          )
+        ).composition;
+      nextToken = page.nextToken;
+    } while (nextToken);
+    return null;
+  }
+  async startRecording(stageArn: string, recordingId: string) {
+    const recording = this.config.ivs!.recording!;
+    const existing = await this.findRecording(stageArn, recordingId);
+    if (existing) return existing;
+    const result = await this.client.send(
+      new StartCompositionCommand({
+        stageArn,
+        idempotencyToken: recordingId,
+        tags: { streamoraRecordingId: recordingId },
+        layout: {
+          grid: {
+            featuredParticipantAttribute: "screen-share",
+            omitStoppedVideo: true,
+          },
+        },
+        destinations: [
+          {
+            s3: {
+              storageConfigurationArn: recording.storageArn,
+              encoderConfigurationArns: [recording.encoderArn],
+            },
+          },
+        ],
+      }),
+    );
+    return result.composition;
+  }
+  async recording(arn: string) {
+    try {
+      return (await this.client.send(new GetCompositionCommand({ arn })))
+        .composition;
+    } catch (error) {
+      if ((error as Error).name === "ResourceNotFoundException") return null;
+      throw error;
+    }
+  }
+  async stopRecording(arn: string) {
+    try {
+      await this.client.send(new StopCompositionCommand({ arn }));
+    } catch (error) {
+      if ((error as Error).name !== "ResourceNotFoundException") throw error;
+    }
   }
   onModuleDestroy() {
     this.client.destroy();

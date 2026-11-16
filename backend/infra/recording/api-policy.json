@@ -1,0 +1,43 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageStreamoraMeetingRecording",
+      "Effect": "Allow",
+      "Action": [
+        "ivs:StartComposition",
+        "ivs:StopComposition",
+        "ivs:GetComposition",
+        "ivs:GetStorageConfiguration",
+        "ivs:TagResource"
+      ],
+      "Resource": [
+        "arn:aws:ivs:ap-northeast-1:586481704097:stage/*",
+        "arn:aws:ivs:ap-northeast-1:586481704097:composition/*",
+        "arn:aws:ivs:ap-northeast-1:586481704097:encoder-configuration/*",
+        "arn:aws:ivs:ap-northeast-1:586481704097:storage-configuration/*"
+      ]
+    },
+    {
+      "Sid": "RecoverRecordingAfterRestart",
+      "Effect": "Allow",
+      "Action": "ivs:ListCompositions",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "aws:RequestedRegion": "ap-northeast-1" }
+      }
+    },
+    {
+      "Sid": "ReadAndSaveRecordingObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::streamora-file-storage/*"
+    },
+    {
+      "Sid": "InspectRecordingBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::streamora-file-storage"
+    }
+  ]
+}

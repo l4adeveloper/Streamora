@@ -62,16 +62,20 @@ async function settingsMenu(page) {
   });
   if (await back.count()) await back.click();
 }
-async function refreshQualities(page) {
-  await settingsMenu(page);
+async function refreshPlayback(page) {
+  // Viewers refresh an interrupted stream; quality processing is manager-only.
   await page
-    .getByRole("menuitem", { name: "Cập nhật chất lượng", exact: true })
+    .locator(".video-preview video")
+    .evaluate((video) => video.dispatchEvent(new Event("error")));
+  await page
+    .getByRole("button", { name: "Thử lại video", exact: true })
     .click();
   await page.waitForFunction(() => {
     const button = document.querySelector(".video-control-row > button");
     return button && !button.disabled;
   });
 }
+
 test(
   "video player: custom controls, speed/quality persistence, interrupted streams, expiry refresh and access rights",
   { timeout: 240000 },
@@ -150,6 +154,12 @@ test(
         1,
       );
       await settingsMenu(page);
+      assert.equal(
+        await page
+          .getByRole("menuitem", { name: "Cập nhật chất lượng", exact: true })
+          .count(),
+        0,
+      );
       await page.getByRole("menuitem", { name: /^Chất lượng/ }).click();
       assert.deepEqual(
         (
@@ -303,7 +313,7 @@ test(
       await page
         .locator(".video-preview video")
         .evaluate((video) => video.pause());
-      await refreshQualities(page);
+      await refreshPlayback(page);
       await settingsMenu(page);
       await page.getByRole("menuitem", { name: /^Chất lượng/ }).click();
       await page
@@ -322,7 +332,7 @@ test(
       const local = fixture.app.get(FileStorageService).local;
       const ttl = local.options.ttlSeconds;
       local.options.ttlSeconds = 1;
-      await refreshQualities(page);
+      await refreshPlayback(page);
       const expiredUrl = await page
         .locator(".video-preview video")
         .getAttribute("src");
