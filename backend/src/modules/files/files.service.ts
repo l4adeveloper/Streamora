@@ -99,13 +99,13 @@ export class FilesService {
     // whose legacy folderPath may still be empty.
     const rootOnly =
       query.folderPath === undefined &&
+      !query.sessionId &&
       (folderFilter === null ||
         (folderFilter === undefined && !name && query.type !== "video"));
     const where: Prisma.LibraryFileWhereInput = {
       groupId,
       status: { not: "DELETED" },
       ...(!permissions.canHost ? { isPublished: true } : {}),
-      ...(query.sessionId ? { sessionId: query.sessionId } : {}),
       ...(folderFilter !== undefined ? { folderId: folderFilter } : {}),
       ...(rootOnly ? { folderId: null, folderPath: "" } : {}),
       ...(query.folderPath !== undefined
@@ -137,6 +137,11 @@ export class FilesService {
           }
         : {}),
     };
+    if (query.sessionId) {
+      const lesson = await this.prisma.folder.findFirst({ where: { groupId, sessionId: query.sessionId, deletedAt: null } });
+      const existingAnd = where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : [];
+      where.AND = [...existingAnd, { OR: [{ sessionId: query.sessionId }, ...(lesson ? [{ folderId: lesson.id }] : [])] }];
+    }
     const rows = await this.prisma.libraryFile.findMany({
       where,
       take: query.limit + 1,
@@ -750,9 +755,11 @@ export class FilesService {
         }
         return { fileId: previous.id };
       }
+      const lessonFolder = await tx.folder.findUnique({ where: { sessionId: recording.sessionId } });
       const file = await tx.libraryFile.create({
         data: {
           groupId: input.groupId,
+          folderId: lessonFolder && !lessonFolder.deletedAt ? lessonFolder.id : null,
           name: `${recording.session.title}.${input.videoSource?.kind === "HLS" ? "m3u8" : "mp4"}`.slice(0, 255),
           objectKey: input.sourceObjectKey,
           size: BigInt(input.size),
@@ -995,6 +1002,14 @@ export class FilesService {
           queue.push(child.id);
         }
       }
+
+      const protectedFolder = await tx.folder.findFirst({ where: {
+        id: { in: toDelete }, sessionId: { not: null },
+        OR: [ { session: { status: { in: ["SCHEDULED", "LIVE"] } } },
+          { session: { recordings: { some: { status: { in: ["RECORDING", "SAVING"] } } } } },
+          { summaries: { some: { status: { in: ["PENDING", "PROCESSING"] } } } } ],
+      } });
+      if (protectedFolder) throw new ApiError(409, "LESSON_FOLDER_BUSY", "Chưa thể xóa folder khi buổi học, lưu bản ghi hoặc tạo tóm tắt đang diễn ra.");
 
       const now = new Date();
       // Soft-delete the folders

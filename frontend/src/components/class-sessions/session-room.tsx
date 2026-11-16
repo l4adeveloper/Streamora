@@ -296,12 +296,15 @@ export function SessionRoom({
   );
   const sessionGroupId = data?.session?.groupId ?? data?.preview?.groupId;
   const sessionDocuments = sessionGroupId && data && (
+    <div>
+    {session?.lessonFolderId && <Link className="button secondary compact" href={`/files?groupId=${sessionGroupId}&folderId=${session.lessonFolderId}`}>Mở folder buổi học</Link>}
     <SessionDocuments
       key={`${data.id}:${revision}`}
       sessionId={data.id}
       groupId={sessionGroupId}
       canManage={manage}
     />
+    </div>
   );
   const meetingChat = useMeetingChat(
     !error && !["ENDED", "CANCELLED"].includes(status ?? "") ? id : null,

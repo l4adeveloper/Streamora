@@ -8,6 +8,7 @@ import {
 } from "../modules/video-processing/video-config";
 
 export interface EnvironmentConfig {
+  azureOpenAI?: { endpoint: string; apiKey: string; deployment: string };
   video?: VideoConfig;
   nodeEnv: "development" | "test" | "production";
   host: string;
@@ -299,6 +300,7 @@ export function readEnvironment(
       ? { azureRealtime: { secretId: realtimeSecretId, region: ivsRegion } }
       : {}),
     azureSpeech: readAzureSpeechConfig(env),
+    azureOpenAI: readAzureOpenAIConfig(env),
     ivs: {
       enabled: ivsEnabled === "true",
       region: ivsRegion,
@@ -434,4 +436,20 @@ function readAzureSpeechConfig(
       override ||
       (bundledPath && existsSync(bundledPath) ? bundledPath : "ffmpeg"),
   };
+}
+
+function readAzureOpenAIConfig(env: NodeJS.ProcessEnv): EnvironmentConfig["azureOpenAI"] {
+  const endpoint = env.AZURE_OPENAI_ENDPOINT?.trim();
+  const apiKey = env.AZURE_OPENAI_API_KEY?.trim();
+  const deployment = env.AZURE_OPENAI_DEPLOYMENT?.trim();
+  if (!endpoint && !apiKey && !deployment) return undefined;
+  if (!endpoint) invalid("AZURE_OPENAI_ENDPOINT");
+  let url: URL;
+  try { url = new URL(endpoint); } catch { return invalid("AZURE_OPENAI_ENDPOINT"); }
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash ||
+      !/\.(openai|services\.ai|cognitiveservices)\.azure\.com$/i.test(url.hostname) ||
+      !["/", "/openai/v1", "/openai/v1/"].includes(url.pathname)) invalid("AZURE_OPENAI_ENDPOINT");
+  if (!apiKey) invalid("AZURE_OPENAI_API_KEY");
+  if (!deployment || !/^[\w.-]{1,128}$/.test(deployment)) invalid("AZURE_OPENAI_DEPLOYMENT");
+  return { endpoint: `${url.origin}/openai/v1`, apiKey, deployment };
 }

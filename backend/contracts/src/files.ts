@@ -41,6 +41,8 @@ export interface FileDownloadResponse {
 }
 
 export interface FolderItem {
+  kind?: "REGULAR" | "LESSON";
+  sessionId?: string | null;
   id: string;
   groupId: string;
   parentId: string | null;
@@ -50,6 +52,23 @@ export interface FolderItem {
   updatedAt: string;
   fileCount?: number;
   folderCount?: number;
+}
+
+export interface LessonSummary {
+  id: string;
+  folderId: string;
+  status: "PENDING" | "PROCESSING" | "READY" | "FAILED";
+  customPrompt: string;
+  content: string | null;
+  resultFileId: string | null;
+  errorCode: string | null;
+  createdAt: string;
+}
+export interface LessonSummaryResponse {
+  summary: LessonSummary | null;
+  basePrompt: string;
+  configured: boolean;
+  sessionStatus: string;
 }
 
 export interface FolderBreadcrumb {

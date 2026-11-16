@@ -7,6 +7,10 @@ import { Transform } from "class-transformer";
 import {
   IsIn,
   IsBoolean,
+  IsArray,
+  IsUUID,
+  ArrayMaxSize,
+  ArrayUnique,
   IsISO8601,
   IsString,
   Length,
@@ -72,6 +76,18 @@ export class CreateGroupClassSessionDto
   extends SessionContentDto
   implements CreateGroupClassSessionRequest
 {
+  @ApiPropertyOptional({ default: false })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsBoolean()
+  createLessonFolder?: boolean;
+
+  @ApiPropertyOptional({ type: [String], maxItems: 50 })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ArrayUnique()
+  @IsUUID(undefined, { each: true })
+  materialFileIds?: string[];
   @ApiPropertyOptional({
     minLength: 1,
     maxLength: 100,

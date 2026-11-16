@@ -50,6 +50,7 @@ import { SessionIdentity } from "./shell/account-link";
 import { ThemeToggle } from "./shell/theme-toggle";
 import { useToast } from "./common/toast-provider";
 import { useAuth } from "./auth/auth-provider";
+import { AccountDialog } from "./auth/account-dialog";
 import { LoadingState, RequestError } from "./common/feedback";
 import { MembersPanel, NoGroupSelected } from "./memberships/members-panel";
 import { GroupsListPage } from "./groups/groups-list-page";
@@ -731,6 +732,8 @@ export function Workspace({
       ).filter((element) => !element.hasAttribute("disabled"));
     focusable()[0]?.focus();
     const handleKey = (event: KeyboardEvent) => {
+      // Native dialogs own focus and Escape while open above Workspace modals.
+      if (document.querySelector("dialog[open]")) return;
       if (event.key === "Escape") {
         if (dialog?.querySelector('.modal-overlay[role="dialog"]')) return;
         const pickerOpen =
@@ -1425,14 +1428,27 @@ export function Workspace({
         </aside>
       </div>
       <div className="sidebar-user workspace-identity">
-        <Link
-          className="workspace-account"
-          href={user ? "/account" : "/auth"}
-          title={user ? `Tài khoản của ${user.fullName}` : "Đăng nhập"}
-          aria-label={user ? `Tài khoản của ${user.fullName}` : "Đăng nhập"}
-        >
-          <SessionIdentity />
-        </Link>
+        {user ? (
+          <button
+            type="button"
+            className="workspace-account"
+            title={`Tài khoản của ${user.fullName}`}
+            aria-label={`Tài khoản của ${user.fullName}`}
+            aria-haspopup="dialog"
+            onClick={() => setModal("account")}
+          >
+            <SessionIdentity />
+          </button>
+        ) : (
+          <Link
+            className="workspace-account"
+            href="/auth"
+            title="Đăng nhập"
+            aria-label="Đăng nhập"
+          >
+            <SessionIdentity />
+          </Link>
+        )}
         <IconButton
           label={workspaceMic ? "Tắt micro" : "Bật micro"}
           active={workspaceMic}
@@ -2246,7 +2262,9 @@ export function Workspace({
           </section>
         </div>
       )}
+      {modal === "account" && <AccountDialog onClose={() => setModal(null)} />}
       {modal &&
+        modal !== "account" &&
         modal !== "groups" &&
         modal !== "meet" &&
         modal !== "create-meeting" && (

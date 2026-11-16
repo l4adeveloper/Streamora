@@ -8,6 +8,7 @@ import { FormField } from "@/components/common/form-field";
 import { InlineNotice, SubmitButton } from "@/components/common/feedback";
 import { asApiError } from "@/lib/api";
 import { localDateInput, utcDateInput } from "@/lib/class-sessions/display";
+import { LessonMaterialPicker } from "../files/lesson-material-picker";
 
 export function SessionForm({
   group = false,
@@ -17,6 +18,7 @@ export function SessionForm({
   locked = false,
   meeting = false,
   renameOnly = false,
+  groupId,
 }: {
   group?: boolean;
   initial?: ClassSession;
@@ -24,14 +26,22 @@ export function SessionForm({
   locked?: boolean;
   meeting?: boolean;
   renameOnly?: boolean;
+  groupId?: string;
   onSave: (
-    body: UpdateClassSessionRequest & { title: string; allowGuests?: boolean },
+    body: UpdateClassSessionRequest & {
+      title: string;
+      allowGuests?: boolean;
+      createLessonFolder?: boolean;
+      materialFileIds?: string[];
+    },
     key: string,
   ) => Promise<void>;
 }) {
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [allowGuests, setAllowGuests] = useState(false);
+  const [createLessonFolder, setCreateLessonFolder] = useState(false);
+  const [materialFileIds, setMaterialFileIds] = useState<string[]>([]);
   const [scheduledAt, setSchedule] = useState(
     localDateInput(initial?.scheduledAt ?? null),
   );
@@ -75,6 +85,12 @@ export function SessionForm({
       description: description.trim() || (initial ? null : undefined),
       scheduledAt: utc ?? (initial ? null : undefined),
       ...(group && meeting && !initial ? { allowGuests } : {}),
+      ...(groupId && !initial
+        ? {
+            createLessonFolder,
+            materialFileIds: createLessonFolder ? materialFileIds : [],
+          }
+        : {}),
     };
     const signature = JSON.stringify(body);
     if (!intent.current || intent.current.body !== signature)
@@ -186,6 +202,34 @@ export function SessionForm({
               kết sẽ được gửi vào nhóm.
             </p>
           </div>
+        )}
+        {groupId && !initial && (
+          <section className="lesson-folder-option">
+            <label>
+              <input
+                type="checkbox"
+                checked={createLessonFolder}
+                disabled={locked}
+                onChange={(event) =>
+                  setCreateLessonFolder(event.target.checked)
+                }
+              />{" "}
+              Tạo folder cho buổi học
+            </label>
+            <p>
+              Folder được đánh dấu là buổi học. Bản ghi và tóm tắt AI sẽ được
+              lưu vào đúng folder này.
+            </p>
+            {createLessonFolder && (
+              <LessonMaterialPicker
+                autoOpen
+                groupId={groupId}
+                selected={materialFileIds}
+                onChange={setMaterialFileIds}
+                disabled={locked || pending}
+              />
+            )}
+          </section>
         )}
         <SubmitButton pending={pending} pendingLabel="Đang lưu…">
           {label}

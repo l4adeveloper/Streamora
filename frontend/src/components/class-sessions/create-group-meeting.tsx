@@ -106,6 +106,7 @@ export function CreateGroupMeeting({
           </InlineNotice>
         )}
         <SessionForm
+          groupId={groupId}
           key={mode}
           group
           meeting={mode === "instant"}
@@ -126,6 +127,8 @@ export function CreateGroupMeeting({
                   description: body.description ?? undefined,
                   scheduledAt: body.scheduledAt || undefined,
                   allowGuests: body.allowGuests,
+                  createLessonFolder: body.createLessonFolder,
+                  materialFileIds: body.materialFileIds,
                 },
                 key,
               );

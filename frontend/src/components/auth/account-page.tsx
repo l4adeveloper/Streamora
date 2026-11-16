@@ -21,7 +21,7 @@ import { InlineNotice, SubmitButton } from "@/components/common/feedback";
 import { useToast } from "@/components/common/toast-provider";
 import { PageShell } from "@/components/shell/page-shell";
 
-export function AccountPage() {
+export function AccountDetails() {
   const auth = useAuth();
   const { notify } = useToast();
   const router = useRouter();
@@ -83,12 +83,7 @@ export function AccountPage() {
       .join("")
       .toUpperCase() ?? "";
   return (
-    <PageShell
-      title="Tài khoản của bạn"
-      description="Một vài thông tin để mọi người biết đến bạn hơn."
-      eyebrow="KHÔNG GIAN CỦA BẠN"
-      breadcrumb="Tài khoản"
-    >
+    <>
       {user && (
         <>
           <div className="account-grid">
@@ -195,6 +190,19 @@ export function AccountPage() {
           </p>
         </>
       )}
+    </>
+  );
+}
+
+export function AccountPage() {
+  return (
+    <PageShell
+      title="Tài khoản của bạn"
+      description="Một vài thông tin để mọi người biết đến bạn hơn."
+      eyebrow="KHÔNG GIAN CỦA BẠN"
+      breadcrumb="Tài khoản"
+    >
+      <AccountDetails />
     </PageShell>
   );
 }

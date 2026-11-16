@@ -13,7 +13,7 @@
 .files-page .file-table-heading,
 .file-row.library-file-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.4fr) 104px 116px 88px;
+  grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.4fr) 104px 116px 120px;
   align-items: center;
   column-gap: 24px;
   padding-inline: 16px;
@@ -206,7 +206,7 @@
 @media (min-width: 701px) and (max-width: 1100px) {
   .files-page .file-table-heading,
   .file-row.library-file-row {
-    grid-template-columns: minmax(140px, 1fr) minmax(100px, 0.4fr) 88px 100px 80px;
+    grid-template-columns: minmax(140px, 1fr) minmax(100px, 0.4fr) 88px 100px 120px;
     column-gap: 16px;
   }
 }
@@ -473,7 +473,7 @@
 @media (max-width: 700px) {
   .files-page .file-table-heading,
   .file-row.library-file-row {
-    grid-template-columns: minmax(0, 1fr) 76px;
+    grid-template-columns: minmax(0, 1fr) 120px;
     column-gap: 12px;
     padding-inline: 12px;
   }

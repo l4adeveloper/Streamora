@@ -45,6 +45,7 @@ model User {
   createdChatChannels  GroupChatChannel[]
   libraryFiles         LibraryFile[]
   createdFolders       Folder[]
+  lessonSummaryRequests LessonSummary[]
   mediaConnections     ClassMediaConnection[]
   mediaBans            SessionBan[]
   micLocks             SessionMicLock[]
@@ -319,6 +320,7 @@ model ClassSession {
   micLocks       SessionMicLock[]
   polls          ClassPoll[]
   recordings     ClassRecording[]
+  lessonFolder   Folder?
   announcement  GroupChatMessage?
 
   @@index([groupId, scheduledAt, id], map: "class_sessions_group_schedule_idx")
@@ -523,6 +525,9 @@ model Folder {
   children  Folder[]      @relation("FolderHierarchy")
   files     LibraryFile[]
   uploads   UploadSession[]
+  sessionId String? @unique @map("session_id") @db.Uuid
+  session ClassSession? @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  summaries LessonSummary[]
   @@index([groupId, parentId, deletedAt, name])
   @@map("folders")
 }
@@ -559,12 +564,37 @@ model LibraryFile {
   videoJobs VideoJob[]
 
   videoTranscript VideoTranscript?
+  summaryOutput LessonSummary? @relation("SummaryOutput")
   storageLocationId String? @map("storage_location_id") @db.Char(64)
   storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
   @@index([groupId, status, createdAt, id])
   @@index([groupId, folderId, status, createdAt, id])
   @@index([groupId, isPublished, status, createdAt, id])
   @@map("files")
+}
+
+model LessonSummary {
+  id String @id @default(uuid()) @db.Uuid
+  folderId String @map("folder_id") @db.Uuid
+  folder Folder @relation(fields: [folderId], references: [id], onDelete: Restrict)
+  requestedBy String @map("requested_by") @db.Uuid
+  requester User @relation(fields: [requestedBy], references: [id], onDelete: Restrict)
+  status String @default("PENDING") @db.VarChar(16)
+  customPrompt String @map("custom_prompt") @db.VarChar(4000)
+  inputHash String @map("input_hash") @db.Char(64)
+  inputs Json @db.JsonB
+  deployment String @db.VarChar(128)
+  resultFileId String? @unique @map("result_file_id") @db.Uuid
+  resultFile LibraryFile? @relation("SummaryOutput", fields: [resultFileId], references: [id], onDelete: Restrict)
+  content String? @db.Text
+  errorCode String? @map("error_code") @db.VarChar(64)
+  attempts Int @default(0)
+  leaseUntil DateTime? @map("lease_until") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  @@unique([folderId, inputHash])
+  @@index([status, leaseUntil, createdAt], map: "lesson_summaries_queue_idx")
+  @@map("lesson_summaries")
 }
 
 model VideoAsset {

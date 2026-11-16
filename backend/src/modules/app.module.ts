@@ -2,6 +2,7 @@ import { Controller, DynamicModule, Get, Module } from "@nestjs/common";
 import { CommunitiesModule } from "./communities/communities.module";
 import { RoomsModule } from "./rooms/rooms.module";
 import { FilesModule } from "./files/files.module";
+import { LessonFoldersModule } from "./lesson-folders/lesson-folders.module";
 import { UploadsModule } from "./uploads/uploads.module";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/users.module";
@@ -40,6 +41,7 @@ class HealthController {
     CommunitiesModule,
     RoomsModule,
     FilesModule,
+    LessonFoldersModule,
     UploadsModule,
   ],
   controllers: [HealthController],

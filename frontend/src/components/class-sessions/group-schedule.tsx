@@ -72,6 +72,7 @@ export function GroupSchedule({ groupId }: { groupId: string }) {
           <section className="class-panel">
             <h2>Lên lịch buổi học</h2>
             <SessionForm
+              groupId={groupId}
               group
               label="Tạo lịch học"
               onSave={async (body, key) => {
@@ -82,6 +83,8 @@ export function GroupSchedule({ groupId }: { groupId: string }) {
                     description: body.description ?? undefined,
                     scheduledAt: body.scheduledAt!,
                     memberAdmission: "APPROVAL",
+                    createLessonFolder: body.createLessonFolder,
+                    materialFileIds: body.materialFileIds,
                   },
                   key,
                 );

@@ -1,0 +1,49 @@
+.ui-modal-dialog.account-dialog {
+  width: min(960px, calc(100vw - 32px));
+}
+.account-dialog .account-grid {
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 20px;
+}
+.account-dialog .account-card {
+  padding: 20px;
+}
+.account-dialog .account-summary {
+  padding: 24px 20px;
+}
+.account-dialog .account-save {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.account-dialog .account-footnote {
+  margin-top: 20px;
+}
+@media (max-width: 720px) {
+  .ui-modal-dialog.account-dialog {
+    width: calc(100vw - 16px);
+  }
+  .account-dialog .account-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .account-dialog .account-summary {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 4px 12px;
+    padding: 16px;
+  }
+  .account-dialog .account-summary > .avatar {
+    grid-row: span 3;
+    width: 48px;
+    height: 48px;
+    margin: 0;
+  }
+  .account-dialog .account-summary > p {
+    margin: 0;
+  }
+  .account-dialog .account-role {
+    justify-self: start;
+  }
+  .account-dialog .account-card {
+    padding: 16px;
+  }
+}

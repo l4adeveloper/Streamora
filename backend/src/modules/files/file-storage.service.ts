@@ -5,6 +5,7 @@ import { Inject, Injectable, OnModuleDestroy, Optional } from "@nestjs/common";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  PutObjectCommand,
   S3Client,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
@@ -166,6 +167,14 @@ export class FileStorageService implements OnModuleDestroy {
         Key: objectKey,
       }),
     );
+  }
+  async writeText(objectKey: string, text: string, locationId?: string | null) {
+    const backend = await this.backend(locationId);
+    if (backend.local) return backend.local.writeText(objectKey, text);
+    await backend.client!.send(new PutObjectCommand({
+      Bucket: this.bucket(backend.target), Key: objectKey,
+      Body: Buffer.from(text, "utf8"), ContentType: "text/markdown; charset=utf-8",
+    }));
   }
   async openLocalDownload(token: string, range?: string, head = false) {
     let id: string | undefined;
