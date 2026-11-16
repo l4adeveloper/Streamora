@@ -333,14 +333,14 @@ test("AWS submission and finalization use managed metadata and publish only veri
     status: async (_id, { source, destination, policy }) => {
       assert.equal(source, "s3://source/source.mp4");
       assert.equal(destination, `s3://${config.outputBucket}/${prefix}`);
-      assert.equal(policy.renditions.length, 3);
+      assert.equal(policy.renditions.length, 4);
       return { state: "COMPLETE" };
     },
   };
   await worker.process({ ...job });
   assert.deepEqual(failures, []);
   assert.equal(job.providerJobId, "provider");
-  assert.equal(submitted.OutputGroups[0].Outputs.length, 3);
+  assert.equal(submitted.OutputGroups[0].Outputs.length, 4);
   assert.equal(published.length, 0);
   const manifest = ["#EXTM3U"];
   for (const r of job.policy.renditions) {
@@ -359,9 +359,9 @@ test("AWS submission and finalization use managed metadata and publish only veri
   await worker.process({ ...job });
   assert.deepEqual(failures, []);
   assert.equal(published.length, 1);
-  assert.equal(published[0].renditions.length, 3);
+  assert.equal(published[0].renditions.length, 4);
   assert.ok(published[0].thumbnailKey);
-  assert.equal(probes.length, 4); // Source plus one actual segment per rendition.
+  assert.equal(probes.length, 5); // Source plus one actual segment per rendition.
   objects.delete(`${prefix}/hls/master_360p.ts`);
   await worker.process({ ...job });
   assert.equal(published.length, 1); // Missing output must never be published.

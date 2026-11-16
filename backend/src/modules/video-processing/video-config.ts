@@ -35,7 +35,7 @@ export function readVideoConfig(
     bad("VIDEO_MAX_QUALITY");
   const optionalQualities = env.VIDEO_OPTIONAL_QUALITIES
     ? env.VIDEO_OPTIONAL_QUALITIES.split(",").map(Number)
-    : [];
+    : [480, 1440];
   if (optionalQualities.some((n) => ![480, 1440].includes(n)))
     bad("VIDEO_OPTIONAL_QUALITIES");
   const config: VideoConfig = {

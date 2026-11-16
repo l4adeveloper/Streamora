@@ -31,24 +31,25 @@ const source = (width, height) => ({
   audio: false,
   codec: "h264",
 });
-test("ladder is bounded by source and cap, portrait labels use short edge, optional profiles are explicit", () => {
+test("ladder includes source maximum and lower standard qualities without upscaling", () => {
   assert.deepEqual(
     makePolicy(source(3840, 2160), 2160).renditions.map((r) => r.id),
-    ["2160p", "1080p", "720p", "360p"],
+    ["2160p", "1440p", "1080p", "720p", "480p", "360p"],
   );
   assert.deepEqual(
     makePolicy(source(1920, 1080), 2160).renditions.map((r) => r.id),
-    ["1080p", "720p", "360p"],
+    ["1080p", "720p", "480p", "360p"],
   );
   assert.deepEqual(
     makePolicy(source(1280, 720)).renditions.map((r) => r.id),
-    ["720p", "360p"],
+    ["720p", "480p", "360p"],
   );
   assert.deepEqual(
     makePolicy(source(1080, 1920)).renditions.map((r) => [r.width, r.height]),
     [
       [1080, 1920],
       [720, 1280],
+      [480, 852],
       [360, 640],
     ],
   );
@@ -62,6 +63,26 @@ test("ladder is bounded by source and cap, portrait labels use short edge, optio
   );
   assert.equal(qualityLabel(2160, 3840), "2160p (4K)");
   assert.equal(qualityLabel(1920, 1080), "1080p");
+  assert.deepEqual(
+    makePolicy(source(1600, 900)).renditions.map((r) => r.id),
+    ["900p", "720p", "480p", "360p"],
+  );
+  assert.deepEqual(
+    makePolicy(source(1920, 800)).renditions.map((r) => [r.width, r.height]),
+    [
+      [1920, 800],
+      [1728, 720],
+      [1152, 480],
+      [864, 360],
+    ],
+  );
+  assert.deepEqual(
+    makePolicy(source(1920, 1080), 2160, []).renditions.map((r) => r.id),
+    ["1080p", "720p", "360p"],
+  );
+  const ultrawide = makePolicy(source(5120, 2160)).renditions;
+  assert.deepEqual([ultrawide[0].width, ultrawide[0].height], [3840, 1620]);
+  assert.ok(ultrawide.every((r) => Math.max(r.width, r.height) <= 3840));
 });
 test("probe normalizes rotation/SAR, rejects HDR, audio-only, missing duration and multiple tracks", () => {
   const data = {
@@ -161,7 +182,7 @@ test("MediaConvert builds an explicit HLS ladder and thumbnail, omits audio for 
     "s3://output/asset",
     policy,
   );
-  assert.equal(settings.OutputGroups[0].Outputs.length, 3);
+  assert.equal(settings.OutputGroups[0].Outputs.length, 4);
   assert.equal(
     settings.OutputGroups[0].Outputs[0].AudioDescriptions,
     undefined,

@@ -96,7 +96,7 @@ async function file(input = clip, extra = {}) {
   return { row, jobId };
 }
 test(
-  "1080p real encode publishes three playable variants, truthful status, protected segments and recording API",
+  "1080p real encode publishes four playable variants, truthful status, protected segments and recording API",
   async () => {
     const { row, jobId } = await file();
     assert.equal(
@@ -112,7 +112,7 @@ test(
     assert.equal(job.state, "READY", job.errorCode);
     assert.deepEqual(
       job.output.renditions.map((r) => r.height),
-      [1080, 720, 360],
+      [1080, 720, 480, 360],
     );
     assert.equal(await db.fileUsage.count({ where: { fileId: row.id } }), 0);
     const response = await fetch(`${f.base}/files/${row.id}/playback`, {
@@ -121,7 +121,7 @@ test(
     });
     assert.equal(response.status, 200);
     const manifest = await response.json();
-    assert.equal(manifest.qualities.length, 3);
+    assert.equal(manifest.qualities.length, 4);
     assert.ok(!JSON.stringify(manifest).includes("deliveryCookies"));
     const cookie = response.headers
       .getSetCookie()
@@ -384,8 +384,8 @@ test(
   "portrait and short 4K encode produce real dimensions without upscale",
   async () => {
     for (const [width, height, cap, expected] of [
-      [720, 1280, 1080, [1280, 640]],
-      [3840, 2160, 2160, [2160, 1080, 720, 360]],
+      [720, 1280, 1080, [1280, 852, 640]],
+      [3840, 2160, 2160, [2160, 1440, 1080, 720, 480, 360]],
       [240, 136, 1080, [136]],
     ]) {
       const path = join(

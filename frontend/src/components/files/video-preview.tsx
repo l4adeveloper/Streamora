@@ -27,7 +27,7 @@ export function VideoPreview({
   >([]);
   const [activeQuality, setActiveQuality] = useState("");
   const [nativeQuality, setNativeQuality] = useState("");
-  const [nativeHls, setNativeHls] = useState(false);
+  const [variantId, setVariantId] = useState("");
   const nativeManual = useRef<{ width: number; height: number } | null>(null);
   const manual = useRef<{
     width: number;
@@ -86,7 +86,9 @@ export function VideoPreview({
               q.width === preference.width && q.height === preference.height,
           );
           if (!selected) throw new Error("Selected quality unavailable");
-          setNativeQuality(selected.id);
+          // hls.js switches levels without replacing its MediaSource or buffer.
+          if (!engine.current) setNativeQuality(selected.id);
+          setVariantId(selected.id);
         }
         const source =
           response.sources.find((item) => item.id === preferred) ??
@@ -163,11 +165,12 @@ export function VideoPreview({
     if (!element || !source) return;
     let cancelled = false;
     let instance: Hls | undefined;
+    let nativeAttached = false;
+    let mediaRecoveries = 0;
     setLevels([]);
-    setNativeHls(false);
     setLevel(-1);
     setLoading(true);
-    function failure() {
+    function failure(message?: string) {
       if (cancelled) return;
       // Seeking after a URL expires obtains a fresh grant with current group rights.
       if (
@@ -181,7 +184,8 @@ export function VideoPreview({
       }
       setLoading(false);
       setError(
-        "Chưa phát được video. Trình duyệt có thể không hỗ trợ định dạng hoặc codec này. Hãy tải lại hoặc tải file xuống.",
+        message ??
+          "Chưa phát được video. Trình duyệt có thể không hỗ trợ định dạng hoặc codec này. Hãy tải lại hoặc tải file xuống.",
       );
     }
     function restore() {
@@ -200,11 +204,12 @@ export function VideoPreview({
         }
       }
       if (!saved.paused) void element!.play().catch(() => {});
+      setError("");
       setLoading(false);
     }
     element.addEventListener("loadedmetadata", restore, { once: true });
     const nativeFailure = () => {
-      if (!instance) failure();
+      if (!instance && (source.kind !== "hls" || nativeAttached)) failure();
     };
     element.addEventListener("error", nativeFailure);
     if (source.kind === "hls") {
@@ -230,7 +235,8 @@ export function VideoPreview({
             });
             engine.current = instance;
             instance.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
-              if (!cancelled)
+              if (!cancelled) {
+                setError("");
                 setLevels(
                   data.levels
                     .map((item, index) => ({
@@ -246,6 +252,7 @@ export function VideoPreview({
                         Math.min(a.width, a.height),
                     ),
                 );
+              }
               const preference = manual.current;
               if (preference) {
                 const index = data.levels.findIndex(
@@ -287,27 +294,51 @@ export function VideoPreview({
               }
             });
             instance.on(Hls.Events.ERROR, (_event, data) => {
+              if (cancelled) return;
               if (data.response?.code === 403) {
-                denied.current = true;
                 instance?.stopLoad();
                 element.pause();
-                setError("Quyền xem video đã hết hiệu lực. Hãy mở lại video.");
-                setLoading(false);
+                if (
+                  !source.public &&
+                  Date.now() - automaticRefreshAt.current > 5000
+                ) {
+                  automaticRefreshAt.current = Date.now();
+                  void refresh(source.id);
+                } else
+                  failure(
+                    "Không truy cập được luồng video. Hãy kiểm tra quyền đọc video trên CloudFront hoặc thử lại.",
+                  );
                 return;
               }
-              if (data.fatal) failure();
+              if (!data.fatal) return;
+              if (
+                data.type === Hls.ErrorTypes.MEDIA_ERROR &&
+                mediaRecoveries++ === 0
+              ) {
+                instance?.recoverMediaError();
+                return;
+              }
+              failure(
+                data.type === Hls.ErrorTypes.NETWORK_ERROR
+                  ? "Không tải được luồng video. Hãy thử lại; nếu vẫn lỗi, kiểm tra liên kết và cấu hình CORS của CloudFront."
+                  : "Không giải mã được luồng video. Hãy thử lại hoặc chọn Bản gốc.",
+              );
             });
             instance.attachMedia(element);
             instance.loadSource(source.url);
           } else if (element.canPlayType("application/vnd.apple.mpegurl")) {
-            setNativeHls(true);
+            nativeAttached = true;
             element.src =
               manifest?.qualities?.find((q) => q.id === nativeQuality)?.url ??
               source.url;
             element.load();
           } else failure();
         })
-        .catch(failure);
+        .catch(() =>
+          failure(
+            "Không khởi tạo được trình phát video. Hãy tải lại trang rồi thử lại.",
+          ),
+        );
     } else {
       element.src = source.url;
       element.load();
@@ -341,6 +372,7 @@ export function VideoPreview({
       const index = Number(value.slice(6));
       if (engine.current && levels.some((item) => item.index === index)) {
         const selected = levels.find((item) => item.index === index)!;
+        setVariantId("");
         manual.current = {
           width: selected.width,
           height: selected.height,
@@ -359,16 +391,50 @@ export function VideoPreview({
         (q) => q.id === value.slice(8),
       );
       if (!selected) return;
+      setError("");
+      setVariantId(selected.id);
+      manual.current = {
+        width: selected.width,
+        height: selected.height,
+        bitrate: selected.bitrate,
+      };
       nativeManual.current = { width: selected.width, height: selected.height };
-      remember();
-      setNativeQuality(value.slice(8));
+      if (engine.current) {
+        const index = engine.current.levels.findIndex(
+          (l) => l.width === selected.width && l.height === selected.height,
+        );
+        if (index >= 0) {
+          if (video.current?.paused)
+            pausedFrame.current = {
+              time: video.current.currentTime,
+              level: index,
+            };
+          engine.current.currentLevel = index;
+          setLevel(index);
+        } else if (error && source) void refresh(source.id);
+      } else {
+        remember();
+        setNativeQuality(selected.id);
+        const adaptive = manifest?.sources.find((s) => s.kind === "hls");
+        if (adaptive && source?.kind !== "hls") void refresh(adaptive.id);
+      }
     } else if (value === sourceId && source?.kind === "hls") {
       manual.current = null;
       nativeManual.current = null;
       setNativeQuality("");
+      setVariantId("");
       if (engine.current) engine.current.currentLevel = -1;
       setLevel(-1);
-    } else if (value !== sourceId) void refresh(value);
+    } else if (value !== sourceId) {
+      manual.current = null;
+      nativeManual.current = null;
+      pausedFrame.current = null;
+      setNativeQuality("");
+      setVariantId("");
+      setLevel(-1);
+      setActiveQuality("");
+      void refresh(value);
+    }
   }
   function label(width: number, height: number) {
     const short = Math.min(width, height),
@@ -388,8 +454,8 @@ export function VideoPreview({
               fullscreenRef={layout}
               loading={loading}
               quality={
-                nativeQuality
-                  ? `variant:${nativeQuality}`
+                variantId
+                  ? `variant:${variantId}`
                   : level >= 0
                     ? `level:${level}`
                     : sourceId
@@ -412,16 +478,14 @@ export function VideoPreview({
                         ? `Tự động · ${activeQuality}`
                         : item.label,
                   })),
-                ...levels.map((item) => ({
+                ...(manifest.qualities?.length ? [] : levels).map((item) => ({
                   value: `level:${item.index}`,
                   label: label(item.width, item.height),
                 })),
-                ...(nativeHls && source?.kind === "hls"
-                  ? (manifest.qualities ?? []).map((q) => ({
-                      value: `variant:${q.id}`,
-                      label: q.label,
-                    }))
-                  : []),
+                ...(manifest.qualities ?? []).map((q) => ({
+                  value: `variant:${q.id}`,
+                  label: q.label,
+                })),
               ]}
               onQualityChange={changeQuality}
               onRefresh={() => void refresh(sourceId)}

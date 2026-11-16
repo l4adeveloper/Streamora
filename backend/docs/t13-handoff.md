@@ -39,7 +39,11 @@ Không có migration mới trong thay đổi này. Giữ database và bảng Dyn
 
 **Khi EC2/API dừng:** MediaConvert tiếp tục job đã nhận; việc gửi job mới, kiểm tra kết quả và chuyển READY chờ API chạy lại. Worker phục vụ tải nhỏ, không có autoscaling hoặc cam kết thời gian hoàn tất.
 
-H.264/AAC SDR 8-bit, tối đa một video track/một audio track, 12 giờ và 30 FPS. Segment khoảng 4 giây; ladder 360/720/1080/2160p theo nguồn, cap mặc định 2160p; 480/1440p tùy chọn. Local vẫn có chế độ FFmpeg để phát triển.
+H.264/AAC SDR 8-bit, tối đa một video track/một audio track, 12 giờ và 30 FPS. Segment khoảng 4 giây; ladder mặc định gồm mức cao nhất của nguồn trong cap 2160p và các mức thấp hơn 2160/1440/1080/720/480/360p, không upscale. `VIDEO_OPTIONAL_QUALITIES` mặc định `480,1440`. Local vẫn có chế độ FFmpeg để phát triển.
+
+Player lấy danh sách độ phân giải từ metadata đã publish, không chờ tải master playlist mới hiện menu. Giữ Bản gốc/Tự động và các mức cụ thể; đổi mức giữ vị trí và trạng thái phát. Lỗi tải/CORS được phân biệt với lỗi codec. Output cũ giữ nguyên danh sách đã encode, muốn bổ sung mức cần encode lại nguồn/upload lại.
+
+Lượt sửa player 16/11/2026 đã kiểm tra: 23 ca FFmpeg/preview/worker, 16 ca adapter AWS/DynamoDB Local và một kịch bản browser HLS thật đều đạt; build toàn repository thành công. Browser test bao gồm menu trước khi master tải xong, đổi Bản gốc sang 480p, giữ vị trí/cài đặt, và phục hồi sau lỗi CDN thiếu CORS. Cấu hình CloudFront production cần áp dụng policy `streamora-video-public-cors` theo mục 5 của hướng dẫn Console; lượt này chỉ đọc AWS để chẩn đoán, không sửa tài nguyên.
 
 CloudFront **public**, không signed URL/cookie hoặc khóa ký. Ai có URL đều phát được video và thumbnail, kể cả sau khi mất quyền ứng dụng. API vẫn kiểm tra thành viên khi cấp metadata. S3 giữ private, CloudFront đọc qua OAC.
 

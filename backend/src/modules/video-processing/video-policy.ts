@@ -88,12 +88,12 @@ export function readSource(value: unknown): VideoSource {
   return s;
 }
 const profiles = [
-  [2160, 3840, 22000000],
-  [1440, 2560, 12000000],
-  [1080, 1920, 6000000],
-  [720, 1280, 3000000],
-  [480, 854, 1400000],
-  [360, 640, 800000],
+  [2160, 22000000],
+  [1440, 12000000],
+  [1080, 6000000],
+  [720, 3000000],
+  [480, 1400000],
+  [360, 800000],
 ];
 export function qualityLabel(width: number, height: number) {
   const short = Math.min(width, height),
@@ -103,7 +103,7 @@ export function qualityLabel(width: number, height: number) {
 export function makePolicy(
   source: SourceMetadata,
   cap = 2160,
-  optional: number[] = [],
+  optional: number[] = [480, 1440],
 ): VideoPolicy {
   const { width, height } = source;
   if (
@@ -112,40 +112,36 @@ export function makePolicy(
     )
   )
     throw new VideoError("SOURCE_INVALID");
-  const short = Math.min(width, height),
-    portrait = height > width;
+  const short = Math.min(width, height);
+  // Keep the encoded frame within the supported 4K bounding box, including ultrawide sources.
+  const maximum = Math.min(
+    short,
+    cap,
+    (3840 * short) / Math.max(width, height),
+  );
+  const rendition = (shortEdge: number, bitrate: number) => {
+    const scale = Math.min(shortEdge / short, 1);
+    const outputW = Math.max(2, Math.floor((width * scale) / 2) * 2),
+      outputH = Math.max(2, Math.floor((source.height * scale) / 2) * 2);
+    return {
+      id: `${Math.min(outputW, outputH)}p`,
+      width: outputW,
+      height: outputH,
+      bitrate,
+    };
+  };
   const renditions = profiles
     .filter(
       ([h]) =>
-        h <= cap &&
-        h <= short &&
-        (![480, 1440].includes(h) || optional.includes(h)),
+        h <= maximum && (![480, 1440].includes(h) || optional.includes(h)),
     )
-    .map(([h, w, bitrate]) => {
-      const boundW = portrait ? h : w,
-        boundH = portrait ? w : h;
-      const scale = Math.min(boundW / width, boundH / height, 1);
-      const outputW = Math.max(2, Math.floor((width * scale) / 2) * 2),
-        outputH = Math.max(2, Math.floor((height * scale) / 2) * 2);
-      return {
-        id: `${Math.min(outputW, outputH)}p`,
-        width: outputW,
-        height: outputH,
-        bitrate,
-      };
-    })
+    .map(([h, bitrate]) => rendition(h, bitrate))
     .filter((r, i, all) => all.findIndex((x) => x.id === r.id) === i);
-  if (!renditions.length) {
-    const scale = Math.min(1, cap / short);
-    const w = Math.max(2, Math.floor((width * scale) / 2) * 2),
-      h = Math.max(2, Math.floor((height * scale) / 2) * 2);
-    renditions.push({
-      id: `${Math.min(w, h)}p`,
-      width: w,
-      height: h,
-      bitrate: 600000,
-    });
-  }
+  // Preserve the highest source resolution too (for example 900p), within the cap.
+  const highest = maximum;
+  const bitrate = profiles.find(([h]) => h <= highest)?.[1] ?? 600000;
+  const top = rendition(highest, bitrate);
+  if (!renditions.some((r) => r.id === top.id)) renditions.unshift(top);
   return {
     version: 1,
     fps: Math.min(30, source.fps),

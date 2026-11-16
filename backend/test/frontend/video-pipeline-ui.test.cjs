@@ -38,9 +38,9 @@ async function quality(page, name) {
 }
 test(
   "real HLS player preserves captions, transcript seeking and playback settings across quality changes and grant refresh",
-  { timeout: 240000 },
+  { timeout: 300000 },
   async () => {
-    let fixture, browser, path, publicServer;
+    let fixture, browser, path, publicServer, releaseMaster;
     try {
       fixture = await createFrontendFixture({ localUploads: true });
       browser = await chromium.launch({
@@ -145,11 +145,39 @@ test(
         if (segments.test(response.url()) && response.ok())
           downloadedSegments.add(response.url());
       });
+      // Published qualities must be visible even before the HLS playlist loads.
+      const masterPattern = /\/video-media\/.*\/hls\/master\.m3u8(?:\?|$)/;
+      const masterGate = new Promise((resolve) => (releaseMaster = resolve));
+      await page.route(masterPattern, async (route) => {
+        await masterGate;
+        await route.continue().catch(() => {}); // The page may close during failed-test cleanup.
+      });
       await page
         .getByRole("button", { name: "Xem trước HLS real.mp4", exact: true })
         .click();
+      await page
+        .getByRole("button", { name: "Cài đặt video", exact: true })
+        .click();
+      await page.getByRole("menuitem", { name: /^Chất lượng/ }).click();
+      await page.getByRole("menuitemradio", { name: "480p", exact: true }).waitFor();
+      assert.deepEqual(
+        await page.getByRole("menuitemradio").allTextContents(),
+        ["Bản gốc", "Tự động", "1080p", "720p", "480p", "360p"],
+      );
+      releaseMaster();
+      await page.keyboard.press("Escape");
       await page.waitForFunction(
         () => document.querySelector(".video-preview video")?.readyState >= 2,
+      );
+      await page.unroute(masterPattern);
+      await quality(page, "Bản gốc");
+      await page.waitForFunction(
+        () => document.querySelector(".video-preview video")?.readyState >= 2,
+      );
+      await quality(page, "480p");
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".video-preview video")?.videoHeight === 480,
       );
       // Lock quality so returning to a buffered range cannot trigger an ABR upgrade.
       await quality(page, "360p");
@@ -574,6 +602,7 @@ test(
       assert.ok(Math.abs(after.volume - 0.4) < 0.01);
       // Model public CloudFront: wildcard CORS rejects credentialed requests.
       const publicRequests = [];
+      let corsEnabled = true;
       publicServer = createServer(async (request, response) => {
         try {
           const key = decodeURIComponent(
@@ -589,7 +618,8 @@ test(
           )
             throw new Error("invalid path");
           publicRequests.push({ key, cookie: request.headers.cookie });
-          response.setHeader("Access-Control-Allow-Origin", "*");
+          if (corsEnabled)
+            response.setHeader("Access-Control-Allow-Origin", "*");
           response.setHeader(
             "Content-Type",
             key.endsWith(".m3u8")
@@ -638,9 +668,43 @@ test(
         publicRequests.every((request) => !request.cookie),
         "public HLS must not send cookies",
       );
+      // Model the production failure: HTTP 200 without CORS is blocked by Chrome.
+      corsEnabled = false;
+      await page.reload();
+      await page
+        .getByRole("button", { name: "Xem trước HLS real.mp4", exact: true })
+        .click();
+      await page
+        .getByRole("alert")
+        .filter({ hasText: "CORS" })
+        .waitFor({ timeout: 45000 });
+      await page
+        .getByRole("button", { name: "Cài đặt video", exact: true })
+        .click();
+      await page.getByRole("menuitem", { name: /^Chất lượng/ }).click();
+      assert.equal(
+        await page
+          .getByRole("menuitemradio", { name: "480p", exact: true })
+          .count(),
+        1,
+      );
+      await page.keyboard.press("Escape");
+      corsEnabled = true;
+      await page
+        .getByRole("button", { name: "Thử lại video", exact: true })
+        .click();
+      await page.waitForFunction(
+        () => document.querySelector(".video-preview video")?.readyState >= 2,
+      );
+      await quality(page, "480p");
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".video-preview video")?.videoHeight === 480,
+      );
       await page.getByRole("button", { name: "Đóng", exact: true }).click();
       assert.equal(await page.locator(".video-preview video").count(), 0);
     } finally {
+      releaseMaster?.();
       await browser?.close();
       if (publicServer)
         await new Promise((resolve) => publicServer.close(resolve));

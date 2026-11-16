@@ -203,7 +203,32 @@ Giữ S3 Block Public Access bật. OAC cho CloudFront đọc S3; người xem t
 
 [Tham khảo OAC/bucket policy](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html).
 
-### Behavior
+### Tạo policy CORS public `streamora-video-public-cors`
+
+Đã tái hiện lỗi Chrome nhận playlist HTTP 200 nhưng thiếu `Access-Control-Allow-Origin`, khiến HLS không phát dù MediaConvert đã Complete. Tạo policy CORS với **Origin override bật** theo các bước dưới đây, thay cho `Managed-SimpleCORS` đang có. AWS yêu cầu các header CORS được cấu hình trong phần **Configure CORS**, không cho thêm chúng vào **Custom headers**.
+
+1. Mở [CloudFront Console](https://console.aws.amazon.com/cloudfront/v4/home) → **Policies → Response headers → Create response headers policy**.
+2. **Name**: `streamora-video-public-cors`.
+3. Ở **Custom headers**, để trống. Nếu đã nhập dòng `Access-Control-Allow-Origin` theo bản hướng dẫn trước, bấm **Remove** cạnh dòng đó.
+4. Bật **Configure CORS**, điền/chọn:
+
+   | Trường | Giá trị |
+   | --- | --- |
+   | Access-Control-Allow-Origin | All origins / `*` |
+   | Access-Control-Allow-Headers | All headers / `*` |
+   | Access-Control-Allow-Methods | `GET`, `HEAD` |
+   | Access-Control-Expose-Headers | None / để trống |
+   | Access-Control-Max-Age, nếu có | `600` giây |
+   | Access-Control-Allow-Credentials | Tắt / không chọn |
+   | Origin override trong phần CORS | **Bật** |
+
+5. Giữ các phần Security headers, Remove headers, Server-Timing mặc định → **Create**. Nếu policy `streamora-video-public-cors` đã có, mở kiểm tra/sửa thay vì tạo trùng.
+
+Header này dành cho video public, không gửi cookie. Không thêm `Access-Control-Allow-Credentials: true`. S3 vẫn private qua OAC; không thay đổi quyền bucket.
+
+[Cấu hình CORS và Origin override trong Console](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/creating-response-headers-policies.html), [các trường CORS của policy](https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_ResponseHeadersPolicyCorsConfig.html).
+
+### Behavior — gắn policy `streamora-video-public-cors`
 
 Mở **Distributions → E1G60I1P5XO4F9 (streamora-video, d1t5ktmqzfd56b.cloudfront.net) → Behaviors**, chọn dòng **Default (*) → Edit**:
 
@@ -215,13 +240,13 @@ Mở **Distributions → E1G60I1P5XO4F9 (streamora-video, d1t5ktmqzfd56b.cloudfr
 | Restrict viewer access / signed URLs or cookies | **No** |
 | Cache policy | `Managed-CachingOptimized` — trong danh sách chọn có thể hiện `CachingOptimized` |
 | Origin request policy | Để trống — danh sách Behaviors hiển thị `-` |
-| Response headers policy | `Managed-SimpleCORS` — trong danh sách chọn có thể hiện `SimpleCORS` |
+| Response headers policy | `streamora-video-public-cors` |
 
-Ảnh đã xác nhận một behavior **Default (*)**, Redirect HTTP to HTTPS, Managed-CachingOptimized, không có origin request policy và Managed-SimpleCORS. Hai trường **Allowed HTTP methods** và **Restrict viewer access** cần mở Edit để kiểm tra vì không hiển thị trong ảnh.
+Ảnh trước đó đã xác nhận một behavior **Default (*)**, Redirect HTTP to HTTPS, Managed-CachingOptimized, không có origin request policy và Managed-SimpleCORS. Trong lần sửa lỗi phát Chrome này, đổi **Response headers policy** sang `streamora-video-public-cors`. Hai trường **Allowed HTTP methods** và **Restrict viewer access** cần mở Edit để kiểm tra vì không hiển thị trong ảnh.
 
 Nếu sửa giá trị, chọn **Save changes** rồi chờ hết **Deploying**. Env backend dùng trực tiếp `VIDEO_MEDIA_DOMAIN=d1t5ktmqzfd56b.cloudfront.net`. Player không gửi cookie CloudFront; không cần key group, khóa ký hoặc Secrets Manager cho video. **Ai có URL đều xem được video.**
 
-[Tham khảo SimpleCORS](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html).
+Mở Chrome → **F12 → Network → Disable cache**, tải lại trang và mở video. Request `.m3u8` và `.ts` phải có **Response Headers → Access-Control-Allow-Origin: \***. Chỉ HTTP 200 hoặc mở URL ở tab mới chưa đủ để xác nhận CORS.
 
 ## 6. EC2 — env một lần, deploy như cũ
 
@@ -243,9 +268,12 @@ VIDEO_OUTPUT_BUCKET=streamora-file-storage-output
 VIDEO_MEDIACONVERT_ROLE_ARN=arn:aws:iam::586481704097:role/streamora-video-mediaconvert
 VIDEO_MEDIACONVERT_QUEUE_ARN=arn:aws:mediaconvert:ap-northeast-1:586481704097:queues/Default
 VIDEO_MAX_QUALITY=2160
+VIDEO_OPTIONAL_QUALITIES=480,1440
 ```
 
 Copy khối trên, thay access key/secret của `streamora-developer`. Domain CloudFront mới đã điền sẵn: `VIDEO_MEDIA_DOMAIN=d1t5ktmqzfd56b.cloudfront.net`, **chỉ hostname**, không thêm `https://` hoặc path. Nếu backend/PM2 còn domain cũ `d2etcjbg4sxx6m.cloudfront.net`, thay bằng `d1t5ktmqzfd56b.cloudfront.net` trước khi restart. Tên bảng, bucket, role và queue đã được điền đầy đủ trong cùng khối.
+
+Video encode mới có mức cao nhất theo nguồn/cap, rồi các mức thấp hơn 2160/1440/1080/720/480/360p phù hợp, không upscale. Player giữ **Bản gốc**, **Tự động** và các mức đã encode. Output cũ không tự có thêm 480p/1440p sau khi deploy; cần encode lại nguồn hoặc upload lại qua ứng dụng. Không thêm nhãn cho chất lượng chưa tồn tại.
 
 Chỉ dùng `AWS_SESSION_TOKEN` khi có credentials tạm thời còn hiệu lực. Biến process ưu tiên hơn `.env`; PM2/ecosystem giữ giá trị cũ thì sửa cho khớp, đặc biệt worker=true và key. Giữ `streamora-api` một instance fork như hiện tại; không thêm process worker. EC2 cần HTTPS ra AWS và kết nối PostgreSQL; không mở cổng inbound mới cho video.
 
@@ -279,7 +307,7 @@ Các lệnh `package:video-lambda`, `test:t13:lambda` đã bỏ. Restart PM2 c�
 1. `pm2 logs streamora-api`: không có lỗi cấu hình/quyền lặp lại.
 2. Upload clip 10–30 giây: nguồn có ở S3; QUEUED chuyển PROCESSING; **MediaConvert → Jobs** có job mới.
 3. Job Complete: S3 có HLS/thumbnail; API chuyển READY sau lượt poll/verify.
-4. Player chọn Tự động và đổi chất lượng: playlist/segment qua CloudFront, response có `Access-Control-Allow-Origin: *`.
+4. Chrome F12 → Network → Disable cache, mở player, chọn Tự động và đổi chất lượng: playlist/segment qua CloudFront, response có `Access-Control-Allow-Origin: *`. Với nguồn 1080p encode mới, menu có Bản gốc, Tự động, 1080p, 720p, 480p, 360p.
 5. Copy URL master thật vào cửa sổ ẩn danh: trả playlist/tải `.m3u8`, không cần cookie. Domain CloudFront trống có thể 403 vì không có index.
 6. Restart API khi job đang encode: MediaConvert tiếp tục, API theo dõi lại sau restart, không tạo thêm job encode trùng cùng lần xử lý.
 
@@ -293,6 +321,6 @@ Các lệnh `package:video-lambda`, `test:t13:lambda` đã bỏ. Restart PM2 c�
 | Complete nhưng chưa READY | PM2 Logs; quyền đọc output/Probe; queue env khớp; chờ poll/verify |
 | WORKER_RETRY / VIDEO_HANDOFF_RETRY lặp | Kết nối AWS/PostgreSQL; work-due; credentials/quyền |
 | HLS 403 | Object key; OAC/bucket policy; Restrict viewer access = No |
-| HLS CORS | Behavior khớp URL có SimpleCORS; frontend đã cập nhật |
+| HLS CORS / HTTP 200 nhưng Chrome chặn | Behavior Default (*) có `streamora-video-public-cors`; chờ Deployed, Disable cache và kiểm tra header trên cả .m3u8/.ts |
 
 Không cần vào Lambda/Scheduler để debug sau khi chuyển đổi. Khi EC2/API dừng, MediaConvert tiếp tục encode nhưng gửi job mới và chuyển READY chờ API chạy lại.
