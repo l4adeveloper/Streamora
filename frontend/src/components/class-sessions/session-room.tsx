@@ -132,7 +132,9 @@ export function SessionRoom({
   const [closedId, setClosedId] = useState<string | null>(null),
     [notice, setNotice] = useState("");
   const [shareLink, setShareLink] = useState("");
-  const [callPanel, setCallPanel] = useState<"info" | "manage" | "polls" | null>(null);
+  const [callPanel, setCallPanel] = useState<
+    "info" | "manage" | "polls" | null
+  >(null);
   const [pollRevision, setPollRevision] = useState(0);
   const [newPoll, setNewPoll] = useState(false);
   const pollListener = useRef<((event: ClassPollUpdated) => void) | null>(null);
@@ -156,10 +158,11 @@ export function SessionRoom({
     () => ({
       toggleMicrophone: () =>
         mediaRef.current?.toggleMicrophone() ?? Promise.resolve(),
-      decide: (requestId, decision) =>
-        run("decide", () =>
+      decide: async (requestId, decision) => {
+        await run("decide", () =>
           api.decideClassJoin(sessionId!, requestId, decision),
-        ),
+        );
+      },
       leave: async () => {
         await actionFlight.current?.catch(() => {});
         mediaRef.current?.stop();
@@ -240,7 +243,9 @@ export function SessionRoom({
           const visitId = dataRef.current?.admission.participation?.id;
           if (visitId) setClosedId(visitId);
           setNotice("");
-          setError(new ApiError(403, "BANNED", "Bạn đã bị chặn khỏi buổi học này."));
+          setError(
+            new ApiError(403, "BANNED", "Bạn đã bị chặn khỏi buổi học này."),
+          );
         } else if (kind === "access-revoked")
           setError(
             new ApiError(
@@ -267,10 +272,7 @@ export function SessionRoom({
   const status = session?.status ?? preview?.status;
   const visit = admission?.participation;
   const active =
-    !!visit &&
-    !visit.leftAt &&
-    visit.id !== closedId &&
-    status === "LIVE";
+    !!visit && !visit.leftAt && visit.id !== closedId && status === "LIVE";
   const connection = useClassRealtime(
     error && asApiError(error).code === "BANNED" ? null : id,
     active ? visit.id : null,
@@ -291,8 +293,14 @@ export function SessionRoom({
   }, [status, onExit]);
   const canViewPolls = !!admission?.permissions.canViewPolls;
   const polls = canViewPolls && data && (
-    <ClassPolls key={data.id} sessionId={data.id} canManage={manage}
-      live={status === "LIVE"} revision={pollRevision} listener={pollListener} />
+    <ClassPolls
+      key={data.id}
+      sessionId={data.id}
+      canManage={manage}
+      live={status === "LIVE"}
+      revision={pollRevision}
+      listener={pollListener}
+    />
   );
   const sessionGroupId = data?.session?.groupId ?? data?.preview?.groupId;
   const sessionDocuments = sessionGroupId && data && (
@@ -333,7 +341,7 @@ export function SessionRoom({
     work: () => Promise<unknown>,
     message?: string,
   ) {
-    if (busy.current) return;
+    if (busy.current) return false;
     busy.current = true;
     setPending(name);
     setActionError(null);
@@ -345,8 +353,10 @@ export function SessionRoom({
       if (message) notify(message, { tone: "success" });
       setConfirmation(null);
       if (["start", "end", "cancel"].includes(name)) setCallPanel(null);
+      return true;
     } catch (error) {
       setActionError(error);
+      return false;
     } finally {
       await refresh();
       busy.current = false;
@@ -368,7 +378,7 @@ export function SessionRoom({
         canManage: !!admission?.permissions.canManage,
         canViewParticipants: !!admission?.permissions.canViewParticipants,
         pending: !!pending,
-        participationId: active ? visit?.id ?? null : null,
+        participationId: active ? (visit?.id ?? null) : null,
         active,
         userId: visit?.userId,
         status,
@@ -412,6 +422,11 @@ export function SessionRoom({
   const managementPanel = manage && data && status && (
     <section className="class-panel" aria-labelledby="class-manager-title">
       <h2 id="class-manager-title">Quản lý buổi học</h2>
+      {embedded && !!actionError && (
+        <InlineNotice tone="error">
+          {asApiError(actionError).message}
+        </InlineNotice>
+      )}
       <div className="class-actions">
         {status === "SCHEDULED" && (
           <>
@@ -504,10 +519,8 @@ export function SessionRoom({
                   confirmation === "end"
                     ? "Đã kết thúc buổi học."
                     : "Đã hủy lịch học.",
-                ).then(() => {
-                  if (confirmation === "end" || confirmation === "cancel") {
-                    if (onExit) onExit();
-                  }
+                ).then((succeeded) => {
+                  if (succeeded && onExit) onExit();
                 })
               }
             >
@@ -744,13 +757,16 @@ export function SessionRoom({
                     </button>
                   )}
                   {canViewPolls && (
-                    <button type="button" className="workspace-call-action"
+                    <button
+                      type="button"
+                      className="workspace-call-action"
                       aria-label={newPoll ? "Bình chọn mới" : "Bình chọn"}
                       title={newPoll ? "Bình chọn mới" : "Bình chọn"}
                       onClick={() => {
                         setNewPoll(false);
                         setCallPanel("polls");
-                      }}>
+                      }}
+                    >
                       <BarChart3 size={15} />
                       <span className="workspace-call-action-label">
                         {newPoll ? "Bình chọn mới" : "Bình chọn"}
@@ -771,9 +787,7 @@ export function SessionRoom({
                     }}
                   >
                     <MessageSquare size={15} />
-                    <span className="workspace-call-action-label">
-                      Chat
-                    </span>
+                    <span className="workspace-call-action-label">Chat</span>
                   </button>
                 </>
               }
@@ -1163,6 +1177,7 @@ export function SessionRoom({
                 sessionId={data.id}
                 participationId={active ? visit.id : null}
                 revision={revision}
+                canManage={manage}
                 micLocked={admission?.micLocked}
               />
             )}
@@ -1174,17 +1189,25 @@ export function SessionRoom({
                   sessionId={data.id}
                   revision={revision}
                   pending={!!pending}
-                  decide={(requestId, decision) =>
-                    run("decide", () =>
+                  decide={async (requestId, decision) => {
+                    await run("decide", () =>
                       api.decideClassJoin(data.id, requestId, decision),
-                    )
-                  }
+                    );
+                  }}
                 />
               )}
               {admission?.permissions.canViewParticipants && (
-                <Participants sessionId={data.id} revision={revision} canManage={manage} live={status === "LIVE"} />
+                <Participants
+                  sessionId={data.id}
+                  revision={revision}
+                  canManage={manage}
+                  live={status === "LIVE"}
+                />
               )}
-              <section className="class-panel" aria-labelledby="standalone-chat-title">
+              <section
+                className="class-panel"
+                aria-labelledby="standalone-chat-title"
+              >
                 <h2 id="standalone-chat-title">Chat phòng họp</h2>
                 <MeetingChatPanel
                   key={id ?? undefined}
@@ -1269,7 +1292,12 @@ export function MeetingPeoplePanel({
         />
       )}
       {state.canViewParticipants ? (
-        <Participants sessionId={state.sessionId} revision={state.revision} canManage={state.canManage} live={state.status === "LIVE"} />
+        <Participants
+          sessionId={state.sessionId}
+          revision={state.revision}
+          canManage={state.canManage}
+          live={state.status === "LIVE"}
+        />
       ) : (
         <EmptyState
           title="Tham gia phòng để xem thành viên"
@@ -1484,7 +1512,9 @@ function Participants({
           Xem thêm người tham gia
         </button>
       )}
-      {canManage && <ClassBanList sessionId={sessionId} revision={revision + banRevision} />}
+      {canManage && (
+        <ClassBanList sessionId={sessionId} revision={revision + banRevision} />
+      )}
     </section>
   );
 }

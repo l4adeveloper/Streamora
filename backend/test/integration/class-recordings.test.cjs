@@ -364,7 +364,7 @@ test(
   { timeout: 120000 },
 );
 
-test("ending a lesson stops IVS; cancelling a pending start cannot create a late recording", async () => {
+test("End commits through the real API before IVS cleanup; cancelling a pending start cannot create a late recording", async () => {
   const lesson = await db.classSession.create({
     data: {
       kind: "GROUP",
@@ -372,11 +372,13 @@ test("ending a lesson stops IVS; cancelling a pending start cannot create a late
       createdById: owner.id,
       title: "Ended lesson",
       joinCode: randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase(),
-      status: "ENDED",
+      status: "LIVE",
       scheduledAt: new Date(),
       startedAt: new Date(),
-      endedAt: new Date(),
     },
+  });
+  await db.classParticipation.create({
+    data: { sessionId: lesson.id, userId: owner.id },
   });
   const active = await db.classRecording.create({
     data: {
@@ -390,6 +392,23 @@ test("ending a lesson stops IVS; cancelling a pending start cannot create a late
       storageLocationId: storage.locations.id,
     },
   });
+  const beforeEndStops = stops;
+  const ended = await f.api(
+    owner,
+    "POST",
+    `/sessions/${lesson.id}/end`,
+    {},
+    randomUUID(),
+  );
+  assert.equal(ended.status, 200, JSON.stringify(ended.body));
+  assert.equal(ended.body.session.status, "ENDED");
+  assert.equal(stops, beforeEndStops, "Ending the meeting cannot wait for AWS");
+  assert.equal(
+    await db.classParticipation.count({
+      where: { sessionId: lesson.id, leftAt: null },
+    }),
+    0,
+  );
   finalized = false;
   mode = "ACTIVE";
   const beforeStops = stops,
@@ -410,6 +429,47 @@ test("ending a lesson stops IVS; cancelling a pending start cannot create a late
   const beforeStarts = starts;
   assert.equal((await tick(pending.id)).status, "FAILED");
   assert.equal(starts, beforeStarts);
+});
+
+test("recording permission remains visible without cloud setup; entering or reading state never starts recording", async () => {
+  const lesson = await db.classSession.create({
+    data: {
+      kind: "GROUP",
+      groupId: group.id,
+      createdById: owner.id,
+      title: "Explicit recording",
+      joinCode: randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase(),
+      status: "LIVE",
+      scheduledAt: new Date(),
+      startedAt: new Date(),
+    },
+  });
+  const visit = await db.classParticipation.create({
+    data: { sessionId: lesson.id, userId: owner.id },
+  });
+  const state = await f.api(owner, "GET", `/sessions/${lesson.id}/recording`);
+  assert.equal(state.status, 200);
+  assert.equal(state.body.canRecord, true);
+  assert.equal(state.body.recording, null);
+  assert.equal(
+    await db.classRecording.count({ where: { sessionId: lesson.id } }),
+    0,
+  );
+  const start = await f.api(
+    owner,
+    "POST",
+    `/sessions/${lesson.id}/recordings`,
+    { participationId: visit.id },
+  );
+  assert.equal(
+    start.status,
+    503,
+    "Only an explicit click attempts cloud recording and reports missing setup",
+  );
+  assert.equal(
+    await db.classRecording.count({ where: { sessionId: lesson.id } }),
+    0,
+  );
 });
 
 test("recording paths cannot leave their S3 prefix or use remote URLs", () => {

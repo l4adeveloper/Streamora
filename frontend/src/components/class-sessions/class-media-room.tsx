@@ -542,6 +542,7 @@ export function ClassMediaRoom({
     participationId: disabled ? null : participationId,
     revision,
     enabled: !disabled,
+    canManage,
     onNotice: (message, tone) => notify(message, { tone: tone ?? "success" }),
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -725,8 +726,8 @@ export function ClassMediaRoom({
         recording.phase === "starting" ||
         recording.phase === "stopping" ||
         recording.phase === "saving" ||
-        (!recording.canStop &&
-          (!!recordingLive || media.status !== "connected"))
+        !participationId ||
+        (!recording.canStop && !!recordingLive)
       }
     >
       {recording.canStop ? <Square size={16} /> : <Circle size={16} />}

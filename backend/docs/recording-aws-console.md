@@ -139,7 +139,8 @@ có các chất lượng/phụ đề sau xử lý. Phụ đề cần cấu hình
 | --- | --- |
 | `AccessDenied` trong CloudShell | Dùng identity có quyền tạo cấu hình IVS và sửa bucket policy trong tài khoản dịch vụ |
 | `AccessDenied` khi bấm ghi | Làm lại bước 4; kiểm tra EC2 dùng đúng key của `streamora-developer` |
-| Không thấy nút ghi | Hai ARN ở bước 5, quyền quản lý và buổi học thuộc nhóm |
+| Không thấy nút ghi | Kiểm tra tài khoản có quyền quản lý phòng |
+| Bấm ghi nhưng chưa bắt đầu | Hai ARN ở bước 5, kết nối IVS và buổi học thuộc nhóm |
 | Bản ghi chưa vào thư viện | Log API, quyền đọc/ghi S3 và dung lượng đĩa tạm trên EC2 |
 | API không lên sau deploy | Log migration, kết nối và quyền database |
 

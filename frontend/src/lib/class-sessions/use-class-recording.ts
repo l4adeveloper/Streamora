@@ -14,24 +14,29 @@ export function useClassRecording({
   participationId,
   revision,
   enabled,
+  canManage = false,
   onNotice,
 }: {
   sessionId: string;
   participationId: string | null;
   revision: number;
   enabled: boolean;
+  canManage?: boolean;
   onNotice: (message: string, tone?: "error") => void;
 }) {
   const [state, setState] = useState<ClassRecordingStateResponse | null>(null);
   const [pending, setPending] = useState<"starting" | "stopping" | null>(null);
   const mounted = useRef(false);
   const busy = useRef(false);
+  const request = useRef(0);
   const notice = useRef(onNotice);
   notice.current = onNotice;
   const load = useCallback(async () => {
+    if (busy.current) return;
+    const sequence = ++request.current;
     try {
       const next = await getClassRecording(sessionId);
-      if (mounted.current) setState(next);
+      if (mounted.current && sequence === request.current) setState(next);
     } catch {
       /* Keep the last known state during a temporary network failure. */
     }
@@ -51,6 +56,7 @@ export function useClassRecording({
   async function start() {
     if (!participationId || busy.current) return;
     busy.current = true;
+    request.current++;
     setPending("starting");
     try {
       const { recording } = await startClassRecording(
@@ -58,8 +64,13 @@ export function useClassRecording({
         participationId,
       );
       if (mounted.current)
-        setState((current) => (current ? { ...current, recording } : current));
-      await load();
+        setState((current) => ({
+          canRecord: canManage,
+          groupId: null,
+          title: "",
+          ...current,
+          recording,
+        }));
       notice.current(
         "Đã yêu cầu ghi hình trên máy chủ. Bạn có thể rời phòng mà không mất bản ghi.",
       );
@@ -68,12 +79,14 @@ export function useClassRecording({
     } finally {
       busy.current = false;
       if (mounted.current) setPending(null);
+      void load();
     }
   }
   async function stop() {
     const recording = state?.recording;
     if (!recording || busy.current) return;
     busy.current = true;
+    request.current++;
     setPending("stopping");
     try {
       const result = await stopClassRecording(sessionId, recording.id);
@@ -89,14 +102,15 @@ export function useClassRecording({
     } finally {
       busy.current = false;
       if (mounted.current) setPending(null);
+      void load();
     }
   }
   const live =
     state?.recording?.status === "RECORDING" ? state.recording : null;
   return {
     recording: live,
-    canRecord: !!state?.canRecord,
-    canStop: !!live && !!state?.canRecord,
+    canRecord: canManage || !!state?.canRecord,
+    canStop: !!live && (canManage || !!state?.canRecord),
     phase:
       pending ??
       (state?.recording?.status === "SAVING"

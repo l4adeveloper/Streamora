@@ -127,7 +127,6 @@ export class ClassRecordingsService {
       return {
         recording: row ? await this.view(tx, row) : null,
         canRecord:
-          !!this.media.ivs.config.ivs?.recording &&
           session.status === "LIVE" &&
           !!session.groupId &&
           (await this.access.eligible(tx, userId, session)),
