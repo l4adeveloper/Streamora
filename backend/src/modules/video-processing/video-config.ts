@@ -12,6 +12,8 @@ export interface VideoConfig {
   roleArn: string;
   queueArn: string;
   mediaDomain: string;
+  cloudFrontKeyPairId: string;
+  cloudFrontSigningSecretId: string;
   tableName: string;
   accountId: string;
   region: string;
@@ -63,6 +65,8 @@ export function readVideoConfig(
         ? `arn:aws:mediaconvert:${region}:${env.VIDEO_AWS_ACCOUNT_ID ?? ""}:queues/Default`
         : ""),
     mediaDomain: env.VIDEO_MEDIA_DOMAIN ?? "",
+    cloudFrontKeyPairId: env.VIDEO_CLOUDFRONT_KEY_PAIR_ID ?? "",
+    cloudFrontSigningSecretId: env.VIDEO_CLOUDFRONT_SIGNING_SECRET_ID ?? "",
     tableName:
       env.VIDEO_DYNAMODB_TABLE ??
       (mode === "aws" ? "streamora-video-jobs" : ""),
@@ -92,6 +96,12 @@ export function readVideoConfig(
     )
       bad("VIDEO_MEDIACONVERT_QUEUE_ARN");
   }
+  if (
+    !!config.cloudFrontKeyPairId !== !!config.cloudFrontSigningSecretId ||
+    (config.cloudFrontKeyPairId &&
+      !/^[A-Z0-9]{8,32}$/.test(config.cloudFrontKeyPairId))
+  )
+    bad("VIDEO_CLOUDFRONT_KEY_PAIR_ID/VIDEO_CLOUDFRONT_SIGNING_SECRET_ID");
   return config;
 }
 function localExecutable(name: "ffmpeg" | "ffprobe") {

@@ -263,11 +263,15 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
             </div>
             <div>
               <h3>Tài liệu & Bản ghi</h3>
-              <p>
-                Thư viện tài liệu và bản ghi riêng của nhóm sẽ được bổ sung sau.
-              </p>
+              <p>Xem lại các buổi học đã được ghi hình trong nhóm.</p>
+              <Link
+                className="button secondary compact"
+                href={`/groups/${group.id}/recordings`}
+              >
+                Xem bản ghi
+              </Link>
             </div>
-            <span className="badge">Sắp có</span>
+            <span className="badge">T14</span>
           </div>
         </div>
       </div>

@@ -29,6 +29,7 @@ import { VideoProcessingService } from "./video-processing.service";
 import { VideoDelivery } from "./video-delivery";
 import { VideoStorage } from "./video-storage";
 import { objectKey } from "./video-policy";
+import { rewriteSignedHlsPlaylist } from "./signed-hls-playlist";
 import { ApiError } from "../../common/api-error";
 import { ApiErrors, ApiSuccess } from "../../documentation/api-decorators";
 import {
@@ -194,8 +195,34 @@ export class VideoMediaController {
     if (!/\.(m3u8|ts|m4s|mp4|aac|jpe?g)$/.test(key))
       throw new ApiError(403, "FORBIDDEN", "Đường dẫn video không hợp lệ.");
     const target = await this.storage.locations.resolve(grant.location);
-    if (target.driver !== "local" && this.delivery.config.video?.mode === "aws")
-      throw new ApiError(404, "NOT_FOUND", "Không tìm thấy video local.");
+    if (
+      target.driver !== "local" &&
+      this.delivery.config.video?.mode === "aws"
+    ) {
+      if (
+        !this.delivery.config.video.cloudFrontKeyPairId ||
+        !key.endsWith(".m3u8")
+      )
+        throw new ApiError(404, "NOT_FOUND", "Không tìm thấy video local.");
+      const sign = await this.delivery.signedObjectFactory(
+        Math.floor(Date.now() / 1000) + 900,
+      );
+      const pathBase = `/api/v1/video-media/${fileId}/${jobId}/`;
+      const text = head
+        ? ""
+        : rewriteSignedHlsPlaylist(
+            await this.storage.text(grant.location, key),
+            key,
+            grant.prefix,
+            (child) => pathBase + child.slice(grant.prefix.length + 1),
+            sign,
+          );
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      return new StreamableFile(Buffer.from(text), {
+        type: "application/vnd.apple.mpegurl",
+      });
+    }
     let file;
     try {
       file = await this.storage.open(

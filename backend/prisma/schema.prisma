@@ -52,6 +52,7 @@ model User {
   createdPolls         ClassPoll[]
   pollVotes            ClassPollVote[]
   classRecordings      ClassRecording[]
+  recordingPlaybackProgress RecordingPlaybackProgress[]
 
   uploads UploadSession[]
   @@map("users")
@@ -856,8 +857,21 @@ model ClassRecording {
   session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
   recorder User @relation(fields: [recorderId], references: [id], onDelete: Restrict)
   file LibraryFile? @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  playbackProgress RecordingPlaybackProgress[]
   @@index([sessionId, startedAt(sort: Desc)])
   @@map("class_recordings")
+}
+
+model RecordingPlaybackProgress {
+  recordingId String @map("recording_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  positionSeconds Float @map("position_seconds")
+  clientUpdatedAt DateTime @map("client_updated_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  recording ClassRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([recordingId, userId])
+  @@map("recording_playback_progress")
 }
 
 model VideoTranscript {

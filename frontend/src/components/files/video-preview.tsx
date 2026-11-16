@@ -11,6 +11,10 @@ import {
 } from "@/lib/files/api";
 import { VideoPlayerControls } from "./video-player-controls";
 import {
+  getRecordingProgress,
+  saveRecordingProgress,
+} from "@/lib/recordings/api";
+import {
   RecordingCaptionTrack,
   RecordingTranscriptPanel,
   recordingTranscriptStatus,
@@ -20,9 +24,11 @@ import {
 export function VideoPreview({
   fileId,
   name,
+  recordingId,
 }: {
   fileId: string;
   name: string;
+  recordingId?: string;
 }) {
   const [manifest, setManifest] = useState<VideoPlaybackResponse>();
   const [sourceId, setSourceId] = useState("");
@@ -119,11 +125,55 @@ export function VideoPreview({
   );
   useEffect(() => {
     denied.current = false;
-    void refresh();
+    let cancelled = false;
+    void (async () => {
+      if (recordingId) {
+        try {
+          const progress = await getRecordingProgress(recordingId);
+          if (cancelled) return;
+          bookmark.current.time = progress.positionSeconds;
+        } catch {
+          if (cancelled) return;
+        }
+      }
+      if (!cancelled) void refresh();
+    })();
     return () => {
+      cancelled = true;
       sequence.current++;
     };
-  }, [refresh]);
+  }, [refresh, recordingId]);
+  useEffect(() => {
+    const element = video.current;
+    if (!recordingId || !element) return;
+    let lastSaved = 0;
+    const save = (force = false) => {
+      if (
+        element.readyState === 0 ||
+        denied.current ||
+        !Number.isFinite(element.currentTime) ||
+        element.currentTime < 0
+      )
+        return;
+      const now = Date.now();
+      if (!force && now - lastSaved < 5000) return;
+      lastSaved = now;
+      void saveRecordingProgress(recordingId, element.currentTime).catch(
+        () => {},
+      );
+    };
+    const periodic = () => save();
+    const flush = () => save(true);
+    element.addEventListener("timeupdate", periodic);
+    element.addEventListener("pause", flush);
+    element.addEventListener("ended", flush);
+    return () => {
+      element.removeEventListener("timeupdate", periodic);
+      element.removeEventListener("pause", flush);
+      element.removeEventListener("ended", flush);
+      flush();
+    };
+  }, [recordingId, manifest?.fileId]);
   const source = manifest?.sources.find((item) => item.id === sourceId);
   useEffect(() => {
     if (
@@ -231,13 +281,23 @@ export function VideoPreview({
               // and hls.js quota recovery can evict media under memory pressure.
               backBufferLength: Infinity,
               frontBufferFlushThreshold: Infinity,
-              xhrSetup: (xhr) => {
-                xhr.withCredentials = !source.public;
+              xhrSetup: (xhr, url) => {
+                xhr.withCredentials =
+                  !source.public &&
+                  !new URL(url, window.location.href).searchParams.has(
+                    "Key-Pair-Id",
+                  );
               },
               fetchSetup: (context, init) =>
                 new Request(context.url, {
                   ...init,
-                  credentials: source.public ? "omit" : "include",
+                  credentials:
+                    source.public ||
+                    new URL(context.url, window.location.href).searchParams.has(
+                      "Key-Pair-Id",
+                    )
+                      ? "omit"
+                      : "include",
                 }),
             });
             engine.current = instance;
