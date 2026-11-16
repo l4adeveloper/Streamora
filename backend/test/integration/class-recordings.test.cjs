@@ -13,6 +13,9 @@ const {
   ClassSessionAccessService,
 } = require("../../dist/modules/class-sessions/class-session-access.service");
 const {
+  ClassSessionsService,
+} = require("../../dist/modules/class-sessions/class-sessions.service");
+const {
   CloudRecordingWorker,
 } = require("../../dist/modules/class-recordings/cloud-recording.worker");
 const {
@@ -368,7 +371,7 @@ test(
   { timeout: 120000 },
 );
 
-test("End commits through the real API before IVS cleanup; cancelling a pending start cannot create a late recording", async () => {
+test("End stops recording, keeps the meeting live until saved, and survives a worker restart", async () => {
   const lesson = await db.classSession.create({
     data: {
       kind: "GROUP",
@@ -392,7 +395,7 @@ test("End commits through the real API before IVS cleanup; cancelling a pending 
       recorderId: owner.id,
       stageArn,
       compositionArn: "composition",
-      recordingPrefix: prefix,
+      recordingPrefix: `${prefix}/${randomUUID()}`,
       storageLocationId: storage.locations.id,
     },
   });
@@ -405,13 +408,18 @@ test("End commits through the real API before IVS cleanup; cancelling a pending 
     randomUUID(),
   );
   assert.equal(ended.status, 200, JSON.stringify(ended.body));
-  assert.equal(ended.body.session.status, "ENDED");
-  assert.equal(stops, beforeEndStops, "Ending the meeting cannot wait for AWS");
+  assert.equal(ended.body.session.status, "LIVE");
+  assert.ok(ended.body.session.endRequestedAt);
+  assert.equal(
+    stops,
+    beforeEndStops,
+    "The API records the intent without holding a transaction for AWS",
+  );
   assert.equal(
     await db.classParticipation.count({
       where: { sessionId: lesson.id, leftAt: null },
     }),
-    0,
+    1,
   );
   finalized = false;
   mode = "ACTIVE";
@@ -420,6 +428,43 @@ test("End commits through the real API before IVS cleanup; cancelling a pending 
   assert.equal((await tick(active.id)).status, "SAVING");
   assert.equal(stops, beforeStops + 1);
   assert.equal(await db.videoJob.count(), beforeJobs);
+  const sessions = f.app.get(ClassSessionsService);
+  assert.equal(
+    (await sessions.finishRequestedEnd(lesson.id)).session.status,
+    "LIVE",
+  );
+  assert.equal(
+    await db.classSessionEndEvent.count({ where: { sessionId: lesson.id } }),
+    0,
+  );
+  await assert.rejects(
+    recordings.start(owner.id, lesson.id, randomUUID()),
+    (error) => error.getResponse().error.code === "SESSION_ENDING",
+  );
+  cloud = new CloudRecordingWorker(db, ivs, fakeStorage, processing, f.config);
+  finalized = true;
+  assert.equal((await tick(active.id)).status, "SAVED");
+  await sessions.finishRequestedEnd(lesson.id);
+  assert.equal(
+    (await db.classSession.findUniqueOrThrow({ where: { id: lesson.id } }))
+      .status,
+    "ENDED",
+  );
+  assert.equal(
+    await db.classParticipation.count({
+      where: { sessionId: lesson.id, leftAt: null },
+    }),
+    0,
+  );
+  assert.equal(
+    await db.classSessionEndEvent.count({ where: { sessionId: lesson.id } }),
+    1,
+  );
+  await sessions.finishRequestedEnd(lesson.id);
+  assert.equal(
+    await db.classSessionEndEvent.count({ where: { sessionId: lesson.id } }),
+    1,
+  );
   const pending = await db.classRecording.create({
     data: {
       id: randomUUID(),

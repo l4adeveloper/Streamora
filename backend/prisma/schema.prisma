@@ -303,6 +303,7 @@ model ClassSession {
   status         ClassSessionStatus    @default(SCHEDULED)
   startedAt      DateTime?             @map("started_at") @db.Timestamptz(3)
   endedAt        DateTime?             @map("ended_at") @db.Timestamptz(3)
+  endRequestedAt DateTime?             @map("end_requested_at") @db.Timestamptz(3)
   cancelledAt    DateTime?             @map("cancelled_at") @db.Timestamptz(3)
   createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -746,6 +747,7 @@ model ClassMediaConnection {
   leaseUntil DateTime? @map("lease_until") @db.Timestamptz(3)
   state String @default("ISSUING") @db.VarChar(20)
   connected Boolean @default(false)
+  presenceVerifiedAt DateTime? @map("presence_verified_at") @db.Timestamptz(3)
   canPublish Boolean @default(true) @map("can_publish")
   // When the current token became ACTIVE; orders screen shares while recording.
   activatedAt DateTime? @map("activated_at") @db.Timestamptz(3)

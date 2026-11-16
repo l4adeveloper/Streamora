@@ -7,7 +7,10 @@ import {
   Optional,
 } from "@nestjs/common";
 import { PrismaService } from "../../database/prisma.service";
-import { validClassLease } from "../../database/class-presence";
+import {
+  validClassLease,
+  verifiedClassMedia,
+} from "../../database/class-presence";
 import { ClassSessionsService } from "./class-sessions.service";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
@@ -76,6 +79,7 @@ export class ClassSessionAutoCloseService
                 },
               },
               { leases: { some: validClassLease(now) } },
+              { mediaConnections: { some: verifiedClassMedia(now) } },
             ],
           },
           {
@@ -95,12 +99,16 @@ export class ClassSessionAutoCloseService
   ): Promise<boolean> {
     const session = await this.prisma.classSession.findUnique({
       where: { id: sessionId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, endRequestedAt: true },
     });
 
     if (!session || session.status !== "LIVE") {
       this.emptySince.delete(sessionId);
       return false;
+    }
+    if (session.endRequestedAt) {
+      const result = await this.sessions.finishRequestedEnd(sessionId);
+      return result?.session.status === "ENDED";
     }
 
     const activeCount = await this.countActiveParticipants(sessionId, now);
@@ -117,8 +125,8 @@ export class ClassSessionAutoCloseService
             `Phòng họp ${sessionId} đã trống trong ${elapsed}ms (>= ${this.emptyTimeoutMs}ms). Tự động đóng phòng.`,
           );
           this.emptySince.delete(sessionId);
-          await this.sessions.endSessionBySystem(sessionId);
-          return true;
+          const result = await this.sessions.endSessionBySystem(sessionId);
+          return result?.session.status === "ENDED";
         }
       }
     } else {
@@ -153,7 +161,10 @@ export class ClassSessionAutoCloseService
         await this.checkSession(session.id, now);
       }
     } catch (error) {
-      this.logger.error("Lỗi khi kiểm tra phòng họp trống để tự động đóng:", error);
+      this.logger.error(
+        "Lỗi khi kiểm tra phòng họp trống để tự động đóng:",
+        error,
+      );
     } finally {
       this.busy = false;
     }

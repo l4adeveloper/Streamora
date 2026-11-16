@@ -52,16 +52,47 @@ export class ClassMediaWorker
         });
         if (!claimed.count) continue;
         try {
-          const stale = row.lastSeenAt.getTime() < Date.now() - 30000;
+          const staleBefore = new Date(Date.now() - 30000);
+          const stale = row.lastSeenAt < staleBefore;
           if (
             row.state === "ISSUING" &&
             row.leaseUntil &&
             row.leaseUntil > new Date()
           )
             continue;
-          if (row.state === "REVOKING" || stale || row.state === "ISSUING")
+          if (row.state === "REVOKING" || row.state === "ISSUING")
             await this.media.revoke(row, row.room.stageArn);
           else {
+            if (
+              stale &&
+              !(
+                row.connected &&
+                row.presenceVerifiedAt &&
+                row.presenceVerifiedAt > staleBefore
+              )
+            ) {
+              // Background tabs can pause HTTP timers while IVS remains connected.
+              // On an IVS/network error, keep the connection and retry verification.
+              const snapshot = await this.media.ivs.presence(row.room.stageArn);
+              const connected =
+                !!row.participantId &&
+                snapshot.connectedIds.has(row.participantId);
+              await this.db.classMediaConnection.updateMany({
+                where: {
+                  id: row.id,
+                  requestId: row.requestId,
+                  state: "ACTIVE",
+                },
+                data: {
+                  connected,
+                  ...(connected ? { presenceVerifiedAt: new Date() } : {}),
+                },
+              });
+              if (!connected) {
+                await this.media.revoke(row, row.room.stageArn, staleBefore);
+                continue;
+              }
+            }
             try {
               await this.media.require(
                 { userId: row.userId, authSessionId: row.authSessionId },
@@ -133,7 +164,7 @@ export class ClassMediaWorker
                 state: "ACTIVE",
                 participantId: { in: [...snapshot.connectedIds] },
               },
-              data: { connected: true },
+              data: { connected: true, presenceVerifiedAt: new Date() },
             });
           });
         }

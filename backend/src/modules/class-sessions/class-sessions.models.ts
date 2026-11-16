@@ -30,6 +30,8 @@ export class ClassSessionDto {
     string | null;
   @ApiProperty({ type: String, format: "date-time", nullable: true })
   cancelledAt!: string | null;
+  @ApiProperty({ type: String, format: "date-time", nullable: true })
+  endRequestedAt!: string | null;
   @ApiProperty({ format: "date-time" }) createdAt!: string;
   @ApiProperty({ format: "date-time" }) updatedAt!: string;
 }

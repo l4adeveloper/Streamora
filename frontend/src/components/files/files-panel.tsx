@@ -14,6 +14,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Sparkles,
   Trash2,
   Video,
   X,
@@ -539,20 +540,22 @@ export function FilesPanel({
                     className="folder-card-main"
                     onClick={() => setCurrentFolderId(folder.id)}
                     title={`Mở thư mục ${folder.name}`}
+                    aria-label={`Mở thư mục ${folder.name}`}
                   >
-                    <span className="folder-icon-wrapper">
+                    <span className="folder-icon-wrapper" aria-hidden="true">
                       <Folder
                         size={24}
                         fill="currentColor"
                         fillOpacity={0.16}
                       />
                     </span>
-                    <div className="folder-card-info">
+                    <span className="folder-card-info">
                       <span className="folder-name">{folder.name}</span>
-                      {folder.kind === "LESSON" && <small className="lesson-folder-badge">Buổi học</small>}
-                    </div>
+                      <span className="folder-card-type">
+                        {folder.kind === "LESSON" ? "Thư mục buổi học" : "Thư mục"}
+                      </span>
+                    </span>
                   </button>
-                  {folder.kind === "LESSON" && <button type="button" className="button secondary compact lesson-folder-summary-button" aria-label={`Tóm tắt buổi học ${folder.name}`} onClick={() => setLessonFolder(folder)}>Tóm tắt AI</button>}
                   {canManageFolder(folder) && (
                     <FileActionsMenu
                       label={`Thao tác thư mục ${folder.name}`}
@@ -590,6 +593,31 @@ export function FilesPanel({
                       </button>
                     </FileActionsMenu>
                   )}
+                  <div className="folder-card-footer">
+                    <span className="folder-card-count">
+                      {[
+                        typeof folder.fileCount === "number"
+                          ? `${folder.fileCount.toLocaleString("vi-VN")} tài liệu`
+                          : null,
+                        typeof folder.folderCount === "number" && folder.folderCount > 0
+                          ? `${folder.folderCount.toLocaleString("vi-VN")} thư mục`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                    {folder.kind === "LESSON" && (
+                      <button
+                        type="button"
+                        className="lesson-folder-summary-button"
+                        aria-label={`Tóm tắt buổi học ${folder.name}`}
+                        onClick={() => setLessonFolder(folder)}
+                      >
+                        <Sparkles size={16} aria-hidden="true" />
+                        Tóm tắt AI
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

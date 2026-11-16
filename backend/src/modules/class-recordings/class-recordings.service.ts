@@ -128,6 +128,7 @@ export class ClassRecordingsService {
         recording: row ? await this.view(tx, row) : null,
         canRecord:
           session.status === "LIVE" &&
+          !session.endRequestedAt &&
           !!session.groupId &&
           (await this.access.eligible(tx, userId, session)),
         groupId: session.groupId,
@@ -178,6 +179,12 @@ export class ClassRecordingsService {
     const { recording, revoked } = await this.db.$transaction(async (tx) => {
       const session = await this.session(tx, userId, sessionId, true);
       if (session.status !== "LIVE") throw notLive();
+      if (session.endRequestedAt)
+        throw new ApiError(
+          409,
+          "SESSION_ENDING",
+          "Đang lưu bản ghi để kết thúc cuộc họp.",
+        );
       if (!session.groupId)
         throw new ApiError(
           409,
@@ -410,8 +417,15 @@ export class ClassRecordingsService {
       });
       const lessonFolder = await tx.folder.findUnique({ where: { sessionId } });
       if (lessonFolder && !lessonFolder.deletedAt)
-        await tx.libraryFile.update({ where: { id: fileId }, data: { folderId: lessonFolder.id, folderPath: "" } });
-      await tx.videoTranscript.upsert({ where: { fileId }, create: { fileId }, update: {} });
+        await tx.libraryFile.update({
+          where: { id: fileId },
+          data: { folderId: lessonFolder.id, folderPath: "" },
+        });
+      await tx.videoTranscript.upsert({
+        where: { fileId },
+        create: { fileId },
+        update: {},
+      });
       await recordingChanged(tx, sessionId);
       return { recording: await this.view(tx, saved) };
     });

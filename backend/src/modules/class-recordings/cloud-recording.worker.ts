@@ -271,6 +271,9 @@ export class CloudRecordingWorker
       signal.throwIfAborted();
       step = "save_library";
       const fileId = await this.db.$transaction(async (tx) => {
+        // Match meeting End/start lock order: parent group/session before recording.
+        await tx.$queryRaw`SELECT id FROM groups WHERE id=${row.session.groupId}::uuid FOR SHARE`;
+        await tx.$queryRaw`SELECT id FROM class_sessions WHERE id=${row.sessionId}::uuid FOR SHARE`;
         await tx.$queryRaw`SELECT id FROM class_recordings WHERE id=${id}::uuid FOR UPDATE`;
         const current = await tx.classRecording.findUniqueOrThrow({
           where: { id },

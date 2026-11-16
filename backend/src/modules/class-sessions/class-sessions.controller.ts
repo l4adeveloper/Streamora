@@ -194,7 +194,7 @@ export class ClassSessionsController {
   @ApiOperation({
     summary: "T04-06 — Kết thúc",
     description:
-      "LIVE→ENDED. Đóng yêu cầu/lượt tham gia và lưu một sự kiện session.ended.v1 trong cùng transaction. ENDED trả hiện trạng. Realtime báo kết thúc; consumer nội bộ có checkpoint để T11 tích hợp sau, chưa gọi dịch vụ ghi hình/media.",
+      "Dừng và chờ lưu bản ghi trước khi chuyển LIVE→ENDED. Khi còn bản ghi chưa lưu, trả LIVE kèm endRequestedAt; máy chủ tự hoàn tất sau khi lưu thành công. ENDED trả hiện trạng.",
   })
   @idempotency()
   @emptyBody()

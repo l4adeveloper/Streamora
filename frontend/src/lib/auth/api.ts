@@ -14,6 +14,8 @@ export class AuthApiError extends Error {
 }
 
 const messages: Record<string, string> = {
+  SESSION_ENDING:
+    "Đang lưu bản ghi để kết thúc cuộc họp. Không thể bắt đầu bản ghi mới.",
   DATABASE_SCHEMA_OUTDATED:
     "Máy chủ chưa hoàn tất cập nhật dữ liệu. Vui lòng liên hệ quản trị viên.",
   RECORDING_UNAVAILABLE:

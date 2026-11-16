@@ -24,6 +24,7 @@ import {
   classVisitCurrent,
   closeClassVisit,
   validClassLease,
+  verifiedClassMedia,
 } from "../../database/class-presence";
 import { ClassSessionAccessService } from "./class-session-access.service";
 import { classSessionCursor, readClassSessionCursor } from "./class-session-cursor";
@@ -599,6 +600,7 @@ export class ClassAdmissionsService {
                     },
                   },
                   { leases: { some: validClassLease(now) } },
+                  { mediaConnections: { some: verifiedClassMedia(now) } },
                 ],
               },
               {

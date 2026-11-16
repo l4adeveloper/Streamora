@@ -11,6 +11,9 @@ const {
 const {
   CloudRecordingWorker,
 } = require("../../dist/modules/class-recordings/cloud-recording.worker");
+const {
+  ClassSessionsService,
+} = require("../../dist/modules/class-sessions/class-sessions.service");
 
 test(
   "upgrading the old recording schema restores Record and screen sharing and preserves old recordings",
@@ -147,7 +150,31 @@ test(
       assert.equal(stopped.body.recording.status, "SAVING");
       const ended = await f.api(owner, "POST", `${root}/end`, {}, randomUUID());
       assert.equal(ended.status, 200, JSON.stringify(ended.body));
-      assert.equal(ended.body.session.status, "ENDED");
+      assert.equal(ended.body.session.status, "LIVE");
+      assert.ok(ended.body.session.endRequestedAt);
+      const recordedFile = await db.libraryFile.create({
+        data: {
+          groupId: group.id,
+          sessionId: session.id,
+          createdBy: owner.id,
+          name: "New recording.mp4",
+          objectKey: `new/${randomUUID()}.mp4`,
+          size: 100n,
+          mimeType: "video/mp4",
+          source: "CLOUD_RECORDING",
+          status: "AVAILABLE",
+        },
+      });
+      await db.classRecording.update({
+        where: { id: started.body.recording.id },
+        data: { status: "SAVED", fileId: recordedFile.id },
+      });
+      await f.app.get(ClassSessionsService).finishRequestedEnd(session.id);
+      assert.equal(
+        (await db.classSession.findUniqueOrThrow({ where: { id: session.id } }))
+          .status,
+        "ENDED",
+      );
     } finally {
       await f.cleanup();
     }

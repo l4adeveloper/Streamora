@@ -130,6 +130,13 @@ có quyền chạy migration; nếu cập nhật lỗi, API dừng và báo lỗ
 5. Mở lại cuộc họp và bấm **Dừng ghi hình** nếu bản ghi còn chạy. Chờ bản ghi xuất
    hiện trong thư viện; sau đó mới bắt đầu xử lý chất lượng và phụ đề.
 6. Mở một video cũ → **Cài đặt → Cập nhật chất lượng** để kiểm tra xử lý thủ công.
+7. Thử bấm **Kết thúc buổi học** khi đang ghi. Phòng báo đang lưu bản ghi, giữ
+   người tham gia kết nối và chỉ đóng sau khi lưu thành công. Việc xử lý chất
+   lượng/phụ đề tiếp tục sau đó.
+
+Chuyển tab trong lúc chia sẻ màn hình không tự thu hồi quyền nếu IVS vẫn xác
+nhận kết nối còn hoạt động. Bản cập nhật này không cần thêm cấu hình AWS; hai
+cột database mới được migration tự tạo khi API khởi động theo bước 6.
 
 **Hoàn tất khi:** bản ghi vẫn còn sau khi đóng tab, xuất hiện trong thư viện và
 có các chất lượng/phụ đề sau xử lý. Phụ đề cần cấu hình Azure Speech hiện có.

@@ -278,7 +278,7 @@ export function Workspace({
   const [roomSwitching, setRoomSwitching] = useState(false);
   const view: View = activeMeetingId
     ? meetingMinimized
-      ? "chat"
+      ? (navigation?.view ?? (baseView === "files" ? "files" : "chat"))
       : "meetings"
     : (navigation?.view ??
       (baseView === "meetings" ||
@@ -446,7 +446,7 @@ export function Workspace({
         const chatPath = location.pathname.match(
           /^\/community(?:\/([^/]+))?\/?$/,
         );
-        setMeetingMinimized(!!id && !!chatPath);
+        setMeetingMinimized(!!id && (!!chatPath || location.pathname === "/files"));
         setRoomInfo(null);
         if (id) {
           setPanel(!matchMedia("(max-width: 900px)").matches);
@@ -1016,10 +1016,6 @@ export function Workspace({
             view: "chat",
             channel: decodeURIComponent(chatPath[1] ?? "trò-chuyện-chung"),
           });
-          if (activeMeetingId) {
-            setMeetingMinimized(true);
-            target.searchParams.set("meetingId", activeMeetingId);
-          }
         } else {
           setNavigation({ view: "files" });
           setFilter(
@@ -1027,15 +1023,16 @@ export function Workspace({
               ? "Bản ghi"
               : "Tất cả",
           );
-          setMeetingSelection(null);
-          setMeetingMinimized(false);
-          setRoomInfo(null);
+        }
+        if (activeMeetingId) {
+          // Browsing the workspace must not leave or remount the active meeting.
+          setMeetingMinimized(true);
+          target.searchParams.set("meetingId", activeMeetingId);
         }
         // Keep the sidebar mounted while changing the workspace content.
         if (target.href !== location.href) history.pushState(null, "", target);
       };
-      if (filesPath && activeMeetingId) void changeWorkspace(apply);
-      else apply();
+      apply();
       return;
     }
     if (activeMeetingId) {

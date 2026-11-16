@@ -21,6 +21,7 @@ interface ClassSessionBase {
   /** All timestamp strings in these contracts are ISO8601 UTC. */
   startedAt: string | null;
   endedAt: string | null;
+  endRequestedAt?: string | null;
   cancelledAt: string | null;
   createdAt: string;
   updatedAt: string;

@@ -23,6 +23,21 @@ export function validClassLease(
     },
   };
 }
+/** Only server-side IVS reconciliation can provide this evidence of presence. */
+export function verifiedClassMedia(
+  now: Date,
+): Prisma.ClassMediaConnectionWhereInput {
+  return {
+    state: "ACTIVE",
+    connected: true,
+    presenceVerifiedAt: { gt: new Date(now.getTime() - 30000) },
+    authSession: {
+      revokedAt: null,
+      expiresAt: { gt: now },
+      user: { disabledAt: null },
+    },
+  };
+}
 export async function classVisitCurrent(
   tx: Tx,
   visit: ClassParticipation,
@@ -31,8 +46,15 @@ export async function classVisitCurrent(
 ) {
   if (visit.leftAt) return false;
   if (visit.lastSeenAt.getTime() + ttlMs > now.getTime()) return true;
-  return !!(await tx.classPresenceLease.findFirst({
-    where: { participationId: visit.id, ...validClassLease(now) },
+  if (
+    await tx.classPresenceLease.findFirst({
+      where: { participationId: visit.id, ...validClassLease(now) },
+      select: { id: true },
+    })
+  )
+    return true;
+  return !!(await tx.classMediaConnection.findFirst({
+    where: { participationId: visit.id, ...verifiedClassMedia(now) },
     select: { id: true },
   }));
 }

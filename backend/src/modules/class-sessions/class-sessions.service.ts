@@ -14,7 +14,10 @@ import type {
 } from "@streamora/contracts";
 import { ApiError } from "../../common/api-error";
 import { PrismaService } from "../../database/prisma.service";
-import { validClassLease } from "../../database/class-presence";
+import {
+  validClassLease,
+  verifiedClassMedia,
+} from "../../database/class-presence";
 import { GroupAccessService } from "../memberships/group-access.service";
 import { ClassSessionAccessService } from "./class-session-access.service";
 import { ClassSessionCommandsService } from "./class-session-commands.service";
@@ -41,6 +44,7 @@ export function toClassSession(row: StoredSession): ClassSession {
     status: row.status,
     startedAt: row.startedAt?.toISOString() ?? null,
     endedAt: row.endedAt?.toISOString() ?? null,
+    endRequestedAt: row.endRequestedAt?.toISOString() ?? null,
     cancelledAt: row.cancelledAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -136,8 +140,14 @@ export class ClassSessionsService {
     const operation = groupId ? "CREATE_GROUP" : "CREATE_MEET";
     const input = {
       groupId,
-      createLessonFolder: groupId ? ((dto as CreateGroupClassSessionDto).createLessonFolder ?? false) : false,
-      materialFileIds: groupId ? [...((dto as CreateGroupClassSessionDto).materialFileIds ?? [])].sort() : [],
+      createLessonFolder: groupId
+        ? ((dto as CreateGroupClassSessionDto).createLessonFolder ?? false)
+        : false,
+      materialFileIds: groupId
+        ? [
+            ...((dto as CreateGroupClassSessionDto).materialFileIds ?? []),
+          ].sort()
+        : [],
       memberAdmission: groupId
         ? ((dto as CreateGroupClassSessionDto).memberAdmission ?? "DIRECT")
         : "APPROVAL",
@@ -151,7 +161,8 @@ export class ClassSessionsService {
         : null,
     };
     const { createLessonFolder, materialFileIds, ...legacyInput } = input;
-    const commandInput = createLessonFolder || materialFileIds.length ? input : legacyInput;
+    const commandInput =
+      createLessonFolder || materialFileIds.length ? input : legacyInput;
     // A rare discovery-code collision retries the whole transaction with a new code.
     for (let attempt = 0; ; attempt++) {
       try {
@@ -191,13 +202,26 @@ export class ClassSessionsService {
                 ).meetingSequence
               : 0;
             if (input.materialFileIds.length && !input.createLessonFolder)
-              throw new ApiError(400, "LESSON_FOLDER_REQUIRED", "Chọn tạo folder buổi học trước khi thêm tài liệu.");
+              throw new ApiError(
+                400,
+                "LESSON_FOLDER_REQUIRED",
+                "Chọn tạo folder buổi học trước khi thêm tài liệu.",
+              );
             if (input.materialFileIds.length) {
-              const count = await tx.libraryFile.count({ where: {
-                id: { in: input.materialFileIds }, groupId: groupId!, status: "AVAILABLE", source: "DOCUMENT",
-              } });
+              const count = await tx.libraryFile.count({
+                where: {
+                  id: { in: input.materialFileIds },
+                  groupId: groupId!,
+                  status: "AVAILABLE",
+                  source: "DOCUMENT",
+                },
+              });
               if (count !== input.materialFileIds.length)
-                throw new ApiError(403, "MATERIAL_ACCESS_DENIED", "Tài liệu phải sẵn sàng và thuộc đúng nhóm của buổi học.");
+                throw new ApiError(
+                  403,
+                  "MATERIAL_ACCESS_DENIED",
+                  "Tài liệu phải sẵn sàng và thuộc đúng nhóm của buổi học.",
+                );
             }
             const row = await tx.classSession.create({
               data: {
@@ -218,12 +242,20 @@ export class ClassSessionsService {
             });
             if (groupId) {
               if (input.createLessonFolder) {
-                const folder = await tx.folder.create({ data: {
-                  groupId, sessionId: row.id, createdBy: userId,
-                  name: `${row.title} · Buổi ${sequence}`,
-                } });
+                const folder = await tx.folder.create({
+                  data: {
+                    groupId,
+                    sessionId: row.id,
+                    createdBy: userId,
+                    name: `${row.title} · Buổi ${sequence}`,
+                  },
+                });
                 await tx.libraryFile.updateMany({
-                  where: { id: { in: input.materialFileIds }, groupId, status: "AVAILABLE" },
+                  where: {
+                    id: { in: input.materialFileIds },
+                    groupId,
+                    status: "AVAILABLE",
+                  },
                   data: { folderId: folder.id, folderPath: "" },
                 });
               }
@@ -245,8 +277,15 @@ export class ClassSessionsService {
               // Durable invalidation consumed independently by every realtime instance.
               await tx.$executeRaw`SELECT class_realtime_change(${row.id}::uuid, 'meeting.created')`;
             }
-            const folder = await tx.folder.findUnique({ where: { sessionId: row.id } });
-            const response = { session: { ...toClassSession(row), lessonFolderId: folder?.id ?? null } };
+            const folder = await tx.folder.findUnique({
+              where: { sessionId: row.id },
+            });
+            const response = {
+              session: {
+                ...toClassSession(row),
+                lessonFolderId: folder?.id ?? null,
+              },
+            };
             await this.saveCommand(
               tx,
               userId,
@@ -364,7 +403,12 @@ export class ClassSessionsService {
       const row = await this.session(tx, sessionId);
       await this.authorize(tx, userId, row, false);
       const folder = await tx.folder.findUnique({ where: { sessionId } });
-      return { session: { ...toClassSession(row), lessonFolderId: folder && !folder.deletedAt ? folder.id : null } };
+      return {
+        session: {
+          ...toClassSession(row),
+          lessonFolderId: folder && !folder.deletedAt ? folder.id : null,
+        },
+      };
     });
   }
 
@@ -499,32 +543,32 @@ export class ClassSessionsService {
           { now: Date }[]
         >`SELECT clock_timestamp() AS now`;
         const now = clock.now;
+        if (operation === "END") {
+          const response = {
+            session: toClassSession(
+              await this.requestOrFinishEnd(tx, row, now),
+            ),
+          };
+          if (!command.previous)
+            await this.saveCommand(
+              tx,
+              userId,
+              operation,
+              key,
+              command.bodyHash,
+              response,
+            );
+          return response;
+        }
         const updated = await tx.classSession.update({
           where: { id: sessionId },
           data: {
             status: target,
             ...(operation === "START"
               ? { startedAt: now }
-              : operation === "END"
-                ? { endedAt: now }
-                : { cancelledAt: now }),
+              : { cancelledAt: now }),
           },
         });
-        if (operation === "END") {
-          await tx.classJoinRequest.updateMany({
-            where: { sessionId, status: { in: ["PENDING", "ACCEPTED"] } },
-            data: { status: "EXPIRED", closedAt: now },
-          });
-          await tx.classParticipation.updateMany({
-            where: { sessionId, leftAt: null },
-            data: { leftAt: now, leaveReason: "SESSION_ENDED" },
-          });
-          // Allocate versions through commit, including ends of different sessions.
-          await tx.$queryRaw`SELECT pg_advisory_xact_lock(73004)::text`;
-          await tx.classSessionEndEvent.create({
-            data: { sessionId, endedAt: now },
-          });
-        }
         const response = { session: toClassSession(updated) };
         if (!command.previous)
           await this.saveCommand(
@@ -541,16 +585,84 @@ export class ClassSessionsService {
     );
   }
 
-  /**
-   * Automatically ends a LIVE session when it has had no active participants for the grace period.
-   * Atomically verifies the session is still LIVE and has 0 active participants before transitioning.
-   */
-  async endSessionBySystem(sessionId: string): Promise<ClassSessionResponse | null> {
+  /** Caller holds the same group/session lock used by recording start. */
+  private async requestOrFinishEnd(tx: Tx, row: StoredSession, now: Date) {
+    const sessionId = row.id;
+    const pending = await tx.classRecording.count({
+      where: { sessionId, status: { in: ["RECORDING", "SAVING"] } },
+    });
+    if (pending) {
+      const updated = row.endRequestedAt
+        ? row
+        : await tx.classSession.update({
+            where: { id: sessionId },
+            data: { endRequestedAt: now },
+          });
+      const stopped = await tx.classRecording.updateMany({
+        where: { sessionId, status: "RECORDING" },
+        data: {
+          status: "SAVING",
+          stoppedAt: now,
+          nextCheckAt: now,
+          version: { increment: 1 },
+        },
+      });
+      if (!row.endRequestedAt)
+        await tx.$executeRaw`SELECT class_realtime_change(${sessionId}::uuid, 'session.changed')`;
+      if (stopped.count)
+        await tx.$executeRaw`SELECT class_realtime_change(${sessionId}::uuid, 'recording.changed')`;
+      return updated;
+    }
+    // Never close silently when saving a recording from this end request failed.
+    if (
+      row.endRequestedAt &&
+      (await tx.classRecording.count({
+        where: {
+          sessionId,
+          status: "FAILED",
+          stoppedAt: { gte: row.endRequestedAt },
+        },
+      }))
+    )
+      return row;
+    const updated = await tx.classSession.update({
+      where: { id: sessionId },
+      data: { status: "ENDED", endedAt: now },
+    });
+    await tx.classJoinRequest.updateMany({
+      where: { sessionId, status: { in: ["PENDING", "ACCEPTED"] } },
+      data: { status: "EXPIRED", closedAt: now },
+    });
+    await tx.classParticipation.updateMany({
+      where: { sessionId, leftAt: null },
+      data: { leftAt: now, leaveReason: "SESSION_ENDED" },
+    });
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(73004)::text`;
+    await tx.classSessionEndEvent.create({ data: { sessionId, endedAt: now } });
+    return updated;
+  }
+
+  async finishRequestedEnd(sessionId: string) {
     return this.prisma.$transaction(
       async (tx) => {
-        const row = await tx.classSession.findUnique({
-          where: { id: sessionId },
-        });
+        const row = await this.session(tx, sessionId, true);
+        if (row.status !== "LIVE" || !row.endRequestedAt) return null;
+        return {
+          session: toClassSession(
+            await this.requestOrFinishEnd(tx, row, new Date()),
+          ),
+        };
+      },
+      { timeout: 10000 },
+    );
+  }
+
+  async endSessionBySystem(
+    sessionId: string,
+  ): Promise<ClassSessionResponse | null> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const row = await this.session(tx, sessionId, true);
         if (!row || row.status !== "LIVE") {
           return null;
         }
@@ -560,7 +672,7 @@ export class ClassSessionsService {
         >`SELECT clock_timestamp() AS now`;
         const now = clock.now;
 
-        const leaseTtlMs = 30000;
+        const leaseTtlMs = this.policy.leaseTtlMs;
         const activeCount = await tx.classParticipation.count({
           where: {
             sessionId,
@@ -574,6 +686,7 @@ export class ClassSessionsService {
                     },
                   },
                   { leases: { some: validClassLease(now) } },
+                  { mediaConnections: { some: verifiedClassMedia(now) } },
                 ],
               },
               {
@@ -586,35 +699,13 @@ export class ClassSessionsService {
           },
         });
 
-        if (activeCount > 0) {
+        if (activeCount > 0 && !row.endRequestedAt) {
           return null;
         }
 
-        const updated = await tx.classSession.update({
-          where: { id: sessionId },
-          data: {
-            status: "ENDED",
-            endedAt: now,
-          },
-        });
-
-        await tx.classJoinRequest.updateMany({
-          where: { sessionId, status: { in: ["PENDING", "ACCEPTED"] } },
-          data: { status: "EXPIRED", closedAt: now },
-        });
-
-        await tx.classParticipation.updateMany({
-          where: { sessionId, leftAt: null },
-          data: { leftAt: now, leaveReason: "SESSION_ENDED" },
-        });
-
-        // Allocate versions through commit, including ends of different sessions.
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(73004)::text`;
-        await tx.classSessionEndEvent.create({
-          data: { sessionId, endedAt: now },
-        });
-
-        return { session: toClassSession(updated) };
+        return {
+          session: toClassSession(await this.requestOrFinishEnd(tx, row, now)),
+        };
       },
       { timeout: 10000 },
     );

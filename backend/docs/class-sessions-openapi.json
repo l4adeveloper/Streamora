@@ -1560,7 +1560,7 @@
     },
     "/api/v1/sessions/{sessionId}/end": {
       "post": {
-        "description": "LIVE→ENDED. Đóng yêu cầu/lượt tham gia và lưu một sự kiện session.ended.v1 trong cùng transaction. ENDED trả hiện trạng. Realtime báo kết thúc; consumer nội bộ có checkpoint để T11 tích hợp sau, chưa gọi dịch vụ ghi hình/media.",
+        "description": "Dừng và chờ lưu bản ghi trước khi chuyển LIVE→ENDED. Khi còn bản ghi chưa lưu, trả LIVE kèm endRequestedAt; máy chủ tự hoàn tất sau khi lưu thành công. ENDED trả hiện trạng.",
         "operationId": "classsessions_end",
         "parameters": [
           {
@@ -5848,6 +5848,17 @@
             "type": "string",
             "maxLength": 2000
           },
+          "createLessonFolder": {
+            "type": "boolean",
+            "default": false
+          },
+          "materialFileIds": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "allowGuests": {
             "type": "boolean",
             "default": false
@@ -5943,6 +5954,11 @@
             "format": "date-time",
             "nullable": true
           },
+          "endRequestedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -5967,6 +5983,7 @@
           "startedAt",
           "endedAt",
           "cancelledAt",
+          "endRequestedAt",
           "createdAt",
           "updatedAt"
         ]

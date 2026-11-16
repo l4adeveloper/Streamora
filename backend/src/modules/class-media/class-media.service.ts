@@ -442,6 +442,10 @@ export class ClassMediaService {
             "MEDIA_REVOKED",
             "Kết nối video đã kết thúc.",
           );
+        await tx.classParticipation.update({
+          where: { id: dto.participationId },
+          data: { lastSeenAt: new Date() },
+        });
         return { ok: true };
       },
     );
@@ -478,13 +482,18 @@ export class ClassMediaService {
     }
     return { ok: true };
   }
-  async revoke(connection: ClassMediaConnection, stageArn: string) {
+  async revoke(
+    connection: ClassMediaConnection,
+    stageArn: string,
+    staleBefore?: Date,
+  ) {
     const row = await this.db.classMediaConnection.updateMany({
       where: {
         id: connection.id,
         requestId: connection.requestId,
         participantId: connection.participantId,
         state: { not: "REVOKED" },
+        ...(staleBefore ? { lastSeenAt: { lt: staleBefore } } : {}),
       },
       data: { state: "REVOKING", tokenCiphertext: null, connected: false },
     });

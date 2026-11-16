@@ -1,10 +1,11 @@
 import type { Prisma } from "../../generated/prisma/client";
+import { verifiedClassMedia } from "../../database/class-presence";
 
 type Tx = Prisma.TransactionClient;
 
 /** A recorder that stops sending heartbeats no longer holds the recording. */
 export const RECORDING_STALE_MS = 45000;
-/** Matches ClassMediaWorker: connections silent for 30s are revoked. */
+/** HTTP heartbeat freshness; server-verified IVS presence also keeps a screen active. */
 const SCREEN_STALE_MS = 30000;
 /** Uploads of long recordings can take a while; give up after two hours. */
 const SAVING_STALE_MS = 2 * 60 * 60 * 1000;
@@ -44,6 +45,7 @@ export function liveScreenWhere(
         state: "ACTIVE",
         lastSeenAt: { gte: new Date(now.getTime() - SCREEN_STALE_MS) },
       },
+      verifiedClassMedia(now),
       { state: "ISSUING", leaseUntil: { gt: now } },
     ],
   };

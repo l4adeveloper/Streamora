@@ -158,6 +158,32 @@ test(
         "Reload must resume the existing state, not create a recording",
       );
       assert.equal(stops, 0, "Leaving/reloading must not send Stop");
+      let failAdmission = true;
+      const admissionUrl = `**/sessions/${session.id}/admission`;
+      await page.route(admissionUrl, (route) => {
+        if (route.request().method() !== "GET" || !failAdmission)
+          return route.continue();
+        failAdmission = false;
+        return route.fulfill({
+          status: 503,
+          headers,
+          json: { error: { code: "SERVICE_UNAVAILABLE" } },
+        });
+      });
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await page
+        .getByText("Dịch vụ tạm thời chưa sẵn sàng. Vui lòng thử lại sau.", {
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(
+        await stop.count(),
+        1,
+        "A transient refresh failure must keep the in-room media component mounted",
+      );
+      await page.unroute(admissionUrl);
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await page.getByText("Bạn đang ở trong phòng", { exact: true }).waitFor();
       await stop.click();
       await page
         .getByText("Đang hoàn tất bản ghi trên S3…", { exact: true })
@@ -222,6 +248,16 @@ test(
         "LIVE",
       );
       await page.unroute(endUrl);
+      await fixture.prisma.classRecording.create({
+        data: {
+          id: recording.id,
+          sessionId: session.id,
+          recorderId: user.id,
+          provider: "IVS",
+          status: "SAVING",
+          stoppedAt: new Date(),
+        },
+      });
       const ended = page.waitForResponse(
         (response) =>
           response.url().endsWith(`/sessions/${session.id}/end`) &&
@@ -231,6 +267,47 @@ test(
         .getByRole("button", { name: "Xác nhận kết thúc", exact: true })
         .click();
       assert.equal((await ended).status(), 200);
+      await page
+        .getByText(
+          "Đang lưu bản ghi trước khi kết thúc cuộc họp. Phòng sẽ đóng sau khi lưu thành công.",
+          { exact: true },
+        )
+        .waitFor();
+      assert.equal(
+        new URL(page.url()).searchParams.get("meetingId"),
+        session.id,
+      );
+      assert.equal(
+        (
+          await fixture.prisma.classSession.findUniqueOrThrow({
+            where: { id: session.id },
+          })
+        ).status,
+        "LIVE",
+      );
+      const file = await fixture.prisma.libraryFile.create({
+        data: {
+          groupId: group.id,
+          sessionId: session.id,
+          createdBy: user.id,
+          name: "Meeting.mp4",
+          objectKey: `recording/${randomUUID()}.mp4`,
+          size: 100n,
+          mimeType: "video/mp4",
+          source: "CLOUD_RECORDING",
+          status: "AVAILABLE",
+        },
+      });
+      await fixture.prisma.classRecording.update({
+        where: { id: recording.id },
+        data: { status: "SAVED", fileId: file.id },
+      });
+      await fixture.app
+        .get(
+          require("../../dist/modules/class-sessions/class-sessions.service")
+            .ClassSessionsService,
+        )
+        .finishRequestedEnd(session.id);
       await page.waitForFunction(
         () => !new URLSearchParams(location.search).has("meetingId"),
       );

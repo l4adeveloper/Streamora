@@ -222,6 +222,9 @@ function fixture() {
     $queryRaw: async () => [],
     sessionBan: { findFirst: async () => (banned ? { sessionId } : null) },
     sessionMicLock: { findUnique: async () => null },
+    classParticipation: {
+      update: async ({ where, data }) => ({ id: where.id, ...data }),
+    },
     user: { findUniqueOrThrow: async () => ({ fullName: "Tên từ server" }) },
     classMediaConnection: {
       findUnique: async () => row,

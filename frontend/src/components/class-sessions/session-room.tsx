@@ -204,8 +204,12 @@ export function SessionRoom({
     } catch (error) {
       if (request !== sequence.current) return;
       setError(error);
-      setData(null);
-      setConfirmation(null);
+      // Keep media mounted across a temporary API failure; the server still
+      // owns permission checks and will close/revoke actual lost access.
+      if ([401, 403, 404].includes(asApiError(error).status)) {
+        setData(null);
+        setConfirmation(null);
+      }
     } finally {
       if (request === sequence.current) setLoading(false);
     }
@@ -270,6 +274,9 @@ export function SessionRoom({
     preview = data?.preview,
     admission = data?.admission;
   const status = session?.status ?? preview?.status;
+  const ending = status === "LIVE" && !!session?.endRequestedAt;
+  const endingNotice =
+    "Đang lưu bản ghi trước khi kết thúc cuộc họp. Phòng sẽ đóng sau khi lưu thành công.";
   const visit = admission?.participation;
   const active =
     !!visit && !visit.leftAt && visit.id !== closedId && status === "LIVE";
@@ -305,13 +312,20 @@ export function SessionRoom({
   const sessionGroupId = data?.session?.groupId ?? data?.preview?.groupId;
   const sessionDocuments = sessionGroupId && data && (
     <div>
-    {session?.lessonFolderId && <Link className="button secondary compact" href={`/files?groupId=${sessionGroupId}&folderId=${session.lessonFolderId}`}>Mở folder buổi học</Link>}
-    <SessionDocuments
-      key={`${data.id}:${revision}`}
-      sessionId={data.id}
-      groupId={sessionGroupId}
-      canManage={manage}
-    />
+      {session?.lessonFolderId && (
+        <Link
+          className="button secondary compact"
+          href={`/files?groupId=${sessionGroupId}&folderId=${session.lessonFolderId}`}
+        >
+          Mở folder buổi học
+        </Link>
+      )}
+      <SessionDocuments
+        key={`${data.id}:${revision}`}
+        sessionId={data.id}
+        groupId={sessionGroupId}
+        canManage={manage}
+      />
     </div>
   );
   const meetingChat = useMeetingChat(
@@ -349,11 +363,14 @@ export function SessionRoom({
     try {
       const task = work();
       actionFlight.current = task;
-      await task;
-      if (message) notify(message, { tone: "success" });
+      const result = (await task) as { session?: ClassSession } | undefined;
+      const waitingForRecording =
+        name === "end" && result?.session?.status === "LIVE";
+      if (waitingForRecording) setNotice(endingNotice);
+      else if (message) notify(message, { tone: "success" });
       setConfirmation(null);
       if (["start", "end", "cancel"].includes(name)) setCallPanel(null);
-      return true;
+      return !waitingForRecording;
     } catch (error) {
       setActionError(error);
       return false;
@@ -471,11 +488,11 @@ export function SessionRoom({
             </button>
             <button
               className="button danger"
-              disabled={disabled}
+              disabled={disabled || ending}
               onClick={() => setConfirmation("end")}
             >
               <Square size={16} />
-              Kết thúc buổi học
+              {ending ? "Đang lưu bản ghi…" : "Kết thúc buổi học"}
             </button>
           </>
         )}
@@ -499,7 +516,7 @@ export function SessionRoom({
           </h3>
           <p id="class-confirm-description">
             {confirmation === "end"
-              ? "Các lượt tham gia và yêu cầu đang chờ sẽ được đóng. Buổi học không thể mở lại."
+              ? "Nếu đang ghi hình, bản ghi sẽ được dừng và lưu xong trước khi đóng phòng. Buổi học không thể mở lại."
               : "Lịch sẽ chuyển sang đã hủy và không thể bắt đầu."}
           </p>
           <div className="class-actions">
@@ -583,7 +600,9 @@ export function SessionRoom({
             {asApiError(actionError).message}
           </InlineNotice>
         )}
-        {notice && <InlineNotice>{notice}</InlineNotice>}
+        {(ending || notice) && (
+          <InlineNotice>{ending ? endingNotice : notice}</InlineNotice>
+        )}
         {data && status && (
           <>
             <ClassMediaRoom
@@ -950,7 +969,9 @@ export function SessionRoom({
             {asApiError(actionError).message}
           </InlineNotice>
         )}
-        {notice && <InlineNotice>{notice}</InlineNotice>}
+        {(ending || notice) && (
+          <InlineNotice>{ending ? endingNotice : notice}</InlineNotice>
+        )}
         {data && status && (
           <>
             <section className="class-panel class-room-header">

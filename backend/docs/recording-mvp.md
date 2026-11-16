@@ -9,6 +9,15 @@ vào S3. Backend kiểm tra định kỳ bằng API và marker S3; đóng tab kh
 Khi IVS đã hoàn tất và playlist đã đóng, backend ghép MP4 không mã hóa lại, lưu
 vào S3 và mới tạo job chất lượng/phụ đề trong cùng transaction.
 
+Bấm kết thúc khi đang ghi sẽ dừng ghi và lưu yêu cầu kết thúc trong database.
+Phòng vẫn mở cho đến khi bản ghi được lưu thành công vào thư viện, sau đó máy
+chủ tự đóng phòng. Không cần chờ các chất lượng hoặc phụ đề xử lý xong. Nếu lưu
+thất bại, phòng không tự đóng. Luồng này tiếp tục sau khi API khởi động lại.
+
+Khi chuyển tab hoặc trình duyệt chậm heartbeat, kết nối IVS do máy chủ xác minh
+vẫn giữ lượt tham gia. Cờ kết nối từ trình duyệt không được dùng làm bằng chứng.
+Khóa tài khoản, thu hồi quyền, chặn người dùng và kết thúc phòng vẫn ngắt kết nối.
+
 Chỉ phần thu bản ghi không phụ thuộc SQS/EventBridge. Các consumer SQS, rule và
 quyền cũ giữ nguyên. Giữ cấu hình VIDEO_* hiện có; production tiếp tục dùng
 MediaConvert/DynamoDB/CDN đang chạy. Không chuyển VIDEO_MODE sang local vì record.
