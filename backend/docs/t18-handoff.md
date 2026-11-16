@@ -101,8 +101,16 @@ URLs remain valid until expiry; revocation prevents new grants/playlists.
 source. `LIVE_DVR` currently returns 409 rather than selecting unfinished VOD.
 
 The backend loads the GCS signing key as plain base64url text from AWS Secrets
-Manager in the configured AWS region. The secret and least-privilege runtime
-GetSecretValue permission still need provisioning. Successful keys are cached
+Manager in the configured AWS region. On 2026-11-17 the secret
+`streamora/t18-gcs-cdn-signing` was created in `ap-northeast-1`, account
+`586481704097`, with `aws/secretsmanager` encryption and rotation disabled.
+Inline policy `streamora-t18-signing-secret` grants `streamora-developer` only
+`secretsmanager:GetSecretValue` on
+`arn:aws:secretsmanager:ap-northeast-1:586481704097:secret:streamora/t18-gcs-cdn-signing-??????`.
+An actual SDK read succeeded and matched the verified v2 key without logging it.
+The production `VideoDelivery.gcsSignedObjectFactory` loaded the secret and
+produced the expected signature; a signed HEAD for an intentionally absent
+object returned 404, as expected. Successful keys are cached
 until process restart; rotate configuration and restart the API when switching
 key versions. Never deploy the local diagnostic key-file path as a setting.
 
