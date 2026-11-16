@@ -1,0 +1,75 @@
+.ui-modal-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-dialog, 20px);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow-dialog);
+  overflow: hidden;
+}
+.ui-modal-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.ui-modal-dialog::backdrop {
+  background: var(--overlay, #0009);
+}
+.ui-modal-heading,
+.ui-modal-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+}
+.ui-modal-heading {
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+.ui-modal-heading > div {
+  min-width: 0;
+}
+.ui-modal-heading h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.ui-modal-heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ui-modal-heading > button {
+  flex-shrink: 0;
+}
+.ui-modal-body {
+  min-height: 0;
+  padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ui-modal-footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 600px) {
+  .ui-modal-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+  .ui-modal-heading,
+  .ui-modal-body,
+  .ui-modal-footer {
+    padding: 16px;
+  }
+  .ui-modal-footer {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}

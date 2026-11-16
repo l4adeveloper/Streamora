@@ -44,6 +44,7 @@ import { LoadingState, RequestError } from "../common/feedback";
 import "./files.css";
 import { FileUploader } from "./file-uploader";
 import { FileActionsMenu } from "./file-actions-menu";
+import { LessonFolderPanel } from "./lesson-folder-panel";
 import { FolderTree } from "./folder-tree";
 import { VideoPreview } from "./video-preview";
 
@@ -113,10 +114,15 @@ export function FilesPanel({
 
   // Folder states
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get("folderId");
+    setCurrentFolderId(id && /^[\da-f-]{36}$/i.test(id) ? id : null);
+  }, [groupId]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [breadcrumbs, setBreadcrumbs] = useState<FolderBreadcrumb[]>([]);
   const [currentFolder, setCurrentFolder] = useState<FolderItem | null>(null);
   const [folderLoading, setFolderLoading] = useState(false);
+  const [lessonFolder, setLessonFolder] = useState<FolderItem | null>(null);
 
   // Folder modal state
   const [folderAction, setFolderAction] = useState<
@@ -424,6 +430,11 @@ export function FilesPanel({
 
   return (
     <div className="files-page">
+      {lessonFolder && <LessonFolderPanel key={lessonFolder.id} folder={lessonFolder} canManage={permissions.canHost} onClose={() => setLessonFolder(null)} onChanged={() => { void load(); void loadFolders(); }} />}
+      {currentFolder?.kind === "LESSON" && <section className="lesson-folder-banner">
+        <div><b>Folder buổi học · {currentFolder.name}</b><p>Bản ghi và tóm tắt được lưu theo buổi học này.</p></div>
+        <button type="button" className="button secondary" onClick={() => setLessonFolder(currentFolder)}>{permissions.canHost ? "Tài liệu & Tóm tắt AI" : "Xem tóm tắt"}</button>
+      </section>}
       {permissions.canUpload && (
         <FileUploader
           key={`${groupId}:${userId}:${currentFolderId ?? "root"}`}
@@ -538,8 +549,10 @@ export function FilesPanel({
                     </span>
                     <div className="folder-card-info">
                       <span className="folder-name">{folder.name}</span>
+                      {folder.kind === "LESSON" && <small className="lesson-folder-badge">Buổi học</small>}
                     </div>
                   </button>
+                  {folder.kind === "LESSON" && <button type="button" className="button secondary compact lesson-folder-summary-button" aria-label={`Tóm tắt buổi học ${folder.name}`} onClick={() => setLessonFolder(folder)}>Tóm tắt AI</button>}
                   {canManageFolder(folder) && (
                     <FileActionsMenu
                       label={`Thao tác thư mục ${folder.name}`}
@@ -685,25 +698,24 @@ export function FilesPanel({
                       <Eye size={16} />
                     </button>
                   )}
-                  <FileActionsMenu
-                    label={`Thao tác ${file.name}`}
-                    disabled={busy}
+                  <button
+                    type="button"
+                    title="Tải xuống"
+                    aria-label={`Tải xuống ${file.name}`}
+                    disabled={
+                      busy ||
+                      file.status !== "AVAILABLE" ||
+                      file.canDownload === false
+                    }
+                    onClick={() => void download(file)}
                   >
-                    <button
-                      type="button"
-                      role="menuitem"
-                      title="Tải xuống"
-                      aria-label={`Tải xuống ${file.name}`}
-                      disabled={
-                        busy ||
-                        file.status !== "AVAILABLE" ||
-                        file.canDownload === false
-                      }
-                      onClick={() => void download(file)}
+                    <Download size={16} />
+                  </button>
+                  {canManage(file) && (
+                    <FileActionsMenu
+                      label={`Thao tác ${file.name}`}
+                      disabled={busy}
                     >
-                      <Download size={18} /> Tải xuống
-                    </button>
-                    {canManage(file) && (
                       <>
                         {file.isPublished === false ? (
                           <button
@@ -764,8 +776,8 @@ export function FilesPanel({
                           <Trash2 size={18} /> Xóa tài liệu
                         </button>
                       </>
-                    )}
-                  </FileActionsMenu>
+                    </FileActionsMenu>
+                  )}
                 </span>
               </div>
             ))}

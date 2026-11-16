@@ -37,6 +37,8 @@ export function presentFolder(
 ): FolderItem {
   return {
     id: folder.id,
+    kind: folder.sessionId ? "LESSON" : "REGULAR",
+    sessionId: folder.sessionId ?? null,
     groupId: folder.groupId,
     parentId: folder.parentId ?? null,
     name: folder.name,

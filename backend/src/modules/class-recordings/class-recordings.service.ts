@@ -312,7 +312,10 @@ export class ClassRecordingsService {
           version: { increment: 1 },
         },
       });
-      await tx.videoTranscript.create({ data: { fileId } });
+      const lessonFolder = await tx.folder.findUnique({ where: { sessionId } });
+      if (lessonFolder && !lessonFolder.deletedAt)
+        await tx.libraryFile.update({ where: { id: fileId }, data: { folderId: lessonFolder.id, folderPath: "" } });
+      await tx.videoTranscript.upsert({ where: { fileId }, create: { fileId }, update: {} });
       await recordingChanged(tx, sessionId);
       return { recording: await this.view(tx, saved) };
     });

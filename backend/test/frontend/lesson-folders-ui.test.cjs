@@ -1,0 +1,90 @@
+const assert = require('node:assert/strict');
+const { test } = require('node:test');
+const { randomUUID } = require('node:crypto');
+const {cp,mkdir,writeFile,rm}=require('node:fs/promises');
+const {resolve,join,dirname}=require('node:path');
+const {execFile,spawn}=require('node:child_process');
+const {promisify}=require('node:util');
+const {createServer}=require('node:net');
+const {chromium}=require('playwright');
+const {createMeetingFixture}=require('../meeting-fixture.cjs');
+
+test('Lesson folder UI creates with materials, accepts later files and saves custom-prompt summary in the same folder', {timeout:240000}, async()=>{
+ const root=resolve(__dirname,'../../..'),dir=join(root,'.preview',`lesson-ui-${randomUUID()}`),output=join(root,'.preview','lesson-folder-review');
+ let f,server,browser,page;
+ try {
+  const probe=createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));const origin=`http://127.0.0.1:${port}`;
+  f=await createMeetingFixture(origin);const owner=await f.account('Giảng viên kiểm thử');const password='Lesson-ui-test-123!';await f.prisma.user.update({where:{id:owner.id},data:{passwordHash:await require('argon2').hash(password)}});
+  const group=await f.prisma.group.create({data:{name:'Hệ thống phân tán',ownerId:owner.id,members:{create:{userId:owner.id,role:'OWNER'}}}});
+  const {FileStorageService}=require('../../dist/modules/files/file-storage.service');const storage=f.app.get(FileStorageService);
+  const docs=[];for(const name of ['Bài giảng.txt','Bài tập.txt']) {const objectKey=`test/${randomUUID()}.txt`,text='Nội dung buổi học về cân bằng tải.';await storage.writeText(objectKey,text);docs.push(await f.prisma.libraryFile.create({data:{groupId:group.id,name,size:Buffer.byteLength(text),mimeType:'text/plain',source:'DOCUMENT',status:'AVAILABLE',objectKey,createdBy:owner.id}}));}
+  await f.prisma.libraryFile.create({data:{groupId:group.id,name:'Tài liệu với tên rất dài để kiểm tra bố cục trên điện thoại và trong giao diện tối - hệ thống phân tán và kiến trúc dịch vụ.pdf',size:100,mimeType:'application/pdf',source:'DOCUMENT',status:'AVAILABLE',objectKey:`test/${randomUUID()}.pdf`,createdBy:owner.id}});
+  const {AzureLessonSummary}=require('../../dist/modules/lesson-folders/azure-lesson-summary');let customPrompt;
+  f.config.azureOpenAI={endpoint:'https://example.openai.azure.com/openai/v1',apiKey:'test-only',deployment:'test-deployment'};
+  f.app.get(AzureLessonSummary).generate=async(parts,prompt)=>{customPrompt=prompt;return {title:'Tóm tắt buổi học',markdown:'## Nội dung chính\nCân bằng tải và bài tập thực hành.',sourceIds:docs.map(d=>d.id)};};
+  const {LessonFoldersService}=require('../../dist/modules/lesson-folders/lesson-folders.service');const worker=f.app.get(LessonFoldersService);
+  await mkdir(dir,{recursive:true});await mkdir(output,{recursive:true});for(const name of ['src','public'])await cp(join(root,'frontend',name),join(dir,name),{recursive:true});
+  for(const name of ['tsconfig.json','package.json','next-env.d.ts'])await cp(join(root,'frontend',name),join(dir,name));
+  await writeFile(join(dir,'next.config.ts'),'import config from "../../frontend/next.config";export default {...config,experimental:{cpus:1}};');
+  await mkdir(join(dir,'src/app/lesson-probe'),{recursive:true});
+  await writeFile(join(dir,'src/app/lesson-probe/page.tsx'),`"use client";import {useState} from 'react';import type {ClassSession,GroupPermissions} from '@streamora/contracts';import {CreateGroupMeeting} from '@/components/class-sessions/create-group-meeting';import {FilesPanel} from '@/components/files/files-panel';export default function Page(){const[open,setOpen]=useState(false),[created,setCreated]=useState<ClassSession|null>(null);return <main style={{padding:20}}><h1>Tài liệu chung</h1><button onClick={()=>setOpen(true)}>Tạo buổi học thử</button>{open&&<CreateGroupMeeting groupId="${group.id}" groupName="Hệ thống phân tán" onClose={()=>setOpen(false)} onCreated={s=>{setCreated(s);setOpen(false)}}/>}{created&&<p role="status">Đã tạo buổi học: {created.title}</p>}<FilesPanel key={created?.id??'initial'} groupId="${group.id}" userId="${owner.id}" filter="Tất cả" onFilterChange={()=>{}} permissions={{role:'OWNER',canHost:true,canUpload:false,canManageMembers:true,canViewRecordings:true} as GroupPermissions}/></main>}`);
+  const env={...process.env,NODE_ENV:'production',NEXT_PUBLIC_API_URL:f.base,NEXT_PUBLIC_REALTIME_URL:f.base.replace('/api/v1',''),NEXT_TELEMETRY_DISABLED:'1'};
+  for(const key of ['DATABASE_URL','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','ACCESS_TOKEN_SECRET','AZURE_OPENAI_API_KEY'])delete env[key];
+  const next=require.resolve('next/dist/bin/next');await promisify(execFile)(process.execPath,[next,'build'],{cwd:dir,env,windowsHide:true,timeout:150000,maxBuffer:8*1024*1024});console.log('Production frontend build passed');
+  server=spawn(process.execPath,[next,'start','--hostname','127.0.0.1','--port',String(port)],{cwd:dir,env,windowsHide:true,stdio:'ignore'});
+  for(let i=0;i<80;i++){try{if((await fetch(origin)).ok)break;}catch{}await new Promise(r=>setTimeout(r,250));}
+  browser=await chromium.launch({headless:true,channel:process.platform==='win32'?'msedge':undefined});page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(origin+'/login');await page.getByLabel('Email',{exact:true}).fill(owner.email);await page.getByLabel('Mật khẩu',{exact:true}).fill(password);await page.locator('button[type=submit]').click();await page.waitForURL('**/workspace');
+  const workspaceUrl=page.url();
+  await page.locator('.workspace-account').click();
+  const account=page.getByRole('dialog',{name:'Tài khoản của bạn',exact:true});await account.waitFor();assert.equal(page.url(),workspaceUrl);
+  await account.getByLabel('Họ và tên',{exact:true}).fill('Giảng viên cập nhật trong popup');
+  await account.getByRole('button',{name:'Lưu thay đổi',exact:false}).click();
+  await page.waitForFunction(()=>document.querySelector('.workspace-account b')?.textContent==='Giảng viên cập nhật trong popup');
+  assert.equal((await f.prisma.user.findUnique({where:{id:owner.id}})).fullName,'Giảng viên cập nhật trong popup');assert.equal(page.url(),workspaceUrl);
+  await account.screenshot({path:join(output,'account-desktop.png')});
+  await page.setViewportSize({width:390,height:844});assert.ok(await account.evaluate(e=>e.scrollWidth<=e.clientWidth+1));await account.screenshot({path:join(output,'account-mobile.png')});
+  await page.keyboard.press('Escape');await account.waitFor({state:'hidden'});assert.equal(page.url(),workspaceUrl);
+  assert.equal(await page.locator('.workspace-account').evaluate(e=>e===document.activeElement),true);
+  await page.setViewportSize({width:1440,height:1000});
+  await page.getByRole('button',{name:'Tạo cuộc họp / Lên lịch',exact:true}).click();
+  const workspaceCreate=page.getByRole('dialog',{name:'Tạo cuộc họp',exact:true});await workspaceCreate.getByRole('checkbox',{name:'Tạo folder cho buổi học',exact:true}).check();
+  const workspacePicker=page.getByRole('dialog',{name:'Chọn tài liệu cho buổi học',exact:true});await workspacePicker.waitFor();
+  for(let i=0;i<8;i++){await page.keyboard.press('Tab');assert.equal(await workspacePicker.evaluate(e=>e.contains(document.activeElement)),true);}
+  await page.keyboard.press('Escape');await workspacePicker.waitFor({state:'hidden'});assert.equal(await workspaceCreate.isVisible(),true);
+  await workspaceCreate.getByRole('button',{name:'Lên lịch buổi học',exact:true}).click();
+  const schedule=page.getByRole('dialog',{name:'Lên lịch buổi học',exact:true});await schedule.getByLabel('Tên buổi học',{exact:true}).fill('Buổi học lên lịch');await schedule.getByLabel('Thời gian dự kiến',{exact:true}).fill('2026-12-01T10:30');
+  await schedule.getByRole('checkbox',{name:'Tạo folder cho buổi học',exact:true}).check();await workspacePicker.getByRole('checkbox',{name:'Bài tập.txt',exact:true}).check();await workspacePicker.getByRole('button',{name:'Xác nhận',exact:true}).click();await workspacePicker.waitFor({state:'hidden'});
+  assert.equal(await schedule.getByLabel('Tên buổi học',{exact:true}).inputValue(),'Buổi học lên lịch');assert.equal(await schedule.getByLabel('Thời gian dự kiến',{exact:true}).inputValue(),'2026-12-01T10:30');assert.equal(await schedule.getByText('Đã chọn 1 tài liệu',{exact:true}).isVisible(),true);
+  await schedule.getByRole('button',{name:'Đóng tạo cuộc họp',exact:true}).click();await schedule.waitFor({state:'hidden'});assert.equal(page.url(),workspaceUrl);
+  await page.goto(origin+'/lesson-probe');await page.getByRole('button',{name:'Tạo buổi học thử',exact:true}).click();
+  const create=page.getByRole('dialog',{name:'Tạo cuộc họp',exact:true});await create.getByLabel('Tên cuộc họp',{exact:true}).fill('Buổi học với folder');await create.getByRole('checkbox',{name:'Tạo folder cho buổi học',exact:true}).check();
+  const picker=page.getByRole('dialog',{name:'Chọn tài liệu cho buổi học',exact:true});await picker.waitFor();
+  await picker.getByRole('checkbox',{name:'Bài giảng.txt',exact:true}).check();await picker.getByRole('button',{name:'Hủy',exact:true}).click();await picker.waitFor({state:'hidden'});
+  assert.equal(await create.isVisible(),true);assert.equal(await create.getByLabel('Tên cuộc họp',{exact:true}).inputValue(),'Buổi học với folder');assert.equal(await create.getByRole('checkbox',{name:'Bài giảng.txt',exact:true}).count(),0);
+  await create.getByRole('button',{name:'Chọn tài liệu',exact:true}).click();await picker.getByRole('checkbox',{name:'Bài giảng.txt',exact:true}).waitFor();assert.equal(await picker.getByRole('checkbox',{name:'Bài giảng.txt',exact:true}).isChecked(),false);
+  await picker.getByRole('checkbox',{name:'Bài giảng.txt',exact:true}).check();
+  const checkboxSize=await picker.getByRole('checkbox',{name:'Bài giảng.txt',exact:true}).boundingBox();assert.ok(checkboxSize.width<=20&&checkboxSize.height<=20);
+  await picker.screenshot({path:join(output,'picker-light-desktop.png')});
+  await page.evaluate(()=>document.documentElement.dataset.theme='dark');await picker.screenshot({path:join(output,'picker-dark-desktop.png')});
+  await page.setViewportSize({width:390,height:844});assert.ok(await picker.evaluate(e=>e.scrollWidth<=e.clientWidth+1));await picker.screenshot({path:join(output,'picker-dark-mobile.png')});
+  await picker.getByRole('button',{name:'Xác nhận',exact:true}).click();await picker.waitFor({state:'hidden'});
+  assert.equal(await create.getByText('Đã chọn 1 tài liệu',{exact:true}).isVisible(),true);assert.equal(await create.getByLabel('Tên cuộc họp',{exact:true}).inputValue(),'Buổi học với folder');assert.equal(await f.prisma.classSession.count({where:{groupId:group.id}}),0);
+  await create.getByRole('button',{name:'Thay đổi tài liệu',exact:true}).click();await picker.getByRole('checkbox',{name:'Bài giảng.txt',exact:true}).waitFor();assert.equal(await picker.getByRole('checkbox',{name:'Bài giảng.txt',exact:true}).isChecked(),true);await page.keyboard.press('Escape');await picker.waitFor({state:'hidden'});assert.equal(await create.isVisible(),true);
+  await create.screenshot({path:join(output,'create-mobile.png')});await page.setViewportSize({width:1440,height:1000});await create.screenshot({path:join(output,'create-desktop.png')});
+  await create.getByRole('button',{name:'Tạo cuộc họp',exact:true}).click();await create.waitFor({state:'hidden'});
+  const session=await f.prisma.classSession.findFirst({where:{groupId:group.id,title:'Buổi học với folder'}});const folder=await f.prisma.folder.findUnique({where:{sessionId:session.id}});assert.ok(folder);
+  assert.equal((await f.prisma.libraryFile.findUnique({where:{id:docs[0].id}})).folderId,folder.id);
+  await page.getByTitle(`Mở thư mục ${folder.name}`,{exact:true}).click();await page.getByRole('button',{name:'Tài liệu & Tóm tắt AI',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:folder.name,exact:true});await dialog.waitFor();assert.equal(await dialog.getByRole('button',{name:'Tạo tóm tắt',exact:true}).isDisabled(),true);
+  await dialog.getByText('Thêm tài liệu có sẵn vào folder',{exact:true}).click();await dialog.getByRole('button',{name:'Chọn tài liệu',exact:true}).click();await picker.getByRole('checkbox',{name:'Bài tập.txt',exact:true}).check();await picker.getByRole('button',{name:'Xác nhận',exact:true}).click();await picker.waitFor({state:'hidden'});assert.equal(await dialog.isVisible(),true);await dialog.getByRole('button',{name:'Thêm 1 tài liệu',exact:true}).click();
+  await page.waitForTimeout(400);assert.equal((await f.prisma.libraryFile.findUnique({where:{id:docs[1].id}})).folderId,folder.id);
+  await dialog.getByRole('button',{name:'Đóng folder buổi học',exact:true}).click();await f.api(owner,'POST',`/sessions/${session.id}/end`,{},randomUUID());
+  await page.getByRole('button',{name:'Tài liệu & Tóm tắt AI',exact:true}).click();await dialog.getByLabel('Yêu cầu bổ sung (tùy chọn)',{exact:true}).fill('Tập trung phần bài tập thực hành');await dialog.getByRole('button',{name:'Tạo tóm tắt',exact:true}).click();await dialog.getByRole('status').waitFor();await worker.tick();
+  await dialog.getByText('Đã lưu bản tóm tắt vào folder này.',{exact:true}).waitFor();assert.equal(customPrompt,'Tập trung phần bài tập thực hành');assert.match(await dialog.locator('.lesson-summary-content').innerText(),/Cân bằng tải/);
+  const summary=await f.prisma.lessonSummary.findFirst({where:{folderId:folder.id}});assert.equal((await f.prisma.libraryFile.findUnique({where:{id:summary.resultFileId}})).folderId,folder.id);
+  await dialog.screenshot({path:join(output,'desktop.png')});await page.setViewportSize({width:390,height:844});assert.ok(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth+1));await dialog.screenshot({path:join(output,'mobile.png')});
+  assert.deepEqual(errors,[]);
+ }catch(error){if(page){await page.screenshot({path:join(output,'error.png'),fullPage:true});console.error((await page.locator('body').innerText()).slice(-2000));}throw error;}
+ finally{if(browser)await browser.close();if(server){server.kill();await new Promise(r=>server.once('exit',r));}if(f)await f.cleanup();assert.equal(dirname(dir),join(root,'.preview'));assert.match(dir,/lesson-ui-[a-f0-9-]{36}$/);await rm(dir,{recursive:true,force:true});}
+});

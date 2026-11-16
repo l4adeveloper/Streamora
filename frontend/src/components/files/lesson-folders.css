@@ -1,0 +1,271 @@
+.lesson-folder-option,
+.lesson-folder-banner {
+  padding: 16px;
+  margin-block: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.class-session-form .lesson-folder-option > label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  margin: 0;
+  cursor: pointer;
+}
+.lesson-folder-option input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  min-height: 17px;
+  flex: 0 0 17px;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.lesson-folder-option p,
+.lesson-material-picker p,
+.lesson-folder-banner p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.lesson-material-selection-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.lesson-material-selection-heading > svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.lesson-material-selection-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.lesson-material-selection-heading b {
+  font-size: 13px;
+  font-weight: 500;
+}
+.lesson-material-selection-heading small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.lesson-material-selection-heading .button {
+  flex-shrink: 0;
+}
+.lesson-selected-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.lesson-selected-files li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--elevated);
+  font-size: 12px;
+}
+.lesson-selected-files svg {
+  flex-shrink: 0;
+}
+.lesson-selected-files span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-modal-dialog.lesson-material-dialog {
+  height: min(640px, calc(100dvh - 32px));
+}
+.lesson-material-dialog .ui-modal-body {
+  display: flex;
+  flex: 1;
+}
+.lesson-material-picker {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+.lesson-material-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  flex-shrink: 0;
+}
+.lesson-material-filters select,
+.lesson-material-filters input {
+  min-width: 0;
+  width: 100%;
+  height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.lesson-material-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-block: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.lesson-material-list .lesson-material-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 12px;
+  margin: 0;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.lesson-material-item + .lesson-material-item {
+  border-top: 1px solid var(--border);
+}
+.lesson-material-item:hover,
+.lesson-material-item:has(input:checked) {
+  background: var(--hover);
+}
+.lesson-material-item > svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.lesson-material-list input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  min-height: 17px;
+  flex: 0 0 17px;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.lesson-material-name {
+  min-width: 0;
+}
+.lesson-material-name b {
+  font-size: 14px;
+  font-weight: 500;
+}
+.lesson-material-name small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.lesson-material-empty,
+.lesson-material-list > p {
+  padding: 24px 16px;
+  text-align: center;
+}
+.lesson-material-count {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--muted);
+}
+@media (max-width: 600px) {
+  .lesson-material-selection-heading {
+    flex-wrap: wrap;
+  }
+  .lesson-material-selection-heading .button {
+    width: 100%;
+  }
+  .lesson-material-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lesson-material-count {
+    flex-basis: 100%;
+  }
+}
+.lesson-folder-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.lesson-folder-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--primary, #2563eb);
+  font-size: 11px;
+}
+.folder-card:has(.lesson-folder-badge) {
+  flex-wrap: wrap;
+}
+.lesson-folder-summary-button {
+  margin: 4px 12px 8px;
+}
+.library-dialog.lesson-folder-dialog {
+  width: min(760px, calc(100vw - 24px));
+}
+.lesson-folder-dialog .library-dialog-heading > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lesson-folder-materials {
+  margin-block: 16px;
+}
+.lesson-folder-summary {
+  display: grid;
+  gap: 12px;
+}
+.lesson-folder-summary p {
+  margin: 0;
+}
+.lesson-folder-summary textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  resize: vertical;
+}
+.lesson-base-prompt,
+.lesson-summary-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.lesson-base-prompt {
+  max-height: 230px;
+  overflow-y: auto;
+}
+.lesson-summary-content {
+  white-space: normal;
+}
+.lesson-summary-content h4 {
+  margin: 16px 0 8px;
+  font-size: 15px;
+}
+.lesson-summary-content h4:first-child {
+  margin-top: 0;
+}
+.lesson-summary-content p,
+.lesson-summary-content ul {
+  margin-block: 10px;
+}
+.lesson-summary-content li {
+  margin-block: 5px;
+}

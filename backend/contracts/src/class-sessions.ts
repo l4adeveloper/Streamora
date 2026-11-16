@@ -8,6 +8,7 @@ export type ClassParticipationLeaveReason =
   "LEFT" | "DISCONNECTED" | "SESSION_ENDED" | "ACCESS_REVOKED";
 
 interface ClassSessionBase {
+  lessonFolderId?: string | null;
   id: string;
   createdById: string;
   title: string;
@@ -93,6 +94,8 @@ export interface ClassParticipationWithUser extends ClassParticipation {
 }
 
 export interface CreateGroupClassSessionRequest {
+  createLessonFolder?: boolean;
+  materialFileIds?: string[];
   title?: string;
   allowGuests?: boolean;
   /** Compatibility for scheduled classes using the existing approval workflow. */

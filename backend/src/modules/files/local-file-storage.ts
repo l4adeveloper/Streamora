@@ -6,6 +6,9 @@ import {
   open,
   realpath,
   unlink,
+  mkdtemp,
+  writeFile,
+  rmdir,
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
@@ -13,12 +16,25 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { ApiError } from "../../common/api-error";
 import { PREVIEW_TYPES, matchesPreviewType } from "./file-preview";
 import { Readable } from "node:stream";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { byteRange } from "./byte-range";
 
 export function attachmentName(name: string, preview = false) {
   return `${preview ? "inline" : "attachment"}; filename="${preview ? "preview" : "download"}"; filename*=UTF-8''${encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`;
 }
 export class LocalFileStorage {
+  async writeText(key: string, text: string) {
+    const directory = await mkdtemp(join(tmpdir(), "streamora-summary-"));
+    const source = join(directory, "summary.md");
+    try {
+      await writeFile(source, text, { flag: "wx" });
+      await this.importFile(source, key);
+    } finally {
+      await unlink(source).catch(() => {});
+      await rmdir(directory);
+    }
+  }
   private readonly root: string;
   private readonly signingKey: Buffer;
   constructor(

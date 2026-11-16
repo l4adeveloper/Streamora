@@ -136,6 +136,8 @@ export class ClassSessionsService {
     const operation = groupId ? "CREATE_GROUP" : "CREATE_MEET";
     const input = {
       groupId,
+      createLessonFolder: groupId ? ((dto as CreateGroupClassSessionDto).createLessonFolder ?? false) : false,
+      materialFileIds: groupId ? [...((dto as CreateGroupClassSessionDto).materialFileIds ?? [])].sort() : [],
       memberAdmission: groupId
         ? ((dto as CreateGroupClassSessionDto).memberAdmission ?? "DIRECT")
         : "APPROVAL",
@@ -148,6 +150,8 @@ export class ClassSessionsService {
         ? new Date(dto.scheduledAt).toISOString()
         : null,
     };
+    const { createLessonFolder, materialFileIds, ...legacyInput } = input;
+    const commandInput = createLessonFolder || materialFileIds.length ? input : legacyInput;
     // A rare discovery-code collision retries the whole transaction with a new code.
     for (let attempt = 0; ; attempt++) {
       try {
@@ -159,7 +163,7 @@ export class ClassSessionsService {
               userId,
               operation,
               key,
-              input,
+              commandInput,
             );
             if (groupId) {
               await tx.$queryRaw`SELECT id FROM groups WHERE id = ${groupId}::uuid FOR UPDATE`;
@@ -186,6 +190,15 @@ export class ClassSessionsService {
                   })
                 ).meetingSequence
               : 0;
+            if (input.materialFileIds.length && !input.createLessonFolder)
+              throw new ApiError(400, "LESSON_FOLDER_REQUIRED", "Chọn tạo folder buổi học trước khi thêm tài liệu.");
+            if (input.materialFileIds.length) {
+              const count = await tx.libraryFile.count({ where: {
+                id: { in: input.materialFileIds }, groupId: groupId!, status: "AVAILABLE", source: "DOCUMENT",
+              } });
+              if (count !== input.materialFileIds.length)
+                throw new ApiError(403, "MATERIAL_ACCESS_DENIED", "Tài liệu phải sẵn sàng và thuộc đúng nhóm của buổi học.");
+            }
             const row = await tx.classSession.create({
               data: {
                 kind: groupId ? "GROUP" : "MEET",
@@ -204,6 +217,16 @@ export class ClassSessionsService {
               },
             });
             if (groupId) {
+              if (input.createLessonFolder) {
+                const folder = await tx.folder.create({ data: {
+                  groupId, sessionId: row.id, createdBy: userId,
+                  name: `${row.title} · Buổi ${sequence}`,
+                } });
+                await tx.libraryFile.updateMany({
+                  where: { id: { in: input.materialFileIds }, groupId, status: "AVAILABLE" },
+                  data: { folderId: folder.id, folderPath: "" },
+                });
+              }
               const creator = await tx.user.findUniqueOrThrow({
                 where: { id: userId },
                 select: { fullName: true },
@@ -222,7 +245,8 @@ export class ClassSessionsService {
               // Durable invalidation consumed independently by every realtime instance.
               await tx.$executeRaw`SELECT class_realtime_change(${row.id}::uuid, 'meeting.created')`;
             }
-            const response = { session: toClassSession(row) };
+            const folder = await tx.folder.findUnique({ where: { sessionId: row.id } });
+            const response = { session: { ...toClassSession(row), lessonFolderId: folder?.id ?? null } };
             await this.saveCommand(
               tx,
               userId,
@@ -339,7 +363,8 @@ export class ClassSessionsService {
     return this.prisma.$transaction(async (tx) => {
       const row = await this.session(tx, sessionId);
       await this.authorize(tx, userId, row, false);
-      return { session: toClassSession(row) };
+      const folder = await tx.folder.findUnique({ where: { sessionId } });
+      return { session: { ...toClassSession(row), lessonFolderId: folder && !folder.deletedAt ? folder.id : null } };
     });
   }
 

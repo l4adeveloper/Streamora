@@ -496,10 +496,12 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
             current.operationToken !== token
           )
             busy();
+          const lessonFolder = current.source !== "DOCUMENT" && current.sessionId
+            ? await tx.folder.findUnique({ where: { sessionId: current.sessionId } }) : null;
           const file = await tx.libraryFile.create({
             data: {
               groupId: current.groupId,
-              folderId: current.folderId ?? null,
+              folderId: lessonFolder && !lessonFolder.deletedAt ? lessonFolder.id : current.folderId ?? null,
               createdBy: current.userId,
               name: current.filename,
               folderPath: current.folderPath,

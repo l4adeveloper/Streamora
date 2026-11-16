@@ -313,6 +313,12 @@ body:has(.app-shell) {
   gap: var(--space-2);
   padding: 0;
   border-radius: var(--radius-small);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .app-shell .workspace-account:hover {
   background: var(--active);
