@@ -13,6 +13,9 @@ import {
   RecordingPlaybackController,
 } from "./recording-playback.controller";
 import { RecordingPlaybackService } from "./recording-playback.service";
+import { RecordingSourceService } from "./recording-source.service";
+import { RecordingMediaController } from "./recording-media.controller";
+import { ReplicaStatusController } from "./replica-status.controller";
 
 @Module({
   imports: [
@@ -26,12 +29,15 @@ import { RecordingPlaybackService } from "./recording-playback.service";
     ClassRecordingsController,
     GroupRecordingsController,
     RecordingPlaybackController,
+    RecordingMediaController,
+    ReplicaStatusController,
   ],
   providers: [
     ClassRecordingsService,
     CloudRecordingWorker,
     RecordingTranscriptWorker,
     RecordingPlaybackService,
+    RecordingSourceService,
   ],
 })
 export class ClassRecordingsModule {}

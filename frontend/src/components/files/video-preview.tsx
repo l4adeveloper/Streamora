@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Captions, AlignLeft } from "lucide-react";
 import type Hls from "hls.js";
 import type { VideoPlaybackResponse } from "@streamora/contracts";
-import { asApiError } from "@/lib/api";
+import { ApiError, asApiError } from "@/lib/api";
 import {
   getVideoPlayback,
   getVideoProcessing,
@@ -12,6 +12,7 @@ import {
 import { VideoPlayerControls } from "./video-player-controls";
 import {
   getRecordingProgress,
+  getRecordingPlayback,
   saveRecordingProgress,
 } from "@/lib/recordings/api";
 import {
@@ -71,9 +72,16 @@ export function VideoPreview({
   });
   const sequence = useRef(0);
   const automaticRefreshAt = useRef(0);
+  const networkSource = useRef("");
+  const fallbackAvailable = useRef(false);
+  const failedSources = useRef(new Set<string>());
   const remember = useCallback(() => {
     const element = video.current;
-    if (element && element.readyState > 0)
+    if (
+      element &&
+      Number.isFinite(element.currentTime) &&
+      (element.readyState > 0 || element.seeking || element.currentTime > 0)
+    )
       bookmark.current = {
         time: element.currentTime,
         paused: element.paused,
@@ -83,14 +91,39 @@ export function VideoPreview({
       };
   }, []);
   const refresh = useCallback(
-    async (preferred = "", renewOnly = false) => {
+    async (preferred = "", renewOnly = false, failedNetworkSource?: string) => {
       const request = ++sequence.current;
       remember();
       if (!renewOnly) setLoading(true);
       setError("");
       try {
-        const response = await getVideoPlayback(fileId);
+        const response = recordingId
+          ? await getRecordingPlayback(
+              recordingId,
+              bookmark.current.time,
+              networkSource.current || undefined,
+              failedNetworkSource,
+            )
+          : await getVideoPlayback(fileId);
         if (request !== sequence.current) return;
+        // A viewer may seek again while the resolver request is in flight.
+        // Keep the latest position, rather than the request's earlier snapshot.
+        if (!renewOnly) remember();
+        if ("sourceId" in response && typeof response.sourceId === "string") {
+          if (
+            failedNetworkSource &&
+            failedSources.current.has(response.sourceId)
+          )
+            throw new ApiError(
+              503,
+              "PLAYBACK_SOURCE_UNAVAILABLE",
+              "Các nguồn phát hiện chưa khả dụng. Hãy thử lại sau.",
+            );
+          networkSource.current = response.sourceId;
+          fallbackAvailable.current =
+            "fallbackAvailable" in response &&
+            response.fallbackAvailable === true;
+        }
         denied.current = false;
         if (nativeManual.current) {
           const preference = nativeManual.current;
@@ -121,10 +154,13 @@ export function VideoPreview({
         }
       }
     },
-    [fileId, remember],
+    [fileId, recordingId, remember],
   );
   useEffect(() => {
     denied.current = false;
+    networkSource.current = "";
+    fallbackAvailable.current = false;
+    failedSources.current.clear();
     let cancelled = false;
     void (async () => {
       if (recordingId) {
@@ -175,6 +211,12 @@ export function VideoPreview({
     };
   }, [recordingId, manifest?.fileId]);
   const source = manifest?.sources.find((item) => item.id === sourceId);
+  useEffect(() => {
+    const element = video.current;
+    if (!element) return;
+    element.addEventListener("seeking", remember);
+    return () => element.removeEventListener("seeking", remember);
+  }, [manifest?.fileId, remember]);
   useEffect(() => {
     if (
       !manifest ||
@@ -239,6 +281,17 @@ export function VideoPreview({
         void refresh(source!.id);
         return;
       }
+      if (
+        recordingId &&
+        fallbackAvailable.current &&
+        networkSource.current &&
+        !failedSources.current.has(networkSource.current)
+      ) {
+        const failed = networkSource.current;
+        failedSources.current.add(failed);
+        void refresh(source!.id, false, failed);
+        return;
+      }
       setLoading(false);
       setError(
         message ??
@@ -284,8 +337,8 @@ export function VideoPreview({
               xhrSetup: (xhr, url) => {
                 xhr.withCredentials =
                   !source.public &&
-                  !new URL(url, window.location.href).searchParams.has(
-                    "Key-Pair-Id",
+                  !["Key-Pair-Id", "KeyName"].some((key) =>
+                    new URL(url, window.location.href).searchParams.has(key),
                   );
               },
               fetchSetup: (context, init) =>
@@ -293,8 +346,11 @@ export function VideoPreview({
                   ...init,
                   credentials:
                     source.public ||
-                    new URL(context.url, window.location.href).searchParams.has(
-                      "Key-Pair-Id",
+                    ["Key-Pair-Id", "KeyName"].some((key) =>
+                      new URL(
+                        context.url,
+                        window.location.href,
+                      ).searchParams.has(key),
                     )
                       ? "omit"
                       : "include",
@@ -364,6 +420,13 @@ export function VideoPreview({
               if (cancelled) return;
               if (data.response?.code === 403) {
                 instance?.stopLoad();
+                // Snapshot playback state before stopping; restoration should
+                // preserve whether the viewer was playing before a CDN failure.
+                remember();
+                if (recordingId && fallbackAvailable.current) {
+                  failure("Không tải được video. Hãy thử lại sau.");
+                  return;
+                }
                 element.pause();
                 if (
                   !source.public &&
@@ -371,10 +434,7 @@ export function VideoPreview({
                 ) {
                   automaticRefreshAt.current = Date.now();
                   void refresh(source.id);
-                } else
-                  failure(
-                    "Không truy cập được luồng video. Hãy kiểm tra quyền đọc video trên CloudFront hoặc thử lại.",
-                  );
+                } else failure("Không truy cập được video. Hãy thử lại.");
                 return;
               }
               if (!data.fatal) return;
@@ -387,7 +447,7 @@ export function VideoPreview({
               }
               failure(
                 data.type === Hls.ErrorTypes.NETWORK_ERROR
-                  ? "Không tải được luồng video. Hãy thử lại; nếu vẫn lỗi, kiểm tra liên kết và cấu hình CORS của CloudFront."
+                  ? "Không tải được video. Hãy kiểm tra kết nối và thử lại."
                   : "Không giải mã được luồng video. Hãy thử lại hoặc chọn Bản gốc.",
               );
             });
@@ -428,6 +488,8 @@ export function VideoPreview({
     nativeQuality,
     revision,
     refresh,
+    recordingId,
+    remember,
   ]);
 
   function toggleTranscript() {
@@ -614,7 +676,12 @@ export function VideoPreview({
               <video
                 ref={video}
                 playsInline
-                crossOrigin={source?.public ? "anonymous" : "use-credentials"}
+                crossOrigin={
+                  source?.public ||
+                  (recordingId && networkSource.current !== "original")
+                    ? "anonymous"
+                    : "use-credentials"
+                }
                 poster={manifest.thumbnail}
                 preload="metadata"
                 aria-label={`Xem trước video: ${name}`}
@@ -667,7 +734,10 @@ export function VideoPreview({
           <button
             type="button"
             className="button secondary compact"
-            onClick={() => void refresh(sourceId)}
+            onClick={() => {
+              failedSources.current.clear();
+              void refresh(sourceId);
+            }}
           >
             Thử lại video
           </button>

@@ -616,11 +616,23 @@ test(
       // Model public CloudFront: wildcard CORS rejects credentialed requests.
       const publicRequests = [];
       let corsEnabled = true;
+      let failPrimary = false;
+      let failReplica = false;
       publicServer = createServer(async (request, response) => {
         try {
-          const key = decodeURIComponent(
+          let key = decodeURIComponent(
             new URL(request.url, "http://localhost").pathname.slice(1),
           );
+          const primary = key.startsWith("t18-primary/"),
+            replica = key.startsWith("t18-replica/");
+          if (primary || replica) key = key.slice(key.indexOf("/") + 1);
+          if (corsEnabled)
+            response.setHeader("Access-Control-Allow-Origin", "*");
+          if ((primary && failPrimary) || (replica && failReplica)) {
+            response.writeHead(403);
+            response.end();
+            return;
+          }
           if (
             !key.startsWith(job.output.prefix + "/") ||
             key
@@ -689,7 +701,7 @@ test(
         .click();
       await page
         .getByRole("alert")
-        .filter({ hasText: "CORS" })
+        .filter({ hasText: "Không tải được video" })
         .waitFor({ timeout: 45000 });
       await page
         .getByRole("button", { name: "Cài đặt video", exact: true })
@@ -716,6 +728,178 @@ test(
       );
       await page.getByRole("button", { name: "Đóng", exact: true }).click();
       assert.equal(await page.locator(".video-preview video").count(), 0);
+
+      // Exercise the actual hls.js failover branch with two independent HTTP
+      // paths. API authorization/replica gating are covered by integration tests;
+      // this section verifies browser state and bounded automatic switching.
+      const session = await fixture.prisma.classSession.create({
+        data: {
+          kind: "GROUP",
+          groupId: group.id,
+          createdById: user.id,
+          title: "Failover lesson",
+          joinCode: randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase(),
+          status: "ENDED",
+          scheduledAt: new Date(),
+          startedAt: new Date(),
+          endedAt: new Date(),
+        },
+      });
+      const recording = await fixture.prisma.classRecording.create({
+        data: {
+          id: randomUUID(),
+          sessionId: session.id,
+          recorderId: user.id,
+          fileId: file.id,
+          status: "SAVED",
+        },
+      });
+      const resolutions = [];
+      await page.route(
+        `**/api/v1/recordings/${recording.id}/playback`,
+        async (route) => {
+          const request = route.request().postDataJSON();
+          resolutions.push(request);
+          const sourceId =
+            request.failedSourceId === "cloudfront"
+              ? "gcs"
+              : request.failedSourceId === "gcs"
+                ? "cloudfront"
+                : request.preferredSourceId === "gcs"
+                  ? "gcs"
+                  : "cloudfront";
+          const base =
+            publicBase +
+            (sourceId === "gcs" ? "/t18-replica/" : "/t18-primary/");
+          const expiresAt = new Date(Date.now() + 60000).toISOString();
+          await route.fulfill({
+            json: {
+              fileId: file.id,
+              sourceId,
+              fallbackAvailable: true,
+              manifestUrl: base + job.output.masterKey,
+              authorization: { type: "SIGNED_URL", expiresAt },
+              processing: { status: "READY", progressPercent: 100 },
+              sources: [
+                {
+                  id: "adaptive",
+                  label: "Tự động",
+                  kind: "hls",
+                  mimeType: "application/vnd.apple.mpegurl",
+                  height: null,
+                  bitrate: null,
+                  public: true,
+                  expiresAt,
+                  url: base + job.output.masterKey,
+                },
+              ],
+              qualities: job.output.renditions.map((r) => ({
+                ...r,
+                label: `${Math.min(r.width, r.height)}p`,
+                url: base + r.variantKey,
+                expiresAt,
+              })),
+            },
+          });
+        },
+      );
+      await page.goto(fixture.webOrigin + `/recordings/${recording.id}`);
+      await page.waitForFunction(
+        () => document.querySelector(".video-preview video")?.readyState >= 2,
+      );
+      await quality(page, "360p");
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".video-preview video")?.videoHeight === 360,
+      );
+      await page.locator(".video-preview video").evaluate((v) => {
+        v.currentTime = 40;
+      });
+      await page.waitForFunction(() => {
+        const v = document.querySelector(".video-preview video");
+        return (
+          v?.readyState >= 2 &&
+          !v.seeking &&
+          v.videoHeight === 360 &&
+          Math.abs(v.currentTime - 40) < 0.5
+        );
+      });
+      await page.locator(".video-preview video").evaluate((v) => {
+        v.pause();
+        v.playbackRate = 2;
+        v.volume = 0.3;
+      });
+      failPrimary = true;
+      const replicaLoaded = page.waitForResponse(
+        (r) =>
+          r.url().includes("/t18-replica/") &&
+          r.url().includes(".ts") &&
+          r.status() === 200,
+      );
+      await page.locator(".video-preview video").evaluate((v) => {
+        v.currentTime = 80;
+      });
+      await replicaLoaded;
+      await page
+        .waitForFunction(() => {
+          const v = document.querySelector(".video-preview video");
+          return (
+            v?.readyState >= 2 &&
+            v.videoHeight === 360 &&
+            Math.abs(v.currentTime - 80) < 0.5
+          );
+        })
+        .catch(async (error) => {
+          console.error(
+            "FAILOVER_BROWSER_STATE",
+            JSON.stringify(
+              await page.locator(".video-preview video").evaluate((v) => ({
+                time: v.currentTime,
+                height: v.videoHeight,
+                rate: v.playbackRate,
+                volume: v.volume,
+                readyState: v.readyState,
+                paused: v.paused,
+              })),
+            ),
+          );
+          console.error("FAILOVER_RESOLUTIONS", JSON.stringify(resolutions));
+          throw error;
+        });
+      const restored = await page
+        .locator(".video-preview video")
+        .evaluate((v) => ({
+          paused: v.paused,
+          rate: v.playbackRate,
+          volume: v.volume,
+          time: v.currentTime,
+        }));
+      assert.equal(restored.paused, true);
+      assert.equal(restored.rate, 2);
+      assert.ok(Math.abs(restored.volume - 0.3) < 0.01);
+      assert.ok(Math.abs(restored.time - 80) < 0.5);
+      assert.ok(
+        resolutions.some(
+          (request) =>
+            request.failedSourceId === "cloudfront" &&
+            request.positionSeconds >= 39.5 &&
+            request.positionSeconds <= 80.5,
+        ),
+        "resolver receives the position at request time; a newer seek is restored after the response",
+      );
+      failReplica = true;
+      await page.locator(".video-preview video").evaluate((v) => {
+        v.currentTime = 15;
+      });
+      await page
+        .getByRole("alert")
+        .filter({ hasText: "Các nguồn phát hiện chưa khả dụng" })
+        .waitFor();
+      assert.equal(
+        resolutions.filter((request) => request.failedSourceId).length,
+        2,
+        "automatic failover must not ping-pong indefinitely",
+      );
     } finally {
       releaseMaster?.();
       await browser?.close();

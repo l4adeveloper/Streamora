@@ -1,4 +1,26 @@
 import { apiRequest } from "@/lib/api";
+import type { VideoPlaybackResponse } from "@streamora/contracts";
+
+export interface RecordingPlaybackResponse extends VideoPlaybackResponse {
+  sourceId: string;
+  manifestUrl: string | null;
+  authorization: { type: "SIGNED_URL"; expiresAt: string | null };
+  fallbackAvailable: boolean;
+}
+export function getRecordingPlayback(
+  recordingId: string,
+  positionSeconds: number,
+  preferredSourceId?: string,
+  failedSourceId?: string,
+) {
+  return apiRequest<RecordingPlaybackResponse>(
+    `/recordings/${recordingId}/playback`,
+    {
+      method: "POST",
+      body: { mode: "VOD", positionSeconds, preferredSourceId, failedSourceId },
+    },
+  );
+}
 
 export interface RecordingItem {
   id: string;

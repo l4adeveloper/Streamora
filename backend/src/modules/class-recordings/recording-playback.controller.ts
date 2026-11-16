@@ -6,7 +6,14 @@ import {
   Param,
   Put,
   Query,
+  Post,
+  HttpCode,
+  Res,
 } from "@nestjs/common";
+import type { Response } from "express";
+import { RecordingSourceService } from "./recording-source.service";
+import { applyPlaybackCookies } from "../video-processing/playback-cookies";
+import { ApiError } from "../../common/api-error";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentAuth, RequireAuth, UUIDParamPipe } from "../../common";
 import type { AuthenticatedIdentity } from "../../common";
@@ -42,7 +49,51 @@ export class GroupRecordingsController {
 @ApiBearerAuth("accessToken")
 @RequireAuth()
 export class RecordingPlaybackController {
-  constructor(private readonly playback: RecordingPlaybackService) {}
+  constructor(
+    private readonly playback: RecordingPlaybackService,
+    private readonly sources: RecordingSourceService,
+  ) {}
+  @Post("playback")
+  @HttpCode(200)
+  @Header("Cache-Control", "no-store")
+  async resolve(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("recordingId", UUIDParamPipe) id: string,
+    @Body()
+    body: {
+      mode?: unknown;
+      failedSourceId?: unknown;
+      preferredSourceId?: unknown;
+      positionSeconds?: unknown;
+    },
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return applyPlaybackCookies(
+      await this.sources.resolve(auth.user.id, id, body),
+      response,
+    );
+  }
+  @Get("thumbnail")
+  @Header("Cache-Control", "no-store")
+  async thumbnail(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("recordingId", UUIDParamPipe) id: string,
+  ) {
+    const result = await this.sources.resolve(auth.user.id, id, {
+      mode: "VOD",
+    });
+    if (!result.thumbnail)
+      throw new ApiError(
+        404,
+        "THUMBNAIL_NOT_FOUND",
+        "Chưa có ảnh đại diện video.",
+      );
+    return {
+      url: result.thumbnail,
+      sourceId: result.sourceId,
+      authorization: result.authorization,
+    };
+  }
   @Get()
   @Header("Cache-Control", "no-store")
   detail(

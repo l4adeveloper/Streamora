@@ -17,12 +17,14 @@ import {
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 import { signCloudFrontUrl } from "./cloudfront-signed-url";
+import { signCloudCdnUrl } from "./cloud-cdn-signed-url";
 export type { DeliveryCookie, MediaGrant } from "./video-cdn";
 
 @Injectable()
 export class VideoDelivery {
   private readonly providers: VideoCdnProvider[];
   private signingKey?: Promise<string>;
+  private gcsSigningKey?: Promise<string>;
   constructor(
     @Inject(APP_CONFIG) readonly config: EnvironmentConfig,
     @Optional() private readonly locations?: StorageLocationsService,
@@ -87,6 +89,57 @@ export class VideoDelivery {
         `https://${video.mediaDomain}/${key}`,
         video.cloudFrontKeyPairId,
         signingKey,
+        expires,
+      );
+    };
+  }
+  async gcsSignedObjectFactory(expires: number) {
+    const gcs = this.config.video?.gcsDelivery;
+    if (!gcs)
+      throw new ApiError(
+        503,
+        "VIDEO_DELIVERY_UNAVAILABLE",
+        "Chưa cấu hình CDN dự phòng.",
+      );
+    if (!this.gcsSigningKey) {
+      this.gcsSigningKey = (async () => {
+        const client = new SecretsManagerClient({
+          region: this.config.video!.region,
+        });
+        try {
+          const result = await client.send(
+            new GetSecretValueCommand({ SecretId: gcs.signingSecretId }),
+          );
+          if (!result.SecretString) throw new Error("INVALID_SIGNING_KEY");
+          const key = result.SecretString.trim();
+          // Validate before caching so a malformed secret can be corrected
+          // without retaining an unusable value for the process lifetime.
+          signCloudCdnUrl(
+            `https://${gcs.domain}/key-validation`,
+            gcs.keyName,
+            key,
+            Math.floor(Date.now() / 1000) + 60,
+          );
+          return key;
+        } finally {
+          client.destroy();
+        }
+      })().catch(() => {
+        this.gcsSigningKey = undefined;
+        throw new ApiError(
+          503,
+          "VIDEO_DELIVERY_UNAVAILABLE",
+          "Không đọc được khóa CDN dự phòng.",
+        );
+      });
+    }
+    const key = await this.gcsSigningKey;
+    return (object: string) => {
+      objectKey(object);
+      return signCloudCdnUrl(
+        `https://${gcs.domain}/${object}`,
+        gcs.keyName,
+        key,
         expires,
       );
     };

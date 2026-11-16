@@ -1,0 +1,43 @@
+.panel {
+  max-width: 72rem;
+}
+.form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+.form input {
+  flex: 1 1 20rem;
+  padding: 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+}
+.list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 25rem), 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.card {
+  padding: 1.25rem;
+  border: 1px solid #9ca3af60;
+  border-radius: 0.75rem;
+}
+.card h2 {
+  font-size: 1rem;
+  margin: 0 0 1rem;
+}
+.card dl {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) 2fr;
+  gap: 0.65rem;
+  margin: 0;
+}
+.card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

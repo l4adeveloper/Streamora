@@ -2,15 +2,18 @@ import { Injectable } from "@nestjs/common";
 import { ApiError } from "../../common/api-error";
 import { PrismaService } from "../../database/prisma.service";
 import { GroupAccessService } from "../memberships/group-access.service";
+import { VideoProcessingService } from "../video-processing/video-processing.service";
+import type { VideoOutput } from "../video-processing/video-policy";
 
 @Injectable()
 export class RecordingPlaybackService {
   constructor(
     private readonly db: PrismaService,
     private readonly access: GroupAccessService,
+    private readonly processing: VideoProcessingService,
   ) {}
 
-  private async recording(userId: string, recordingId: string) {
+  async recording(userId: string, recordingId: string) {
     const row = await this.db.classRecording.findUnique({
       where: { id: recordingId },
       include: {
@@ -23,6 +26,7 @@ export class RecordingPlaybackService {
             size: true,
             isPublished: true,
             createdBy: true,
+            deletedAt: true,
           },
         },
       },
@@ -37,6 +41,7 @@ export class RecordingPlaybackService {
     if (
       row.file &&
       (row.file.status === "DELETED" ||
+        row.file.deletedAt ||
         (!row.file.isPublished &&
           !permissions.canHost &&
           row.file.createdBy !== userId))
@@ -147,6 +152,11 @@ export class RecordingPlaybackService {
   async detail(userId: string, recordingId: string) {
     const row = await this.recording(userId, recordingId);
     const progress = await this.progress(userId, recordingId);
+    const state = row.fileId ? await this.processing.state(row.fileId) : null;
+    const output =
+      state?.published?.state === "READY"
+        ? (state.published.output as unknown as VideoOutput)
+        : null;
     return {
       recording: {
         id: row.id,
@@ -160,10 +170,20 @@ export class RecordingPlaybackService {
         stoppedAt: row.stoppedAt?.toISOString() ?? null,
       },
       progress,
+      renditions: Array.isArray(output?.renditions)
+        ? output.renditions.map((rendition) => ({
+            id: rendition.id,
+            width: rendition.width,
+            height: rendition.height,
+            bitrate: rendition.bitrate,
+            status: "READY" as const,
+          }))
+        : [],
       playbackPath:
         row.fileId && row.file?.status === "AVAILABLE"
-          ? `/api/v1/files/${row.fileId}/playback`
+          ? `/api/v1/recordings/${recordingId}/playback`
           : null,
+      thumbnailResolverPath: `/api/v1/recordings/${recordingId}/thumbnail`,
     };
   }
 
@@ -196,13 +216,9 @@ export class RecordingPlaybackService {
         "PLAYBACK_NOT_READY",
         "Bản ghi chưa sẵn sàng để lưu tiến độ xem.",
       );
-    const asset = await this.db.videoAsset.findUnique({
-      where: { fileId: recording.fileId },
-      select: { publishedJob: { select: { output: true } } },
-    });
-    const duration = (
-      asset?.publishedJob?.output as { duration?: unknown } | null
-    )?.duration;
+    const { published } = await this.processing.state(recording.fileId);
+    const duration = (published?.output as { duration?: unknown } | null)
+      ?.duration;
     if (
       !Number.isFinite(positionSeconds) ||
       positionSeconds < 0 ||
