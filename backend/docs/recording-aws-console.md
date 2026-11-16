@@ -114,8 +114,9 @@ pm2 restart streamora-api --update-env
 pm2 save
 ```
 
-Không cần thêm process PM2 hoặc cài FFmpeg thủ công. API production tự áp dụng
-migration khi khởi động; user database cần có quyền chạy migration.
+Không cần thêm process PM2 hoặc cài FFmpeg thủ công. API tự cập nhật database
+trước khi khởi động, kể cả khi chưa đặt `NODE_ENV=production`. User database cần
+có quyền chạy migration; nếu cập nhật lỗi, API dừng và báo lỗi trong log.
 
 ## Bước 7 — Kiểm tra ghi hình
 
@@ -143,6 +144,7 @@ có các chất lượng/phụ đề sau xử lý. Phụ đề cần cấu hình
 | Bấm ghi nhưng chưa bắt đầu | Hai ARN ở bước 5, kết nối IVS và buổi học thuộc nhóm |
 | Bản ghi chưa vào thư viện | Log API, quyền đọc/ghi S3 và dung lượng đĩa tạm trên EC2 |
 | API không lên sau deploy | Log migration, kết nối và quyền database |
+| Log có `42703` hoặc `DATABASE_SCHEMA_OUTDATED` | Database còn thiếu cột của bản mới. Deploy lại bản code mới nhất theo bước 6 và kiểm tra dòng xác nhận ở bước 7 |
 
 Bản MVP xuất MP4 tối đa **4 GiB HLS/bản ghi**; HLS gốc vẫn giữ trên S3 nếu xuất
 lỗi. Có phí IVS Composition, S3 và xử lý video hiện tại.

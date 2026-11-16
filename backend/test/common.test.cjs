@@ -192,6 +192,23 @@ test("Prisma errors map to safe conflict/not-found/unavailable responses without
   }
 });
 
+test("missing database columns/tables report an incomplete deployment without exposing SQL", () => {
+  for (const code of ["42703", "42P01", "P2021", "P2022"]) {
+    const response = filterResponse(
+      new Prisma.PrismaClientKnownRequestError(PRIVATE, {
+        code: code.startsWith("P") ? code : "P2010",
+        clientVersion: "test",
+        meta: code.startsWith("P")
+          ? {}
+          : { driverAdapterError: { cause: { originalCode: code } } },
+      }),
+    );
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.body.error.code, "DATABASE_SCHEMA_OUTDATED");
+    assert.ok(!JSON.stringify(response.body).includes(PRIVATE));
+  }
+});
+
 test("request logging uses an allowlist and generates IDs rather than trusting incoming headers", () => {
   const logs = [];
   const request = {

@@ -6,12 +6,12 @@ import type { EnvironmentConfig } from "../config/environment";
 const execute = promisify(execFile);
 export class MigrationDeployError extends Error {}
 
-/** Apply pending migrations before the production API opens any connections. */
+/** Apply pending migrations before API workers and requests can use the schema. */
 export async function deployMigrations(
   config: Pick<EnvironmentConfig, "nodeEnv" | "databaseUrl">,
   run = execute,
 ) {
-  if (config.nodeEnv !== "production") return;
+  if (config.nodeEnv === "test") return;
   const directory = resolve(__dirname, "../..");
   const prisma = resolve(
     dirname(require.resolve("prisma/package.json")),

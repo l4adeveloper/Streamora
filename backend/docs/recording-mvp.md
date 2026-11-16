@@ -14,7 +14,8 @@ quyền cũ giữ nguyên. Giữ cấu hình VIDEO_* hiện có; production ti�
 MediaConvert/DynamoDB/CDN đang chạy. Không chuyển VIDEO_MODE sang local vì record.
 
 FFmpeg ghép bản ghi được npm ci cài qua dependency ffmpeg-static, không cần cài
-thủ công trên EC2. API production tự áp dụng migration trước khi nhận request.
+thủ công trên EC2. API tự áp dụng migration trước khi chạy worker và nhận request,
+kể cả khi chưa đặt NODE_ENV=production (chỉ bỏ qua trong môi trường test).
 Năm lệnh deploy vẫn là:
 
 ~~~bash

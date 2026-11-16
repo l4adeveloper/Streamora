@@ -14,6 +14,20 @@ export class AuthApiError extends Error {
 }
 
 const messages: Record<string, string> = {
+  DATABASE_SCHEMA_OUTDATED:
+    "Máy chủ chưa hoàn tất cập nhật dữ liệu. Vui lòng liên hệ quản trị viên.",
+  RECORDING_UNAVAILABLE:
+    "Chưa cấu hình ghi hình vào S3. Vui lòng liên hệ quản trị viên.",
+  RECORDING_REQUIRES_GROUP: "Chỉ ghi hình được buổi học thuộc một nhóm.",
+  RECORDING_REQUIRES_PARTICIPATION: "Hãy vào phòng trước khi bắt đầu ghi hình.",
+  RECORDING_REQUIRES_MEDIA:
+    "Hãy kết nối mic/camera hoặc chia sẻ màn hình trước khi ghi hình.",
+  RECORDING_ACTIVE: "Buổi học đang được ghi hình bởi người khác.",
+  RECORDING_NOT_FOUND: "Không tìm thấy bản ghi. Vui lòng làm mới trạng thái.",
+  RECORDING_NOT_ACTIVE: "Bản ghi đã dừng. Vui lòng làm mới trạng thái.",
+  SCREEN_SHARE_TAKEN:
+    "Đang ghi hình nên chỉ một người được chia sẻ màn hình. Hãy chờ người đang chia sẻ dừng lại.",
+  MEDIA_PUBLISH_LOCKED: "Bạn đang bị khóa quyền chia sẻ màn hình.",
   FOLDER_NOT_FOUND: "Thư mục không còn tồn tại. Hãy làm mới danh sách.",
   FOLDER_EXISTS: "Tên thư mục đã tồn tại. Hãy chọn tên khác.",
   FOLDER_BUSY:

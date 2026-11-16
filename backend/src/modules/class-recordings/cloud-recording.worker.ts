@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
+import { safeErrorCode } from "../../common/safe-error-code";
 import { PrismaService } from "../../database/prisma.service";
 import { IvsService } from "../class-media/ivs.service";
 import { FileStorageService } from "../files/file-storage.service";
@@ -51,8 +52,10 @@ export class CloudRecordingWorker
   }
   wake(id?: string) {
     if (this.shutdown.signal.aborted) return;
-    const work = this.tick(id).catch(() =>
-      this.logger.warn("Không thể kiểm tra bản ghi IVS; sẽ thử lại."),
+    const work = this.tick(id).catch((error) =>
+      this.logger.warn(
+        `Không thể kiểm tra bản ghi: ${safeErrorCode(error)}; sẽ thử lại.`,
+      ),
     );
     this.pending.add(work);
     void work.finally(() => this.pending.delete(work));

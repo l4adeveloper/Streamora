@@ -50,11 +50,15 @@ const FALLBACKS: Record<number, { code: string; message: string }> = {
   500: { code: "INTERNAL_ERROR", message: "Không thể xử lý yêu cầu." },
 };
 
+const schemaOutdated = (error: unknown) =>
+  ["42703", "42P01", "P2021", "P2022"].includes(safeErrorCode(error));
+
 function errorStatus(error: unknown): number {
   if (error instanceof HttpException) {
     const status = error.getStatus();
     return status >= 400 && status <= 599 ? status : 500;
   }
+  if (schemaOutdated(error)) return 503;
   if (
     [
       "CONNECTION_TIMEOUT",
@@ -98,7 +102,15 @@ export class ApiErrorFilter implements ExceptionFilter {
     const payload =
       error instanceof ApiError
         ? (error.getResponse() as Pick<ApiErrorResponse, "error">)
-        : { error: FALLBACKS[status] ?? FALLBACKS[500] };
+        : {
+            error: schemaOutdated(error)
+              ? {
+                  code: "DATABASE_SCHEMA_OUTDATED",
+                  message:
+                    "Máy chủ chưa hoàn tất cập nhật dữ liệu. Vui lòng liên hệ quản trị viên.",
+                }
+              : (FALLBACKS[status] ?? FALLBACKS[500]),
+          };
     // Never serialize/log exception objects: database/crypto errors can contain input.
     const body: ApiErrorResponse = {
       ...payload,
