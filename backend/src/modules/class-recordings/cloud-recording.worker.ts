@@ -46,7 +46,7 @@ export class CloudRecordingWorker
   ) {}
   onApplicationBootstrap() {
     if (!this.config.ivs?.enabled) return;
-    this.timer = setInterval(() => this.wake(), 10000);
+    this.timer = setInterval(() => this.wake(), 2000);
     this.timer.unref();
     this.wake();
   }
@@ -75,7 +75,13 @@ export class CloudRecordingWorker
       orderBy: { nextCheckAt: "asc" },
       take: 20,
     });
-    await Promise.allSettled(rows.map((row) => this.check(row.id)));
+    const results = await Promise.allSettled(
+      rows.map((row) => this.check(row.id)),
+    );
+    results.forEach((result, index) => {
+      if (result.status === "rejected")
+        this.logFailure(rows[index].id, "worker_lease", result.reason);
+    });
   }
   private async check(id: string) {
     const owner = randomUUID();
@@ -119,14 +125,19 @@ export class CloudRecordingWorker
     let directory: string | undefined;
     let exporting = false;
     let retryDelay = 10000;
+    let step = "load_recording";
     try {
       let row = await this.db.classRecording.findUniqueOrThrow({
         where: { id },
         include: { session: true },
       });
+      // Poll active recordings every 10s, but finish a requested stop promptly.
+      if (row.status === "SAVING" || row.session.status !== "LIVE")
+        retryDelay = 2000;
       if (!row.stageArn || !row.storageLocationId)
         throw new Error("RECORDING_SOURCE_MISSING");
       if (!row.compositionArn) {
+        step = "start_composition";
         const stopped =
           row.status === "SAVING" || row.session.status !== "LIVE";
         const recovered = stopped
@@ -165,20 +176,28 @@ export class CloudRecordingWorker
         });
       }
       if (signal.aborted) return;
-      if (row.status === "SAVING" || row.session.status !== "LIVE") {
-        await this.ivs.stopRecording(row.compositionArn!);
-        await this.saving(id);
-      }
+      step = "get_composition";
       const composition = await this.ivs.recording(row.compositionArn!);
+      const finished =
+        !composition || ["STOPPED", "FAILED"].includes(composition.state ?? "");
       if (
-        composition &&
-        !["STOPPED", "FAILED"].includes(composition.state ?? "")
-      )
-        return;
+        (row.status === "SAVING" || row.session.status !== "LIVE") &&
+        !finished
+      ) {
+        step = "stop_composition";
+        // A stopped/deleted composition must never block recovery from its S3 output.
+        if (composition.state !== "STOPPING")
+          await this.ivs.stopRecording(row.compositionArn!);
+        await this.saving(id);
+        return; // Wait for IVS to finalize before reading the durable S3 end marker.
+      }
+      if (!finished) return;
+      retryDelay = 2000;
       await this.saving(id);
       // GetComposition disappears shortly after stopping; the S3 end marker is durable.
       const prefix = row.recordingPrefix!;
       let metadata;
+      step = "read_s3_metadata";
       try {
         metadata = JSON.parse(
           await recordingText(
@@ -207,6 +226,14 @@ export class CloudRecordingWorker
             10 * 60_000
           )
             await this.fail(id, owner, "RECORDING_OUTPUT_MISSING");
+          else
+            this.logger.log(
+              JSON.stringify({
+                event: "recording_waiting",
+                recordingId: id,
+                step,
+              }),
+            );
           return;
         }
       }
@@ -224,7 +251,11 @@ export class CloudRecordingWorker
         prefix + "/index",
         `${hls.path}/${hls.playlist}`,
       );
+      step = "prepare_export";
       directory = await mkdtemp(join(tmpdir(), "streamora-recording-"));
+      this.logger.log(
+        JSON.stringify({ event: "recording_export_started", recordingId: id }),
+      );
       const output = await exportRecording(
         this.storage,
         row.storageLocationId!,
@@ -233,8 +264,12 @@ export class CloudRecordingWorker
         directory,
         this.config.video?.ffmpegPath ?? "ffmpeg",
         signal,
+        (current) => {
+          step = current;
+        },
       );
       signal.throwIfAborted();
+      step = "save_library";
       const fileId = await this.db.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM class_recordings WHERE id=${id}::uuid FOR UPDATE`;
         const current = await tx.classRecording.findUniqueOrThrow({
@@ -283,12 +318,21 @@ export class CloudRecordingWorker
         await recordingChanged(tx, row.sessionId);
         return file.id;
       });
+      step = "queue_processing";
       await this.processing.queueCommitted(fileId);
+      this.logger.log(
+        JSON.stringify({
+          event: "recording_saved",
+          recordingId: id,
+          fileId,
+          stoppedToSavedMs: row.stoppedAt
+            ? Date.now() - row.stoppedAt.getTime()
+            : undefined,
+        }),
+      );
     } catch (error) {
       if (!signal.aborted) {
-        const code = /^[A-Z][A-Z_]{1,63}$/.test((error as Error).message ?? "")
-          ? (error as Error).message
-          : "RECORDING_SYNC_PENDING";
+        const code = this.logFailure(id, step, error);
         retryDelay =
           code === "RECORDING_EXPORT_TOO_LARGE" ? 60 * 60_000 : 60_000;
         await this.db.classRecording.updateMany({
@@ -296,9 +340,6 @@ export class CloudRecordingWorker
           data: { errorCode: code },
         });
         // Retry storage/network/export errors. The original HLS is never deleted.
-        this.logger.warn(
-          `Bản ghi ${id}: ${code}; sẽ thử lại từ dữ liệu trên S3.`,
-        );
       }
     } finally {
       clearInterval(lease);
@@ -318,6 +359,31 @@ export class CloudRecordingWorker
         },
       });
     }
+  }
+  private logFailure(id: string, step: string, error: unknown) {
+    const value = error as Error | undefined;
+    const type = /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value?.name ?? "")
+      ? value!.name
+      : "UnknownError";
+    const driverCode = safeErrorCode(error);
+    const code = /^[A-Z][A-Z_]{1,63}$/.test(value?.message ?? "")
+      ? value!.message
+      : driverCode !== "UNKNOWN"
+        ? driverCode
+        : type !== "Error" && type !== "UnknownError"
+          ? type
+          : "RECORDING_SYNC_PENDING";
+    // Never log exception messages, stacks, credentials or signed URLs.
+    this.logger.warn(
+      JSON.stringify({
+        event: "recording_retry",
+        recordingId: id,
+        step,
+        code,
+        type,
+      }),
+    );
+    return code;
   }
   private async saving(id: string) {
     await this.db.$transaction(async (tx) => {

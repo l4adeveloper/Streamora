@@ -690,10 +690,12 @@ export function ClassMediaRoom({
       )}
       {recording.phase === "saving" && (
         <span className="class-recording-saving" role="status">
-          Đang hoàn tất bản ghi trên S3…
+          {recording.errorCode
+            ? "Lưu bản ghi đang gặp lỗi. Máy chủ sẽ tự thử lại; bạn có thể rời phòng."
+            : "Đang hoàn tất bản ghi trên S3…"}
         </span>
       )}
-      {recordingLive?.errorCode && (
+      {recordingLive && recording.errorCode && (
         <span role="status">
           Chưa đồng bộ được bản ghi. Máy chủ đang thử lại.
         </span>

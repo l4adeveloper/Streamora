@@ -149,5 +149,30 @@ có các chất lượng/phụ đề sau xử lý. Phụ đề cần cấu hình
 Bản MVP xuất MP4 tối đa **4 GiB HLS/bản ghi**; HLS gốc vẫn giữ trên S3 nếu xuất
 lỗi. Có phí IVS Composition, S3 và xử lý video hiện tại.
 
+### Nếu hiện “Đang hoàn tất bản ghi” quá lâu
+
+1. Chạy trên EC2: `pm2 logs streamora-api --lines 200 --nostream`.
+2. Tìm dòng `recording_retry` có đúng `recordingId`. Đọc `step` và `code`:
+
+| `step` | Đang lỗi ở đâu |
+| --- | --- |
+| `get_composition` / `stop_composition` | Đọc trạng thái / dừng IVS; kiểm tra quyền IVS nếu `AccessDeniedException` |
+| `read_s3_metadata` / `read_hls_playlist` / `download_hls` | Đọc file S3; kiểm tra quyền đọc và mã lỗi S3 |
+| `remux_mp4` | Ghép MP4 trên EC2; kiểm tra FFmpeg và dung lượng bằng `df -h /tmp` |
+| `prepare_export` | Tạo thư mục tạm trên EC2; kiểm tra dung lượng và quyền ghi `/tmp` |
+| `upload_mp4` | Lưu MP4 vào S3; kiểm tra quyền ghi S3 |
+| `save_library` | Ghi thư viện vào database; kiểm tra mã lỗi database |
+
+3. Trong S3, mở thư mục bản ghi → `composite/events/recording-ended.json`.
+   Nếu có `RECORDING_ENDED`, IVS đã ghi xong; kiểm tra bước backend ở bảng trên.
+   Nếu có `recording-failed.json`, xem trạng thái và thông báo trong file đó.
+4. Khi thành công, log có `recording_saved` kèm `fileId`. Backend tự thử lại bản
+   ghi chưa lưu sau khi deploy; không cần bấm Record lại hoặc xóa HLS.
+
+Khi đang hoàn tất, backend kiểm tra mỗi 2 giây; bản đang ghi kiểm tra mỗi 10 giây.
+`stoppedToSavedMs` trong log `recording_saved` cho biết số mili giây từ lúc bấm
+dừng đến khi lưu thành công, gồm cả thời gian chờ và thử lại. Thời gian thực tế
+còn phụ thuộc độ dài bản ghi, tốc độ đọc/ghi S3 và EC2.
+
 Tham khảo: [IVS ghi vào S3](https://docs.aws.amazon.com/ivs/latest/RealTimeUserGuide/rt-composite-recording.html),
 [CloudShell trên Console](https://docs.aws.amazon.com/cloudshell/latest/userguide/getting-started.html).

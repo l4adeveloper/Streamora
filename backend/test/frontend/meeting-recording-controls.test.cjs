@@ -167,6 +167,13 @@ test(
         1,
         "The second press must stop recording exactly once",
       );
+      recording = { ...recording, errorCode: "AccessDenied" };
+      await page
+        .getByText(
+          "Lưu bản ghi đang gặp lỗi. Máy chủ sẽ tự thử lại; bạn có thể rời phòng.",
+          { exact: true },
+        )
+        .waitFor();
 
       // A failed End must show the error, keep the room open, and allow a real retry.
       const endUrl = `**/sessions/${session.id}/end`;

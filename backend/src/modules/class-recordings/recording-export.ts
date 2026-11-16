@@ -45,10 +45,14 @@ export async function exportRecording(
   directory: string,
   ffmpeg: string,
   signal: AbortSignal,
+  onStep?: (
+    step: "read_hls_playlist" | "download_hls" | "remux_mp4" | "upload_mp4",
+  ) => void,
 ) {
   const localPath = (key: string) =>
     join(directory, key.slice(prefix.length + 1));
   let playlistKey = masterKey;
+  onStep?.("read_hls_playlist");
   let playlist = await recordingText(storage, location, playlistKey);
   if (!playlist.startsWith("#EXTM3U"))
     throw new Error("RECORDING_PLAYLIST_INVALID");
@@ -81,6 +85,7 @@ export async function exportRecording(
   const queue = [...keys];
   const downloads = new AbortController();
   const downloadSignal = AbortSignal.any([signal, downloads.signal]);
+  onStep?.("download_hls");
   const results = await Promise.allSettled(
     Array.from({ length: 5 }, async () => {
       try {
@@ -112,6 +117,7 @@ export async function exportRecording(
   await mkdir(join(input, ".."), { recursive: true });
   await writeFile(input, playlist);
   const output = join(directory, "recording.mp4");
+  onStep?.("remux_mp4");
   await runProcess(
     ffmpeg,
     [
@@ -140,6 +146,7 @@ export async function exportRecording(
   const info = await stat(output);
   if (!info.size) throw new Error("RECORDING_EMPTY");
   const key = prefix + "/recording.mp4";
+  onStep?.("upload_mp4");
   await storage.writeFile(output, key, "video/mp4", location);
   return { key, size: info.size };
 }

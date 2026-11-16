@@ -108,6 +108,7 @@ export function useClassRecording({
   const live =
     state?.recording?.status === "RECORDING" ? state.recording : null;
   return {
+    errorCode: state?.recording?.errorCode,
     recording: live,
     canRecord: canManage || !!state?.canRecord,
     canStop: !!live && (canManage || !!state?.canRecord),

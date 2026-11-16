@@ -250,6 +250,10 @@ test(
     await recordings.stop(host.id, lesson.id, recording.id);
     let saved = await tick(recording.id);
     assert.equal(saved.status, "SAVING");
+    assert.ok(
+      saved.nextCheckAt.getTime() - Date.now() <= 3000,
+      "A requested stop must be checked again within 3 seconds",
+    );
     assert.equal(stops, 1);
     assert.equal(exportCount, 0);
     assert.equal(await db.videoJob.count(), 0);
@@ -491,4 +495,141 @@ test("recording paths cannot leave their S3 prefix or use remote URLs", () => {
     assert.throws(() =>
       recordingKey("recording", "recording/media/index.m3u8", uri),
     );
+});
+
+test("stopped, failed and deleted compositions finish from S3 without repeating StopComposition", async () => {
+  const lesson = await db.classSession.findFirstOrThrow({
+    where: { title: "Lesson" },
+  });
+  const originalStop = ivs.stopRecording;
+  const originalMode = mode;
+  const originalFinalized = finalized;
+  let stopAttempts = 0;
+  ivs.stopRecording = async () => {
+    stopAttempts++;
+    throw Object.assign(new Error("already stopped"), {
+      name: "ConflictException",
+    });
+  };
+  finalized = true;
+  try {
+    for (const state of ["STOPPED", "FAILED", "GONE", "STOPPING"]) {
+      mode = state;
+      const row = await db.classRecording.create({
+        data: {
+          id: randomUUID(),
+          sessionId: lesson.id,
+          recorderId: owner.id,
+          provider: "IVS",
+          status: "SAVING",
+          stoppedAt: new Date(),
+          stageArn,
+          compositionArn: `composition-${randomUUID()}`,
+          recordingPrefix: `${prefix}/${randomUUID()}`,
+          storageLocationId: storage.locations.id,
+        },
+      });
+      if (state === "STOPPING") {
+        const waiting = await tick(row.id);
+        assert.equal(waiting.status, "SAVING");
+        assert.equal(waiting.fileId, null);
+        assert.ok(waiting.nextCheckAt.getTime() - Date.now() <= 3000);
+        mode = "STOPPED";
+      }
+      const result = await tick(row.id);
+      assert.equal(result.status, "SAVED", JSON.stringify(result));
+      assert.ok(result.fileId);
+      assert.equal(result.errorCode, null);
+      assert.equal(
+        await db.videoJob.count({ where: { fileId: result.fileId } }),
+        1,
+      );
+      assert.equal(
+        await db.videoTranscript.count({ where: { fileId: result.fileId } }),
+        1,
+      );
+    }
+    assert.equal(stopAttempts, 0);
+  } finally {
+    ivs.stopRecording = originalStop;
+    mode = originalMode;
+    finalized = originalFinalized;
+  }
+});
+
+test("S3 failures preserve the error code and exact step, omit secrets, and recover on retry", async () => {
+  const lesson = await db.classSession.findFirstOrThrow({
+    where: { title: "Lesson" },
+  });
+  const row = await db.classRecording.create({
+    data: {
+      id: randomUUID(),
+      sessionId: lesson.id,
+      recorderId: owner.id,
+      provider: "IVS",
+      status: "SAVING",
+      stoppedAt: new Date(),
+      stageArn,
+      compositionArn: `composition-${randomUUID()}`,
+      recordingPrefix: `${prefix}/${randomUUID()}`,
+      storageLocationId: storage.locations.id,
+    },
+  });
+  const originalRead = fakeStorage.read,
+    originalWrite = fakeStorage.writeFile;
+  const previousMode = mode,
+    previousFinalized = finalized;
+  const worker = new CloudRecordingWorker(
+    db,
+    ivs,
+    fakeStorage,
+    processing,
+    f.config,
+  );
+  const logs = [];
+  worker.logger.warn = (line) => logs.push(JSON.parse(line));
+  const denied = () => {
+    throw Object.assign(new Error("secret-signed-url-must-not-appear"), {
+      name: "AccessDenied",
+    });
+  };
+  mode = "STOPPED";
+  finalized = true;
+  try {
+    for (const step of ["read_s3_metadata", "upload_mp4"]) {
+      fakeStorage.read = step === "read_s3_metadata" ? denied : originalRead;
+      fakeStorage.writeFile = step === "upload_mp4" ? denied : originalWrite;
+      await db.classRecording.update({
+        where: { id: row.id },
+        data: { nextCheckAt: new Date(0) },
+      });
+      await worker.tick(row.id);
+      const pending = await db.classRecording.findUniqueOrThrow({
+        where: { id: row.id },
+      });
+      assert.equal(pending.status, "SAVING");
+      assert.equal(pending.errorCode, "AccessDenied");
+      assert.equal(pending.fileId, null);
+      assert.equal(logs.at(-1).step, step);
+      assert.equal(logs.at(-1).code, "AccessDenied");
+    }
+    assert.ok(!JSON.stringify(logs).includes("secret-signed-url"));
+    fakeStorage.read = originalRead;
+    fakeStorage.writeFile = originalWrite;
+    await db.classRecording.update({
+      where: { id: row.id },
+      data: { nextCheckAt: new Date(0) },
+    });
+    await worker.tick(row.id);
+    const saved = await db.classRecording.findUniqueOrThrow({
+      where: { id: row.id },
+    });
+    assert.equal(saved.status, "SAVED");
+    assert.equal(saved.errorCode, null);
+  } finally {
+    fakeStorage.read = originalRead;
+    fakeStorage.writeFile = originalWrite;
+    mode = previousMode;
+    finalized = previousFinalized;
+  }
 });
