@@ -518,7 +518,7 @@ test("multipart completion detects video content and atomically enqueues process
   );
 });
 
-test("API and local workers cannot claim managed outbox jobs", async () => {
+test("SQL metadata and local stores cannot claim managed outbox jobs", async () => {
   const {
     VideoJobsService,
   } = require("../../dist/modules/video-processing/video-jobs.service");
@@ -626,7 +626,7 @@ test("local retention does not clean mirrored AWS jobs", async () => {
     assert.ok(prefixes.includes(root + jobs[0].id));
     assert.ok(
       !prefixes.includes(root + jobs[1].id),
-      "DynamoDB/Lambda owns cleanup of AWS outputs",
+      "AWS worker uses DynamoDB for cleanup of AWS outputs",
     );
   } finally {
     worker.storage.removePrefix = remove;

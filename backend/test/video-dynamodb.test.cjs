@@ -62,7 +62,7 @@ test("concurrent delivery is idempotent; a committed job and its source are atom
   );
 });
 
-test("only one Lambda claims a lease; an expired owner cannot change, fail or publish the newer attempt", async () => {
+test("only one worker claims a lease; an expired owner cannot change, fail or publish the newer attempt", async () => {
   const { job, file } = await seed();
   const claims = await Promise.all([
     f.store.claim(randomUUID(), job.id),
@@ -177,11 +177,8 @@ test("the complete managed pipeline publishes verified HLS using DynamoDB and S3
     close: () => {},
   };
   const worker = new VideoWorker(f.store, storage, undefined, encoder);
-  const { createVideoLambdaHandler } = require("../dist/video.lambda");
-  const tick = createVideoLambdaHandler({ video: f.video, sourceBucket: f.target.bucket }, () => ({ store: { due: async () => (await f.store.due(100)).filter(row => row.id === job.id), cleanup: async () => {} }, storage, worker }));
-  const context = { getRemainingTimeInMillis: () => 300000 };
   try {
-    assert.deepEqual(await tick({ action: "maintenance" }, context), { ok: true });
+    assert.equal(await worker.once(job.id), true);
     assert.equal((await f.store.job(job.id)).state, "PROCESSING");
     assert.equal(submitted, 1);
     const prefix = `groups/${file.groupId}/videos/${file.id}/${job.id}/1`;
@@ -200,7 +197,13 @@ test("the complete managed pipeline publishes verified HLS using DynamoDB and S3
     objects.set(`${prefix}/hls/master.m3u8`, manifest.join("\n") + "\n");
     objects.set(`${prefix}/thumbnails/poster_capture.0000000.jpg`, "jpeg");
     await dueNow(job.id);
-    assert.deepEqual(await tick({ action: "maintenance" }, context), { ok: true });
+    // A fresh worker after an API restart must resume the persisted provider job.
+    const resumed = new VideoWorker(f.store, storage, undefined, encoder);
+    try {
+      assert.equal(await resumed.once(job.id), true);
+    } finally {
+      await resumed.onModuleDestroy();
+    }
     const state = await f.store.state(file.id);
     assert.equal(state.job.state, "READY");
     assert.equal(state.job.output.renditions.length, 3);

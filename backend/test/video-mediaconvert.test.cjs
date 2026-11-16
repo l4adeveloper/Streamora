@@ -117,28 +117,139 @@ const awsEnv = {
   VIDEO_MEDIA_DOMAIN: "media.example.com",
 };
 
-test("AWS uses Lambda and DynamoDB without starting a background worker on the API", async () => {
+test("Nest starts the AWS worker from the API module using the DynamoDB store", async () => {
+  const { EventEmitter } = require("node:events");
+  const { Module } = require("@nestjs/common");
+  const { NestFactory } = require("@nestjs/core");
+  const {
+    VideoProcessingCoreModule,
+  } = require("../dist/modules/video-processing/video-processing-core.module");
+  const {
+    VideoProcessingService,
+  } = require("../dist/modules/video-processing/video-processing.service");
+  const {
+    VideoCloudBridge,
+  } = require("../dist/modules/video-processing/video-cloud-bridge");
+  const {
+    VideoStorage,
+  } = require("../dist/modules/video-processing/video-storage");
+  const {
+    FileStorageService,
+  } = require("../dist/modules/files/file-storage.service");
+  let scanned;
+  const next = new Promise((done) => (scanned = done));
+  const store = Object.assign(new EventEmitter(), {
+    config: {
+      video: readVideoConfig(
+        { ...awsEnv, VIDEO_WORKER_ENABLED: "true" },
+        "s3",
+        "ap-northeast-1",
+      ),
+    },
+    claim: async () => {
+      scanned();
+      return null;
+    },
+    cleanup: async () => {},
+  });
+  const provider = Reflect.getMetadata(
+    "providers",
+    VideoProcessingCoreModule,
+  ).find((p) => p.provide === VideoWorker);
+  class TestModule {}
+  Module({
+    providers: [
+      provider,
+      { provide: VideoCloudBridge, useValue: { store } },
+      { provide: VideoProcessingService, useValue: {} },
+      { provide: VideoStorage, useValue: {} },
+      { provide: FileStorageService, useValue: {} },
+    ],
+  })(TestModule);
+  const app = await NestFactory.createApplicationContext(TestModule, {
+    logger: false,
+  });
+  try {
+    await next;
+    const worker = app.get(VideoWorker);
+    assert.equal(worker.service, store);
+    assert.equal(worker.storage.locations, store);
+    assert.ok(worker.managedEncoder instanceof MediaConvertEncoder);
+    assert.ok(worker.running);
+  } finally {
+    await app.close();
+  }
+  assert.equal(store.listenerCount("queued"), 0);
+});
+
+test("AWS worker runs inside the API with managed Probe and no local executables", async () => {
   const config = readVideoConfig(awsEnv, "s3", "ap-northeast-1");
-  const worker = new VideoWorker({ config: { video: config } }, {});
+  const { EventEmitter } = require("node:events");
+  const service = Object.assign(new EventEmitter(), {
+    config: { video: config },
+  });
+  const worker = new VideoWorker(service, {}, undefined, { close() {} });
   await worker.onApplicationBootstrap();
   assert.equal(worker.running, undefined);
-  await assert.rejects(worker.start(), /AWS_VIDEO_REQUIRES_LAMBDA/);
+  config.workerEnabled = true;
+  config.ffmpegPath = "must-not-run";
+  config.ffprobePath = "must-not-run";
+  let processed;
+  const next = new Promise((done) => (processed = done));
+  worker.once = async () => {
+    processed();
+    return false;
+  };
+  worker.retention = async () => {};
+  try {
+    await worker.onApplicationBootstrap();
+    await next;
+    assert.ok(worker.running);
+  } finally {
+    await worker.onModuleDestroy();
+  }
+  assert.equal(service.listenerCount("queued"), 0);
+  const { VIDEO_WORKER_ENABLED, ...minimal } = awsEnv;
+  assert.equal(
+    readVideoConfig(minimal, "s3", "ap-northeast-1").workerEnabled,
+    true,
+  );
   for (const change of [
-    { VIDEO_WORKER_ENABLED: "true" },
     { VIDEO_WORKER_ENABLED: "yes" },
     { VIDEO_DYNAMODB_TABLE: "" },
+    { VIDEO_MEDIACONVERT_ROLE_ARN: "" },
+    {
+      VIDEO_MEDIACONVERT_QUEUE_ARN:
+        "arn:aws:mediaconvert:ap-northeast-1:999999999999:queues/video",
+    },
   ])
     assert.throws(() =>
       readVideoConfig({ ...awsEnv, ...change }, "s3", "ap-northeast-1"),
     );
-  assert.throws(() =>
-    readVideoConfig(
-      { ...awsEnv, VIDEO_MEDIACONVERT_ROLE_ARN: "" },
-      "s3",
-      "ap-northeast-1",
-      "lambda",
-    ),
+});
+
+test("AWS worker periodically cleans retired DynamoDB output and closes the managed client", async () => {
+  const { EventEmitter } = require("node:events");
+  const calls = [];
+  const service = Object.assign(new EventEmitter(), {
+    config: { video: readVideoConfig(awsEnv, "s3", "ap-northeast-1") },
+    cleanup: async (remove, remaining) => {
+      assert.ok(remaining() > 45000);
+      await remove("output", "retired-prefix");
+    },
+  });
+  const worker = new VideoWorker(
+    service,
+    {
+      removePrefix: async (...args) => calls.push(args),
+    },
+    undefined,
+    { close: () => calls.push("closed") },
   );
+  await worker.retention();
+  await worker.retention();
+  await worker.onModuleDestroy();
+  assert.deepEqual(calls, [["output", "retired-prefix"], "closed"]);
 });
 
 test("AWS submission and finalization use managed metadata and publish only verified S3 output", async () => {

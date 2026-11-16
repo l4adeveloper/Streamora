@@ -603,7 +603,7 @@ bản; cần chính sách retention riêng.
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | T10 ghi cục bộ      | Dùng uploadFile với source=LOCAL_RECORDING, sessionId; giữ file tải cục bộ khi upload lỗi; không tạo API media khác                            |
 | T11 ghi cloud       | Dùng registerRecording/recording_assets và vị trí storage đúng; giữ file_usages khi có tham chiếu                                              |
-| T13 encode AWS      | Đã tích hợp DynamoDB/Lambda, MediaConvert, retry và publish; xem [setup AWS](t13-aws-console.md) và [handoff](t13-handoff.md) để nghiệm thu |
+| T13 encode AWS      | Đã tích hợp EC2/DynamoDB, MediaConvert, retry và publish; xem [setup AWS](t13-aws-console.md) và [handoff](t13-handoff.md) để nghiệm thu |
 | T14 CDN/multi cloud | Cấp quyền phân phối, CDN_BASE_URL/signed URL/cookie, HLS toàn cây, replication và routing; registry hiện chỉ hỗ trợ local/S3                   |
 | T17 resume          | IndexedDB, API status đối chiếu ListParts, xác minh file, retry/backoff, ký lại parts thiếu và quét orphan                                     |
 | T20 nghiệm thu tải  | Chốt ngưỡng, benchmark 4 file/5 PUT trên môi trường đích, đo API riêng với băng thông storage                                                  |

@@ -4,6 +4,7 @@ import {
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
+  OnApplicationShutdown,
 } from "@nestjs/common";
 import { APP_CONFIG } from "../../config/configuration.module";
 import type { EnvironmentConfig } from "../../config/environment";
@@ -18,7 +19,7 @@ import { readSource } from "./video-policy";
 // authoritative in DynamoDB; this relay never probes, encodes or finalizes video.
 @Injectable()
 export class VideoCloudBridge
-  implements OnApplicationBootstrap, OnModuleDestroy
+  implements OnApplicationBootstrap, OnModuleDestroy, OnApplicationShutdown
 {
   readonly store?: DynamoVideoJobs;
   private timer?: NodeJS.Timeout;
@@ -90,7 +91,7 @@ export class VideoCloudBridge
       await this.locations.resolve(source.storageLocationId),
       published,
     );
-    // Register the output identity for API/CDN delivery, not for Lambda DB access.
+    // Register the output identity for API/CDN delivery.
     const id = await this.store.outputLocation(),
       target = await this.store.resolve(id);
     await this.db.storageLocation.upsert({
@@ -108,6 +109,7 @@ export class VideoCloudBridge
     const remote = await this.store.job(job.id);
     if (remote && ["READY", "FAILED"].includes(remote.state))
       await this.syncTerminal(remote);
+    else this.store.emit("queued");
   }
   async state(fileId: string) {
     if (!this.store) throw new Error("VIDEO_NOT_CONFIGURED");
@@ -170,6 +172,9 @@ export class VideoCloudBridge
   async onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);
     await this.running;
+  }
+  onApplicationShutdown() {
+    // Nest finishes worker destruction before application shutdown hooks.
     this.store?.close();
   }
 }

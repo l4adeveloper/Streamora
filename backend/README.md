@@ -318,4 +318,4 @@ và cấu hình [CORS NestJS](https://docs.nestjs.com/security/cors).
 Prisma sử dụng [PostgreSQL adapter](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/postgresql)
 và [generator CommonJS](https://www.prisma.io/docs/orm/v7/prisma-schema/overview/generators).
 
-T13: [Deploy AWS serverless](docs/t13-aws-console.md) · [Handoff và test local](docs/t13-handoff.md).
+T13: [Deploy EC2 + MediaConvert](docs/t13-aws-console.md) · [Handoff và test local](docs/t13-handoff.md).

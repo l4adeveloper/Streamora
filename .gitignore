@@ -17,5 +17,6 @@ coverage/
 .local-storage/
 backend/src/generated/prisma/
 .DS_Store
-# T13 local signing material and previous deployment settings.
-backend/infra/t13/.local/
+# Local infrastructure artifacts and keys.
+.local/
+cdk.out/

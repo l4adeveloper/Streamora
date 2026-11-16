@@ -19,7 +19,6 @@ export function readVideoConfig(
   env: NodeJS.ProcessEnv,
   driver: string,
   region: string,
-  purpose: "api" | "lambda" = "api",
 ): VideoConfig {
   const bad = (key: string): never => {
     throw new Error(`Cấu hình ${key} không hợp lệ.`);
@@ -41,7 +40,9 @@ export function readVideoConfig(
     bad("VIDEO_OPTIONAL_QUALITIES");
   const config: VideoConfig = {
     mode: mode as VideoConfig["mode"],
-    workerEnabled: env.VIDEO_WORKER_ENABLED === "true",
+    workerEnabled:
+      env.VIDEO_WORKER_ENABLED === "true" ||
+      (env.VIDEO_WORKER_ENABLED === undefined && env.VIDEO_MODE === "aws"),
     maxQuality,
     optionalQualities,
     ffmpegPath:
@@ -78,7 +79,6 @@ export function readVideoConfig(
     !["true", "false"].includes(env.VIDEO_WORKER_ENABLED)
   )
     bad("VIDEO_WORKER_ENABLED");
-  if (config.workerEnabled && mode === "aws") bad("VIDEO_WORKER_ENABLED");
   // Existing S3 installations can still boot before T13 infrastructure is provisioned.
   // An explicitly selected AWS mode must be fully configured.
   if (env.VIDEO_MODE === "aws") {
@@ -87,19 +87,15 @@ export function readVideoConfig(
       bad("VIDEO_OUTPUT_BUCKET");
     if (!/^[A-Za-z0-9_.-]{3,255}$/.test(config.tableName))
       bad("VIDEO_DYNAMODB_TABLE");
-    if (purpose === "api") {
-      if (!/^[a-z0-9.-]+$/.test(config.mediaDomain)) bad("VIDEO_MEDIA_DOMAIN");
-    }
-    if (purpose === "lambda") {
-      if (!config.roleArn.startsWith(`arn:aws:iam::${config.accountId}:role/`))
-        bad("VIDEO_MEDIACONVERT_ROLE_ARN");
-      if (
-        !config.queueArn.startsWith(
-          `arn:aws:mediaconvert:${region}:${config.accountId}:queues/`,
-        )
+    if (!/^[a-z0-9.-]+$/.test(config.mediaDomain)) bad("VIDEO_MEDIA_DOMAIN");
+    if (!config.roleArn.startsWith(`arn:aws:iam::${config.accountId}:role/`))
+      bad("VIDEO_MEDIACONVERT_ROLE_ARN");
+    if (
+      !config.queueArn.startsWith(
+        `arn:aws:mediaconvert:${region}:${config.accountId}:queues/`,
       )
-        bad("VIDEO_MEDIACONVERT_QUEUE_ARN");
-    }
+    )
+      bad("VIDEO_MEDIACONVERT_QUEUE_ARN");
   }
   return config;
 }

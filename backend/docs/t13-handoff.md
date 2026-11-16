@@ -1,100 +1,96 @@
-# T13 — serverless video pipeline
+# T13 — bàn giao video: EC2 + MediaConvert
 
-AWS MVP dùng DynamoDB, một Lambda, MediaConvert Default queue và EventBridge Scheduler mỗi phút.
-Output ở S3 private, được CloudFront phân phối công khai qua OAC.
-Lambda không có Prisma/PostgreSQL, DB secret, VPC hoặc NAT. Gói Lambda được kiểm tra
-để không chứa runtime Prisma/pg; chỉ có một handler bundle độc lập.
+API trên EC2 điều phối; MediaConvert encode HLS nhiều chất lượng; S3 lưu nguồn/output; DynamoDB lưu job; CloudFront phát công khai. Không dùng Lambda, Scheduler, SQS hoặc Docker cho pipeline video.
 
-Tạo/cấu hình dịch vụ trong AWS Management Console theo [hướng dẫn triển khai](t13-aws-console.md).
-Đóng gói ZIP bằng `npm run package:video-lambda`, upload vào Lambda rồi cấu hình env EC2.
-Local vẫn dùng PostgreSQL/FFmpeg để phát triển. API trên EC2 tài khoản khác sử dụng credentials của streamora-developer trong backend/.env; Lambda sử dụng execution role riêng. Deploy API/frontend giữ npm ci → npm run build → restart hai process PM2 → pm2 save.
+```text
+Trình duyệt ──upload trực tiếp──> S3 nguồn
+       └──> streamora-api trên EC2 ──> DynamoDB (job)
+                        ├──> MediaConvert ──> S3 output ──> CloudFront public
+                        └──> PostgreSQL (metadata, quyền, pin nguồn)
+```
 
-## Trách nhiệm và trạng thái
+EC2 thuộc tài khoản AWS khác. Các dịch vụ thuộc tài khoản của **streamora-developer — 586481704097**, region **ap-northeast-1**. Backend dùng credentials tài khoản dịch vụ trong `backend/.env`; không đổi instance role EC2. PostgreSQL hiện có vẫn phục vụ ứng dụng, không tạo database SQL mới cho video.
 
-1. API hoàn tất upload/đăng ký bản ghi trong transaction metadata, tạo yêu cầu bàn giao
-   và pin nguồn. Source được gắn vào storage đã đăng ký, không nhận URL tùy ý từ client.
-2. Ngay sau commit, API gửi snapshot nguồn/job sang DynamoDB bằng transaction chống
-   trùng. Khi AWS tạm lỗi, metadata và pin còn nguyên; relay bàn giao thử lại sau 15 giây
-   hoặc restart. SQL chỉ giữ metadata/bàn giao và bản tương thích cho dữ liệu cũ.
-3. Scheduler gọi Lambda mỗi phút. Lambda lấy job due từ GSI work-due, claim lease nguyên tử có owner/attempt fencing. Không dùng DynamoDB Streams hay rule completion.
-4. Lambda Probe, chốt ladder, lưu SUBMITTING trước CreateJob rồi lưu providerJobId. MediaConvert dùng queue Default; Lambda không chờ encode.
-5. Ở tick sau, Lambda dùng GetJob kiểm tra provider role/queue/nguồn/destination/ladder trước khi hoàn tất. Job lỗi không chặn các job tiếp theo.
-6. Job SUBMITTING chưa rõ kết quả được reconcile, không submit lại mù: request token chỉ chống trùng trong một phút. Với tải nhỏ, bắt đầu xử lý và publish thường chờ thêm khoảng một tick; backlog/throttling/lỗi có thể kéo dài hơn.
-7. Finalizer kiểm tra master/variant/segment/init/audio/ENDLIST/timeline, metadata thật
-   và thumbnail. Publish READY cùng publishedJobId trong transaction DynamoDB có fence.
-8. API đọc trạng thái/output từ DynamoDB, giữ quyền xem theo metadata/thành viên SQL.
-   Đồng bộ terminal về SQL chỉ để tương thích/release pin; Lambda không gọi về API/DB.
-9. Retry FAILED có quyền host/owner/admin và Idempotency-Key. Nguồn cũ vẫn được pin
-   trước khi bàn giao retry; output đã publish trước đó được giữ khi lần mới lỗi.
-10. Cleanup theo lô sau bảy ngày chỉ dọn job terminal chưa được publish hoặc đã xóa.
-    Giữ output còn được HLS khác tham chiếu; marker cleanup ngăn import mới trong lúc
-    dọn. Giữ toàn bộ cây của job đang publish. Không xóa nguồn IVS như output encode.
+## 1. Cấu hình và deploy
 
-DynamoDB on-demand; PITR/deletion protection tùy nhu cầu triển khai. Không dùng TTL cho job đang publish. Scheduler phục hồi job còn due, không có SQS/DLQ. Theo dõi lỗi qua CloudWatch.
-Sau khi job vào DynamoDB, EC2 ngừng hoạt động không ngăn MediaConvert/Lambda hoàn tất.
-Khi API hoạt động lại, nó đọc kết quả DynamoDB và giải phóng pin metadata.
+Làm một lần theo [hướng dẫn AWS Console](t13-aws-console.md), cập nhật [env EC2](../infra/t13/ec2.env.example). Đặc biệt đổi `VIDEO_WORKER_ENABLED=false` cũ thành `true`. Worker tự chạy trong **streamora-api**; không thêm process PM2, cron hoặc cổng inbound. MediaConvert Probe đọc metadata nên EC2 không cần cài FFmpeg/FFprobe cho T13 AWS.
 
-## Định dạng video và quyền phát
+Mỗi lần deploy, tại thư mục gốc repository:
 
-H.264/AAC SDR 8-bit, tối đa một video track/một audio track, 12 giờ và 30 FPS.
-Segment khoảng bốn giây. Ladder 360/720/1080/2160 theo cap và nguồn, không upscale;
-480/1440 tùy chọn. Video dọc đặt nhãn theo cạnh ngắn. Local scratch tối đa 8 GiB.
-Progress null nếu chưa đo được, tối đa 99 khi đang xử lý, 100 khi READY.
+```bash
+npm ci
+npm run build
+pm2 restart streamora --update-env
+pm2 restart streamora-api --update-env
+pm2 save
+```
 
-CloudFront dùng OAC để đọc bucket private, nhưng HLS được công khai: bất kỳ ai có URL đều phát được playlist, segment và thumbnail, kể cả sau khi mất quyền ứng dụng. API vẫn kiểm tra quyền khi cung cấp metadata. Không cần khóa ký hoặc Secrets Manager. Thời hạn trong phản hồi giữ để tương thích; player không gia hạn hay gửi cookie khi phát HLS public. CloudFront dùng SimpleCORS có sẵn.
+Không có migration mới trong thay đổi này. Giữ database và bảng DynamoDB hiện có. Khi chuyển từ Lambda, tắt lịch/trigger cũ trước khi bật worker EC2 theo hướng dẫn Console.
 
-Bản ghi trình duyệt đi qua multipart hoàn tất. T11 cloud recording phải gọi
-`FilesService.registerRecording` với mapping phiên ghi/nhóm/storage đã xác minh khi
-nguồn AVAILABLE. HLS IVS STANDARD/ALL được kiểm tra/import, không encode lại.
-Repo chưa có đầy đủ adapter cloud recording-ended T11 cho IVS STANDARD; Stage IVS
-Real-Time không được tự biến thành Low-Latency Channel. DVR thuộc T12.
+## 2. Cách hoạt động
 
-## File chính
+1. Upload hoàn tất: lưu metadata, job và pin nguồn trong cùng transaction SQL.
+2. API bàn giao sang DynamoDB rồi đánh thức worker. Bàn giao lỗi được thử lại mỗi 15 giây và sau restart; nguồn vẫn được pin.
+3. Worker nhận lease, dùng MediaConvert Probe kiểm tra nguồn, chọn ladder không upscale và gọi CreateJob.
+4. Lưu providerJobId rồi trả lượt xử lý. Khoảng 10 giây sau, gọi GetJob; không giữ yêu cầu HTTP chờ encode. Khi rảnh worker dò job khoảng 1,5 giây/lần.
+5. Encode xong: kiểm tra playlist/segment/metadata/thumbnail, publish READY trong DynamoDB. API đồng bộ về SQL và giải phóng pin nguồn.
+6. Submission chưa rõ kết quả được đối soát với MediaConvert, không tự gửi lại mù. Lease/fencing cho phép phục hồi sau restart và ngăn lượt cũ ghi đè kết quả.
+7. Khoảng 5 phút khi rảnh, worker kiểm tra output cũ: chỉ dọn cây job terminal đã qua 7 ngày, không còn publish/tham chiếu; giữ nguồn và video đang phát.
 
-Các file xử lý nằm ở `backend/src/modules/video-processing/`:
+**Khi EC2/API dừng:** MediaConvert tiếp tục job đã nhận; việc gửi job mới, kiểm tra kết quả và chuyển READY chờ API chạy lại. Worker phục vụ tải nhỏ, không có autoscaling hoặc cam kết thời gian hoàn tất.
 
-| File | Trách nhiệm |
+H.264/AAC SDR 8-bit, tối đa một video track/một audio track, 12 giờ và 30 FPS. Segment khoảng 4 giây; ladder 360/720/1080/2160p theo nguồn, cap mặc định 2160p; 480/1440p tùy chọn. Local vẫn có chế độ FFmpeg để phát triển.
+
+CloudFront **public**, không signed URL/cookie hoặc khóa ký. Ai có URL đều phát được video và thumbnail, kể cả sau khi mất quyền ứng dụng. API vẫn kiểm tra thành viên khi cấp metadata. S3 giữ private, CloudFront đọc qua OAC.
+
+## 3. Code và phần đã dọn
+
+Các file trong `src/modules/video-processing/`:
+
+| File | Vai trò |
 | --- | --- |
-| video-job-store.ts | Contract job store dùng chung; type Prisma chỉ dùng khi biên dịch |
-| dynamodb-video-jobs.ts | Transaction/lease/publish/retry/recovery index/reference/cleanup của AWS |
-| video-cloud-bridge.ts | Bàn giao metadata bền vững, đồng bộ terminal và pin nguồn |
-| video-processing.service.ts | Enqueue, quyền API, retry, status và chọn nguồn trạng thái |
-| video-jobs.service.ts | Adapter SQL cho local; API AWS không claim job bằng SQL |
-| video-worker.ts | Các bước xử lý hữu hạn dùng chung; vòng lặp chỉ được bật ở local |
-| managed-video-encoder.ts, mediaconvert-encoder.ts | Contract encoder và adapter AWS |
-| video-storage.ts, video-finalizer.ts | Storage và kiểm tra HLS |
-| video-delivery.ts, video-cdn.ts, cloudfront-video-cdn.ts | Cấp quyền và adapter CDN |
-| backend/src/video.lambda.ts | Xử lý một tick Scheduler, không khởi động API/Nest app |
+| `video-processing-core.module.ts` | Chọn store/encoder và khởi tạo worker trong API |
+| `video-worker.ts` | Nhận job, submit/poll, verify, publish, cleanup |
+| `mediaconvert-encoder.ts` | Probe/CreateJob/GetJob và đối soát submission |
+| `dynamodb-video-jobs.ts` | Job AWS, lease, fencing, publish, retention |
+| `video-cloud-bridge.ts` | Bàn giao bền vững, đồng bộ SQL, pin nguồn |
+| `video-processing.service.ts` | Enqueue, quyền, retry, trạng thái API |
+| `video-jobs.service.ts`, `ffmpeg-encoder.ts` | Chế độ local |
+| `video-storage.ts`, `video-finalizer.ts` | Storage và kiểm tra HLS |
+| `video-delivery.ts`, `cloudfront-video-cdn.ts` | Phát local/CloudFront public |
 
-Storage identity thuần nằm ở `modules/files/storage-target.ts`, không kéo SQL vào
-Lambda. Thay job store/encoder/storage/CDN qua adapter; GCS/CDN failover chưa cài.
+Đã bỏ entrypoint Lambda, script ZIP, lệnh npm, env/policy/test riêng của Lambda và dependency đóng gói trực tiếp. Test adapter MediaConvert được giữ lại. Không đổi API/frontend hoặc schema để giữ các video/job hiện có.
 
-## API
+Đã dọn thư mục CDK local, output CloudFormation, cấu hình triển khai và khóa ký CloudFront cũ. Không còn bước cài CDK/bootstrap/synth/deploy trên máy. Backend build tự xóa `dist` trước khi biên dịch để không giữ file Lambda hoặc module đã bị bỏ.
+
+## 4. API và bản ghi
 
 Prefix `/api/v1`:
 
-| Endpoint | Quyền/hành vi |
+| Endpoint | Hành vi |
 | --- | --- |
-| GET /files/:fileId/processing | Thành viên có quyền xem: status/progress/renditions/thumbnail/errorCode |
-| POST /files/:fileId/processing/retry | Host/owner/admin, body {}, Idempotency-Key, trả 202 |
-| GET /recordings/:recordingId/processing | Status theo file đã gắn bản ghi |
-| POST /recordings/:recordingId/processing/retry | Cùng quyền/idempotency với file |
+| `GET /files/:fileId/processing` | Status, progress, renditions, thumbnail, errorCode |
+| `POST /files/:fileId/processing/retry` | Host/owner/admin; body `{}`, Idempotency-Key; trả 202 |
+| `GET /recordings/:recordingId/processing` | Trạng thái theo file bản ghi |
+| `POST /recordings/:recordingId/processing/retry` | Quyền/idempotency như file |
 
-## Kiểm thử
+Retry chỉ dành cho FAILED; giữ output đã publish khi lần mới lỗi. Bản ghi trình duyệt đi qua multipart. T11 phải gọi `FilesService.registerRecording` với nguồn AVAILABLE và mapping phiên/nhóm/storage đã xác minh. HLS IVS STANDARD/ALL được kiểm tra/import, không encode lại. Adapter cloud recording-ended T11 cho IVS STANDARD chưa đầy đủ; DVR thuộc T12.
+
+## 5. Kiểm tra
 
 ```bash
+npm run test:t13:local
 npm run test:t13
-npm run test:t13:lambda
 npm run typecheck
+npm run build
 ```
 
-`test:t13`: PostgreSQL nhúng tạm/FFmpeg thật, bảng DynamoDB Local riêng, mock managed
-encode/S3, kiểm tra upload/bản ghi/retry/quyền xem, giao dịch DDB, lease, recovery,
-retention và bàn giao khi AWS tạm lỗi. DynamoDB tests chỉ chấp nhận endpoint loopback;
-không dùng account/table thật. `test:t13:lambda` giải nén ZIP bên ngoài repo, không
-có node_modules hoặc DB credentials, xác minh handler hoạt động độc lập.
-Cấu hình Console và IAM được kiểm tra theo checklist trong hướng dẫn triển khai.
-Browser tùy chọn: `npm run test:t13:browser` (cần Edge/Chromium).
-Các kiểm thử local không thay thế smoke test IAM/MediaConvert/CDN trên AWS thật.
+`test:t13:local` chạy FFmpeg/FFprobe thật và PostgreSQL nhúng tạm: encode HLS, nguồn dọc/4K, preview, retry và phục hồi worker. Không cần AWS, DynamoDB Local, PostgreSQL riêng hoặc Docker. Binary FFmpeg/FFprobe phục vụ test được cài qua `npm ci` thông thường, không bỏ devDependencies khi chạy test.
 
-Tham chiếu AWS: [Scheduler → Lambda](https://docs.aws.amazon.com/lambda/latest/dg/with-eventbridge-scheduler.html), [queue mặc định](https://docs.aws.amazon.com/mediaconvert/latest/ug/working-with-queues.html), [request token](https://docs.aws.amazon.com/mediaconvert/latest/apireference/idempotency.html).
+`test:t13` dùng PostgreSQL nhúng tạm, FFmpeg thật cho local, DynamoDB Local và mock MediaConvert/S3. DynamoDB tests chỉ chấp nhận endpoint loopback, không dùng bảng thật. Chạy DynamoDB Local bằng Java theo [hướng dẫn hiện có](workspace-chat-dynamodb-handoff.md), không cần Docker; mặc định cổng 8000, đổi bằng `VIDEO_TEST_DYNAMODB_ENDPOINT`. Browser tùy chọn: `npm run test:t13:browser`.
+
+Test local không xác nhận IAM/encode/CDN trên AWS thật. Nghiệm thu theo checklist cuối [hướng dẫn Console](t13-aws-console.md).
+
+Đã kiểm tra trong lượt thay đổi 16/11/2026: `test:t13` đạt 37/37; cấu hình/setup-env/preview đạt 12/12; `npm run typecheck` và `npm run build` toàn repository thành công. DynamoDB Local chạy bằng Java với dữ liệu tạm trong RAM, không dùng Docker hay tài nguyên AWS thật.
+
+Sau khi dọn CDK/output cũ, `npm run test:t13:local` đạt 23/23 ca trên bản backend build sạch. DynamoDB video được giữ nguyên theo thiết kế EC2 hiện tại.

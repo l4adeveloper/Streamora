@@ -8,9 +8,48 @@
         "dynamodb:PutItem",
         "dynamodb:UpdateItem",
         "dynamodb:DeleteItem",
-        "dynamodb:ConditionCheckItem"
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:Query"
       ],
-      "Resource": "arn:aws:dynamodb:ap-northeast-1:586481704097:table/streamora-video-jobs"
+      "Resource": [
+        "arn:aws:dynamodb:ap-northeast-1:586481704097:table/streamora-video-jobs",
+        "arn:aws:dynamodb:ap-northeast-1:586481704097:table/streamora-video-jobs/index/work-due"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "mediaconvert:Probe",
+        "mediaconvert:CreateJob",
+        "mediaconvert:GetJob",
+        "mediaconvert:ListJobs"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::586481704097:role/streamora-video-mediaconvert",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "mediaconvert.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::streamora-file-storage-output/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::streamora-file-storage-output"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:DeleteObject",
+      "Resource": "arn:aws:s3:::streamora-file-storage-output/groups/*/videos/*"
     },
     {
       "Effect": "Allow",

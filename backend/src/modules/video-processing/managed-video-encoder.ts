@@ -1,8 +1,6 @@
 import type { VideoPolicy } from "./video-policy";
 import type { parseProbe } from "./video-probe";
 
-export const VIDEO_MANAGED_ENCODER = Symbol("VIDEO_MANAGED_ENCODER");
-
 export interface EncodeRequest {
   jobId: string;
   attempt: number;

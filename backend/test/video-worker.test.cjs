@@ -64,7 +64,7 @@ test("committed video wakes the local development worker immediately", async () 
     await f.worker.onModuleDestroy();
   }
   assert.equal(f.service.listenerCount("queued"), 0);
-  assert.equal(f.closed(), 0);
+  assert.equal(f.closed(), 1);
 });
 
 test("a notification during a DB scan is retained; shutdown interrupts idle wait", async () => {

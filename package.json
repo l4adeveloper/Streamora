@@ -63,10 +63,9 @@
     "test:t17:integration": "npm run test:t16",
     "test:t17:frontend": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/frontend/uploads-resume-ui.test.cjs backend/test/frontend/uploads-ui.test.cjs",
     "test:video-preview": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/video-preview.test.cjs backend/test/frontend/video-preview-ui.test.cjs",
-    "test:t13": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/video-pipeline.test.cjs backend/test/video-serverless.test.cjs backend/test/video-cdn.test.cjs backend/test/video-api-credentials.test.cjs backend/test/video-dynamodb.test.cjs backend/test/video-lambda.test.cjs backend/test/video-worker.test.cjs backend/test/integration/video-pipeline.test.cjs backend/test/integration/video-cloud-bridge.test.cjs",
+    "test:t13": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/video-pipeline.test.cjs backend/test/video-mediaconvert.test.cjs backend/test/video-cdn.test.cjs backend/test/video-api-credentials.test.cjs backend/test/video-dynamodb.test.cjs backend/test/video-worker.test.cjs backend/test/integration/video-pipeline.test.cjs backend/test/integration/video-cloud-bridge.test.cjs",
     "test:t13:browser": "npm run build --workspace=@streamora/api && node --test backend/test/frontend/video-pipeline-ui.test.cjs",
-    "package:video-lambda": "node backend/scripts/package-video-lambda.mjs",
-    "test:t13:lambda": "npm run package:video-lambda && node --test backend/test/integration/video-lambda-package.test.cjs"
+    "test:t13:local": "npm run build --workspace=@streamora/api && node --test --test-concurrency=1 backend/test/video-pipeline.test.cjs backend/test/video-worker.test.cjs backend/test/video-preview.test.cjs backend/test/integration/video-pipeline.test.cjs"
   },
   "engines": {
     "node": ">=22.16.0",

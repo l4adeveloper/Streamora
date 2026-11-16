@@ -10,7 +10,7 @@ Chat workspace dùng DynamoDB; chat cuộc họp giữ trong RAM. Xem [bàn giao
 
 - **Node.js 22.16+**, **npm 10+**.
 - PostgreSQL truy cập được qua `DATABASE_URL`; dự án kết nối trực tiếp, không cần Docker.
-- DynamoDB Local trên cổng 8000 cho chat workspace (Docker hoặc Java theo tài liệu bàn giao); chạy `npm run chat:setup --workspace=@streamora/api` trước khi thử chat.
+- DynamoDB Local trên cổng 8000 cho chat workspace (Java theo tài liệu bàn giao, không cần Docker); chạy `npm run chat:setup --workspace=@streamora/api` trước khi thử chat.
 - Thực hiện các lệnh dưới đây tại **thư mục gốc repository**.
 
 ### Bước 1 — Cài đặt và tạo cấu hình
@@ -115,7 +115,7 @@ Chat trong nhóm dùng API/realtime thật; phần demo không gắn nhóm vẫn
 - Trình phát trực tiếp trong workspace có thanh tua, tốc độ/chất lượng và toàn màn hình minh họa; chưa có luồng HLS/DVR thật.
 - Mic/camera và chia sẻ màn hình cần cấu hình AWS IVS để chạy với người tham gia thật.
 - Ghi hình và bản ghi trong workspace còn minh họa; T10/T11, IVS server-side composition và Web Audio API là phần tích hợp tiếp.
-- Cần triển khai pipeline encode AWS, retry/DLQ, Redis adapter, replication GCS, CDN và hạ tầng Kubernetes/HPA/WAF/metrics.
+- Pipeline video EC2/MediaConvert đã có code và hướng dẫn Console; cần nghiệm thu AWS thật. Redis adapter, replication GCS và hạ tầng Kubernetes/HPA/WAF/metrics còn là phần tích hợp tiếp.
 - S3 có adapter, IAM/CORS/lifecycle mẫu; chưa triển khai và kiểm thử upload S3 thật. Preview video và test local xem [handoff T13](backend/docs/t13-handoff.md).
 - Giao diện dùng ảnh chân dung minh họa từ Unsplash và font Be Vietnam Pro từ Google Fonts; có font fallback.
 
@@ -137,27 +137,20 @@ Chat trong nhóm dùng API/realtime thật; phần demo không gắn nhóm vẫn
 
 ### Triển khai T13 bằng AWS Management Console
 
-Tạo/cấu hình dịch vụ theo [hướng dẫn từng bước](backend/docs/t13-aws-console.md).
-MVP dùng một lịch Lambda mỗi phút, queue MediaConvert Default và CloudFront public. Cấu hình trực tiếp trên Console theo tài liệu; không cần sinh file trung gian.
+Cấu hình một lần theo [hướng dẫn AWS Console](backend/docs/t13-aws-console.md).
+Worker chạy cùng API trên EC2, điều phối MediaConvert; DynamoDB lưu job, S3 lưu nguồn/output, CloudFront phát public. Không cần Lambda, Scheduler, Docker hay process PM2 mới. EC2 thuộc tài khoản khác vẫn dùng credentials của streamora-developer trong backend/.env.
 
-Đóng gói code Lambda từ máy local:
+Sau khi cấu hình env (đặc biệt VIDEO_WORKER_ENABLED=true), deploy như hiện tại:
 
 ```bash
 npm ci
-npm run package:video-lambda
-```
-
-Upload `backend/dist/video-lambda.zip` trong Lambda Console. Luồng xử lý vẫn là
-Scheduler → Lambda → DynamoDB/MediaConvert; mỗi tick lấy job, kiểm tra kết quả
-và dọn output. Lambda không cần PostgreSQL, DB secret, VPC hoặc NAT.
-Xem [luồng xử lý/test local](backend/docs/t13-handoff.md).
-
-Frontend được cập nhật theo quy trình hiện có, ví dụ:
-
-```bash
-npm run build --workspace=@streamora/web
+npm run build
 pm2 restart streamora --update-env
+pm2 restart streamora-api --update-env
+pm2 save
 ```
+
+Xem [bàn giao và kiểm thử](backend/docs/t13-handoff.md). Khi chuyển từ Lambda cũ, tắt lịch/trigger T13 trước khi bật worker EC2; giữ nguyên dữ liệu.
 
 ### Kiểm thử
 
@@ -171,6 +164,7 @@ pm2 restart streamora --update-env
 | T04 — lịch học, tham gia và realtime            | `npm run test:t04`                                                         |
 | T05 — mic/camera IVS | `npm run test:t05` / `npm run test:t05:integration` / `npm run test:t05:frontend` |
 | T13 — video nhiều chất lượng | `npm run test:t13` / `npm run test:t13:browser` |
+| T13 — FFmpeg local, không cần AWS/DynamoDB Local | `npm run test:t13:local` |
 | T13 — triển khai AWS | [AWS Management Console](backend/docs/t13-aws-console.md) |
 | T15 — thư viện và UI                            | `npm run test:t15` / `npm run test:t15:frontend`                           |
 | T16 — multipart và UI                           | `npm run test:t16` / `npm run test:t16:frontend`                           |
@@ -196,7 +190,7 @@ pm2 restart streamora --update-env
 | T15 — thư viện               | [Bàn giao](backend/docs/t15-handoff.md)                | [Nhập file và chạy local](backend/docs/t15-local.md)                                                  |
 | T16 — upload multipart       | [Bàn giao local/AWS](backend/docs/t16-handoff.md)      | API, quota, storage và nghiệm thu multipart                                                           |
 | T17 — tiếp tục upload        | [Bàn giao mới nhất](backend/docs/t17-handoff.md)       | Pause/resume, reload hàng đợi, tối ưu truyền và các giới hạn                                          |
-| T13 — Pipeline video | [Setup AWS Console](backend/docs/t13-aws-console.md), [Handoff và test local](backend/docs/t13-handoff.md) | DynamoDB, Lambda, MediaConvert và HLS nhiều chất lượng công khai qua CloudFront |
+| T13 — Pipeline video | [Setup AWS Console](backend/docs/t13-aws-console.md), [Handoff và test local](backend/docs/t13-handoff.md) | EC2 điều phối MediaConvert, job DynamoDB và HLS public qua CloudFront |
 
 ### Quy ước dùng chung
 

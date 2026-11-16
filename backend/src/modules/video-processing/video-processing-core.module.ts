@@ -9,9 +9,9 @@ import { VideoStorage, VIDEO_STORAGE_LOCATIONS } from "./video-storage";
 import { VideoDelivery } from "./video-delivery";
 import { VideoWorker } from "./video-worker";
 import { DatabaseVideoCatalog } from "./database-video-catalog";
-import { VIDEO_JOBS, VIDEO_LOCAL_FILES } from "./video-job-store";
+import { MediaConvertEncoder } from "./mediaconvert-encoder";
 
-// API and local processing services. Lambda builds its own independent runtime.
+// The API process hosts the worker in both local and AWS deployments.
 @Module({
   providers: [
     GroupAccessService,
@@ -19,12 +19,32 @@ import { VIDEO_JOBS, VIDEO_LOCAL_FILES } from "./video-job-store";
     StorageLocationsService,
     VideoStorage,
     { provide: VIDEO_STORAGE_LOCATIONS, useExisting: StorageLocationsService },
-    { provide: VIDEO_LOCAL_FILES, useExisting: FileStorageService },
-    { provide: VIDEO_JOBS, useExisting: VideoProcessingService },
     VideoProcessingService,
     VideoCloudBridge,
     VideoDelivery,
-    VideoWorker,
+    {
+      provide: VideoWorker,
+      useFactory: (
+        service: VideoProcessingService,
+        cloud: VideoCloudBridge,
+        storage: VideoStorage,
+        files: FileStorageService,
+      ) =>
+        cloud.store
+          ? new VideoWorker(
+              cloud.store,
+              new VideoStorage(cloud.store),
+              undefined,
+              new MediaConvertEncoder(cloud.store.config.video),
+            )
+          : new VideoWorker(service, storage, files),
+      inject: [
+        VideoProcessingService,
+        VideoCloudBridge,
+        VideoStorage,
+        FileStorageService,
+      ],
+    },
     { provide: VideoRenditionCatalog, useClass: DatabaseVideoCatalog },
   ],
   exports: [

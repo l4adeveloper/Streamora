@@ -4,8 +4,6 @@ import type { PrismaService } from "../../database/prisma.service";
 import type { EnvironmentConfig } from "../../config/environment";
 import type { SourceMetadata, VideoOutput, VideoSource } from "./video-policy";
 
-export const VIDEO_JOBS = Symbol("VIDEO_JOBS");
-export const VIDEO_LOCAL_FILES = Symbol("VIDEO_LOCAL_FILES");
 export const ACTIVE = ["QUEUED", "SUBMITTING", "PROCESSING", "VERIFYING"];
 
 export interface VideoJobStore extends EventEmitter {
@@ -31,6 +29,10 @@ export interface VideoJobStore extends EventEmitter {
   publish(job: VideoJob, output: VideoOutput): Promise<boolean>;
   fail(job: VideoJob, code: string): Promise<void>;
   outputLocation(): Promise<string>;
+  cleanup?(
+    remove: (location: string, prefix: string) => Promise<void>,
+    remaining: () => number,
+  ): Promise<void>;
 }
 
 export interface CloudVideoAsset {

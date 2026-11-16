@@ -1,20 +1,14 @@
 import {
-  Inject,
   Injectable,
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
-  Optional,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import type { Prisma, VideoJob } from "../../generated/prisma/client";
-import {
-  VIDEO_JOBS,
-  VIDEO_LOCAL_FILES,
-  type VideoJobStore,
-} from "./video-job-store";
+import type { VideoJobStore } from "./video-job-store";
 import { VideoStorage } from "./video-storage";
 import type { FileStorageService } from "../files/file-storage.service";
 import {
@@ -27,10 +21,7 @@ import { probe, runProcess } from "./video-probe";
 import { encodeFfmpeg } from "./ffmpeg-encoder";
 import { verifyHls } from "./video-finalizer";
 import { prepareScratch } from "./video-scratch";
-import {
-  VIDEO_MANAGED_ENCODER,
-  type ManagedVideoEncoder,
-} from "./managed-video-encoder";
+import type { ManagedVideoEncoder } from "./managed-video-encoder";
 
 @Injectable()
 export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
@@ -49,11 +40,9 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private retentionCursor?: string;
   private readonly logger = new Logger(VideoWorker.name);
   constructor(
-    @Inject(VIDEO_JOBS) readonly service: VideoJobStore,
+    readonly service: VideoJobStore,
     readonly storage: VideoStorage,
-    @Optional() @Inject(VIDEO_LOCAL_FILES) readonly files?: FileStorageService,
-    @Optional()
-    @Inject(VIDEO_MANAGED_ENCODER)
+    readonly files?: FileStorageService,
     readonly managedEncoder?: ManagedVideoEncoder,
   ) {}
   get config() {
@@ -69,7 +58,7 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
     if (this.config.mode === "local") {
       await runProcess(this.config.ffprobePath, ["-version"]);
       await runProcess(this.config.ffmpegPath, ["-version"]);
-    } else throw new VideoError("AWS_VIDEO_REQUIRES_LAMBDA");
+    } else this.cloud();
     this.stopped = false;
     this.service.on("queued", this.wake);
     this.running = this.loop();
@@ -434,9 +423,18 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
       throw new VideoError("LEASE_LOST");
   }
   private async retention() {
-    const db = this.service.db;
-    if (!db || Date.now() - this.lastRetentionAt < 300000) return;
+    if (Date.now() - this.lastRetentionAt < 300000) return;
     this.lastRetentionAt = Date.now();
+    if (this.service.cleanup) {
+      const until = Date.now() + 60000;
+      await this.service.cleanup(
+        (location, prefix) => this.storage.removePrefix(location, prefix),
+        () => (this.stopped ? 0 : until - Date.now()),
+      );
+      return;
+    }
+    const db = this.service.db;
+    if (!db) return;
     const jobs = await db.videoJob.findMany({
       where: {
         mode: "TRANSCODE",
@@ -487,6 +485,6 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
     this.idle?.();
     for (const abort of this.aborts) abort.abort();
     await this.running;
-    this.encoder?.close();
+    (this.encoder ?? this.managedEncoder)?.close();
   }
 }
