@@ -2,18 +2,18 @@
 
 import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
-import { THEME_STORAGE_KEY } from "@/lib/theme";
+import { DEFAULT_THEME, THEME_STORAGE_KEY } from "@/lib/theme";
 
 export function ThemeToggle() {
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(DEFAULT_THEME === "dark");
 
   useEffect(() => {
     setDark(document.documentElement.dataset.theme === "dark");
     function syncTheme(event: StorageEvent) {
       if (event.key !== THEME_STORAGE_KEY && event.key !== null) return;
-      const nextDark = event.newValue === "dark";
-      document.documentElement.dataset.theme = nextDark ? "dark" : "light";
-      setDark(nextDark);
+      const theme = event.newValue === "light" ? "light" : DEFAULT_THEME;
+      document.documentElement.dataset.theme = theme;
+      setDark(theme === "dark");
     }
     window.addEventListener("storage", syncTheme);
     return () => window.removeEventListener("storage", syncTheme);

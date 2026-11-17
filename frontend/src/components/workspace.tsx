@@ -1,7 +1,14 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -50,6 +57,7 @@ import { SessionIdentity } from "./shell/account-link";
 import { ThemeToggle } from "./shell/theme-toggle";
 import { useToast } from "./common/toast-provider";
 import { useAuth } from "./auth/auth-provider";
+import { RequireSession } from "./auth/require-session";
 import { AccountDialog } from "./auth/account-dialog";
 import { LoadingState, RequestError } from "./common/feedback";
 import { MembersPanel, NoGroupSelected } from "./memberships/members-panel";
@@ -109,18 +117,29 @@ function groupInitials(name: string) {
     .join("")
     .toUpperCase();
 }
-export function Workspace({
-  view: baseView,
-  channel: routeChannel = "trò-chuyện-chung",
-  targetMessageId: routeMessageId,
-  targetThreadId: routeThreadId,
-}: {
+type WorkspaceProps = {
   view: View;
   channel?: string;
   targetMessageId?: string;
   targetThreadId?: string;
-}) {
+};
+
+export function Workspace(props: WorkspaceProps) {
+  return (
+    <Suspense fallback={<LoadingState message="Đang mở không gian học tập…" />}>
+      <WorkspaceContent {...props} />
+    </Suspense>
+  );
+}
+
+function WorkspaceContent({
+  view: baseView,
+  channel: routeChannel = "trò-chuyện-chung",
+  targetMessageId: routeMessageId,
+  targetThreadId: routeThreadId,
+}: WorkspaceProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [navigation, setNavigation] = useState<
     | { view: "chat"; channel: string; messageId?: string; threadId?: string }
     | { view: "files" }
@@ -1260,6 +1279,20 @@ export function Workspace({
       ? groupChat.status !== "connected"
       : Boolean(user),
   };
+  if (
+    !user &&
+    ((navigation?.view ?? baseView) === "files" ||
+      dashboardMode ||
+      membersView ||
+      searchParams.get("view") === "dashboard" ||
+      searchParams.get("tab") === "members" ||
+      searchParams.get("create") === "1" ||
+      searchParams.has("groupId") ||
+      searchParams.has("meetingId"))
+  ) {
+    return <RequireSession preserveDestination>{null}</RequireSession>;
+  }
+
   return (
     <div className={`app-shell ${mobileNav ? "nav-open" : ""}`}>
       <div className="workspace-navigation">
@@ -1366,7 +1399,10 @@ export function Workspace({
               className="add-community"
               title="Thêm nhóm học tập"
               aria-label="Thêm nhóm học tập"
-              onClick={() => setModal("groups")}
+              onClick={() => {
+                if (user) setModal("groups");
+                else router.push("/groups");
+              }}
             >
               <Plus size={22} />
             </button>

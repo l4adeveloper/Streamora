@@ -16,12 +16,13 @@ export function RequireSession({
   const auth = useAuth();
   const router = useRouter();
   useEffect(() => {
-    if (auth.phase === "anonymous")
-      router.replace(
-        preserveDestination
-          ? `/auth?next=${encodeURIComponent(window.location.pathname)}`
-          : "/auth",
-      );
+    if (auth.phase !== "anonymous") return;
+    const { pathname, search } = window.location;
+    router.replace(
+      preserveDestination
+        ? `/auth?next=${encodeURIComponent(pathname + search)}`
+        : "/auth",
+    );
   }, [auth.phase, router, preserveDestination]);
   if (auth.phase === "checking" || auth.phase === "anonymous")
     return <LoadingState message="Đang kiểm tra phiên đăng nhập…" />;
