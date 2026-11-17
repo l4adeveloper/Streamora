@@ -1366,42 +1366,6 @@ export function Workspace({
                       : "Không có cuộc họp đang diễn ra"
                   }
                 />
-                <span className="sr-only">Đang tải nhóm học tập…</span>
-              </span>
-            )}
-            {workspaceGroup.groups.map((item) => {
-              const hasLive = liveGroupIds.has(item.id);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`community-icon ${item.id === workspaceGroup.groupId ? "selected" : ""}`}
-                  title={item.name}
-                  aria-label={`Mở nhóm ${item.name}`}
-                  disabled={roomSwitching}
-                  aria-current={
-                    item.id === workspaceGroup.groupId ? "true" : undefined
-                  }
-                  onClick={() => {
-                    selectWorkspaceGroup(item.id);
-                    if (matchMedia("(max-width: 650px)").matches)
-                      setMobileNav(true);
-                  }}
-                >
-                  {groupInitials(item.name)}
-                  <span
-                    className={`group-live-dot ${hasLive ? "has-live" : "no-live"}`}
-                    aria-label={
-                      hasLive
-                        ? "Có phòng họp đang diễn ra"
-                        : "Không có phòng họp đang diễn ra"
-                    }
-                    title={
-                      hasLive
-                        ? "Có cuộc họp đang diễn ra"
-                        : "Không có cuộc họp đang diễn ra"
-                    }
-                  />
                 </button>
               );
             })}
@@ -1445,20 +1409,6 @@ export function Workspace({
             </IconButton>
           </div>
         </aside>
-        <aside className="channel-sidebar">
-          <button
-            className="community-title"
-            onClick={() => setModal("community-settings")}
-          >
-            <Plus size={22} />
-          </button>
-        </nav>
-        <div className="rail-bottom">
-          <IconButton label="Hướng dẫn" onClick={() => setModal("help")}>
-            <CircleHelp size={21} />
-          </IconButton>
-        </div>
-      </aside>
       {dashboardMode ? (
         <MeetingsDashboardSidebar
           meetings={dashboardMeetings}
@@ -1484,23 +1434,16 @@ export function Workspace({
         />
       ) : (
         <aside className="channel-sidebar">
-        <button
-          className="community-title"
-          onClick={() => setModal("community-settings")}
-        >
-          <span className="community-logo">
-            <Waves size={20} />
-          </span>
-          <div>
-            <b>{group}</b>
-            <small>Không gian học tập</small>
-          </div>
-          <ChevronDown size={15} />
-        </button>
-        <div className="sidebar-scroll">
-          <div className="channel-section">
-            <div className="section-label">
-              <ChevronDown size={12} /> Tổng quan
+          <button
+            className="community-title"
+            onClick={() => setModal("community-settings")}
+          >
+            <span className="community-logo">
+              <Waves size={20} />
+            </span>
+            <div>
+              <b>{group}</b>
+              <small>Không gian học tập</small>
             </div>
             <ChevronDown size={15} />
           </button>
@@ -1732,8 +1675,7 @@ export function Workspace({
               </Link>
             </div>
           </div>
-        </div>
-      </aside>
+        </aside>
       )}
       <div className="sidebar-user workspace-identity">
         {user ? (
