@@ -61,7 +61,7 @@ export class FileCleanupService implements OnModuleInit, OnModuleDestroy {
         }>
       >`UPDATE file_object_deletions SET attempts = attempts + 1, next_attempt_at = now() + interval '5 minutes'
         WHERE file_id = (SELECT file_id FROM file_object_deletions
-          WHERE completed_at IS NULL AND next_attempt_at <= now()
+          WHERE trash_phase IS NULL AND completed_at IS NULL AND next_attempt_at <= now()
           ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED LIMIT 1)
         RETURNING file_id, object_key, storage_location_id, attempts`;
       const claimed = jobs[0];

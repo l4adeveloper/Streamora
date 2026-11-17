@@ -54,6 +54,7 @@ export interface EnvironmentConfig {
     region: string;
     downloadTtlSeconds: number;
     cleanupEnabled: boolean;
+    trash?: { bucket: string; projectId?: string };
   };
   /** Trusted application overrides; omitted deployments use the shared protocol defaults. */
   sessionRealtime?: {
@@ -221,6 +222,17 @@ export function readEnvironment(
   const cleanupEnabled = env.FILES_CLEANUP_ENABLED ?? "true";
   if (!["true", "false"].includes(cleanupEnabled))
     invalid("FILES_CLEANUP_ENABLED");
+  const trashBucket = env.FILES_GCS_TRASH_BUCKET?.trim();
+  const trashProject =
+    env.FILES_GCS_TRASH_PROJECT_ID?.trim() || env.VIDEO_GCS_PROJECT_ID;
+  if (
+    trashBucket &&
+    (!/^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/.test(trashBucket) ||
+      trashBucket === env.VIDEO_GCS_REPLICA_BUCKET ||
+      fileDriver !== "s3" ||
+      !fileBucket)
+  )
+    invalid("FILES_GCS_TRASH_BUCKET");
   const ivsEnabled = env.IVS_ENABLED ?? "false";
   const ivsWorker = env.IVS_WORKER_ENABLED ?? "false";
   if (!["true", "false"].includes(ivsEnabled)) invalid("IVS_ENABLED");
@@ -332,6 +344,9 @@ export function readEnvironment(
       region: fileRegion,
       downloadTtlSeconds,
       cleanupEnabled: cleanupEnabled === "true",
+      ...(trashBucket
+        ? { trash: { bucket: trashBucket, projectId: trashProject } }
+        : {}),
     },
     auth: {
       accessTokenSecret: secret!,

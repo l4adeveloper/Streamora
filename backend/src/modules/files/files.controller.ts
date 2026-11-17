@@ -26,6 +26,8 @@ import { CurrentAuth, RequireAuth, UUIDParamPipe } from "../../common";
 import type { AuthenticatedIdentity } from "../../common";
 import { ApiErrors, ApiSuccess } from "../../documentation/api-decorators";
 import { FilesService } from "./files.service";
+import { FileTrashService } from "./file-trash.service";
+import { PaginationQueryDto } from "../../common/dto/pagination-query.dto";
 import type { Response } from "express";
 import { applyPlaybackCookies } from "../video-processing/playback-cookies";
 
@@ -46,6 +48,8 @@ import {
 import {
   FileDownloadResponseDto,
   FileListResponseDto,
+  FileTrashListResponseDto,
+  FileTrashRequestResponseDto,
   FileResponseDto,
   VideoPlaybackResponseDto,
   RecordingTranscriptResponseDto,
@@ -56,7 +60,47 @@ import {
 @ApiBearerAuth("accessToken")
 @RequireAuth()
 export class GroupFilesController {
-  constructor(private readonly files: FilesService) {}
+  constructor(
+    private readonly files: FilesService,
+    private readonly trash: FileTrashService,
+  ) {}
+  @Get("trash")
+  @ApiOperation({ summary: "Danh sách tài liệu trong thùng rác của nhóm" })
+  @ApiSuccess(200, FileTrashListResponseDto)
+  @ApiErrors(
+    [400, "INVALID_CURSOR", "VALIDATION_ERROR"],
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "GROUP_NOT_FOUND"],
+  )
+  listTrash(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("groupId", UUIDParamPipe) groupId: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.trash.list(auth.user.id, groupId, query);
+  }
+  @Post("trash/:fileId/restore")
+  @HttpCode(202)
+  @ApiOperation({
+    summary: "Yêu cầu khôi phục tài liệu từ Google Cloud Storage về S3",
+  })
+  @ApiSuccess(202, FileTrashRequestResponseDto)
+  @ApiErrors(
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "GROUP_NOT_FOUND", "FILE_NOT_FOUND"],
+    [409, "TRASH_NOT_READY"],
+    [503, "TRASH_UNAVAILABLE"],
+  )
+  async restore(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("groupId", UUIDParamPipe) groupId: string,
+    @Param("fileId", UUIDParamPipe) fileId: string,
+  ) {
+    await this.trash.requestRestore(auth.user.id, groupId, fileId);
+    return { accepted: true };
+  }
   @Patch("folders")
   @HttpCode(204)
   @ApiOperation({ summary: "Đổi tên thư mục và toàn bộ đường dẫn con" })
@@ -84,7 +128,7 @@ export class GroupFilesController {
   @Delete("folders")
   @HttpCode(204)
   @ApiOperation({
-    summary: "Xóa thư mục và các file bên trong; tạo job dọn storage",
+    summary: "Xóa thư mục theo đường dẫn và lên lịch xử lý các file bên trong",
   })
   @ApiSuccess(204)
   @ApiErrors(
@@ -92,7 +136,8 @@ export class GroupFilesController {
     [401, "UNAUTHENTICATED"],
     [403, "FORBIDDEN"],
     [404, "FOLDER_NOT_FOUND"],
-    [409, "FILE_IN_USE", "FOLDER_BUSY"],
+    [409, "FILE_IN_USE", "FOLDER_BUSY", "TRASH_REQUIRES_S3"],
+    [503, "TRASH_UNAVAILABLE"],
   )
   async removeFolder(
     @CurrentAuth() auth: AuthenticatedIdentity,
@@ -294,22 +339,43 @@ export class FilesController {
   @Delete(":fileId")
   @HttpCode(204)
   @ApiOperation({
-    summary: "T15-04 — Xóa mềm và lên lịch dọn object",
+    summary: "T15-04 — Xóa mềm và lên lịch xử lý object",
     description:
-      "Chặn file PENDING, liên kết recording hoặc còn file_usages. URL đã cấp còn hiệu lực tối đa TTL.",
+      "Chuyển vào thùng rác nếu Google Cloud Storage đã được cấu hình. File đang được sử dụng không thể xóa.",
   })
   @ApiSuccess(204)
   @ApiErrors(
     [401, "UNAUTHENTICATED"],
     [403, "FORBIDDEN"],
     [404, "FILE_NOT_FOUND"],
-    [409, "FILE_IN_USE"],
+    [409, "FILE_IN_USE", "TRASH_REQUIRES_S3"],
+    [503, "TRASH_UNAVAILABLE"],
   )
   remove(
     @CurrentAuth() auth: AuthenticatedIdentity,
     @Param("fileId", UUIDParamPipe) fileId: string,
   ) {
     return this.files.remove(auth.user.id, fileId);
+  }
+  @Post(":fileId/trash")
+  @HttpCode(202)
+  @ApiOperation({
+    summary: "Chuyển tài liệu từ S3 vào thùng rác Google Cloud Storage",
+  })
+  @ApiSuccess(202, FileTrashRequestResponseDto)
+  @ApiErrors(
+    [401, "UNAUTHENTICATED"],
+    [403, "FORBIDDEN"],
+    [404, "FILE_NOT_FOUND"],
+    [409, "FILE_IN_USE", "TRASH_REQUIRES_S3"],
+    [503, "TRASH_UNAVAILABLE"],
+  )
+  async moveToTrash(
+    @CurrentAuth() auth: AuthenticatedIdentity,
+    @Param("fileId", UUIDParamPipe) fileId: string,
+  ) {
+    await this.files.remove(auth.user.id, fileId, true);
+    return { accepted: true };
   }
   @Post(":fileId/download-url")
   @HttpCode(200)

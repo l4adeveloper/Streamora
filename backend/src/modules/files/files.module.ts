@@ -9,6 +9,7 @@ import {
 } from "./files.controller";
 import { FilesService } from "./files.service";
 import { FileCleanupService } from "./file-cleanup.service";
+import { FileTrashService } from "./file-trash.service";
 import { LocalFileDownloadController } from "./local-file-download.controller";
 import { VideoPlaybackService } from "./video-playback.service";
 import { VideoProcessingModule } from "../video-processing/video-processing.module";
@@ -25,6 +26,7 @@ import { VideoProcessingModule } from "../video-processing/video-processing.modu
     FolderUploadCancellation,
     FilesService,
     FileCleanupService,
+    FileTrashService,
     VideoPlaybackService,
   ],
   exports: [FilesService, VideoProcessingModule, FolderUploadCancellation],

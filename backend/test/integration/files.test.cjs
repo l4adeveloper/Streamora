@@ -14,6 +14,7 @@ const {
 const {
   FileCleanupService,
 } = require("../../dist/modules/files/file-cleanup.service");
+const { FileTrashService } = require("../../dist/modules/files/file-trash.service");
 let fixture,
   app,
   db,
@@ -588,6 +589,8 @@ test("T15 internal recording registration: group validation, concurrent dedup, n
   // Check public operations individually as the document gains new APIs.
   for (const [path, methods] of Object.entries({
     "/groups/{groupId}/files": ["get"],
+    "/groups/{groupId}/files/trash": ["get"],
+    "/groups/{groupId}/files/trash/{fileId}/restore": ["post"],
     "/groups/{groupId}/files/folders": ["patch", "delete"],
     "/groups/{groupId}/files/folders/download": ["post"],
     "/files/{fileId}": ["get", "patch", "delete"],
@@ -596,8 +599,58 @@ test("T15 internal recording registration: group validation, concurrent dedup, n
     "/files/{fileId}/preview-url": ["post"],
     "/files/{fileId}/playback": ["post"],
     "/files/{fileId}/transcript": ["get"],
+    "/files/{fileId}/trash": ["post"],
   })) {
     for (const method of methods)
       assert.ok(doc.paths[`/api/v1${path}`]?.[method], `${method} ${path}`);
+  }
+});
+
+test("group Trash hides active files, enforces access and restores the original file and folder", async () => {
+  const trash = app.get(FileTrashService);
+  const config = trash.config;
+  const storage = trash.storage;
+  const folder = await db.folder.create({
+    data: { groupId: group.id, name: "Trash restore test", createdBy: owner.id },
+  });
+  const video = await file({ folderId: folder.id, name: "Meeting.mp4", mimeType: "video/mp4" });
+  const list = `/groups/${group.id}/files/trash`;
+  const restore = `${list}/${video.id}/restore`;
+  const move = `/files/${video.id}/trash`;
+  assert.equal((await api(owner, "POST", move)).body.error.code, "TRASH_UNAVAILABLE");
+  assert.equal((await db.libraryFile.findUnique({ where: { id: video.id } })).status, "AVAILABLE");
+
+  trash.config = { ...config, files: { ...config.files, trash: { bucket: "private-trash-test" } } };
+  const calls = [];
+  trash.storage = {
+    archive: async () => { calls.push("copy-to-gcs"); return { generation: "4217", etag: '"video"' }; },
+    removeOriginal: async () => { calls.push("delete-s3"); },
+    restore: async () => { calls.push("copy-to-s3"); },
+    removeArchive: async () => { calls.push("delete-gcs"); },
+  };
+  try {
+    assert.equal((await api(viewer, "POST", move)).status, 403);
+    assert.deepEqual((await api(owner, "POST", move)).body, { accepted: true });
+    assert.equal((await api(owner, "GET", `/files/${video.id}`)).status, 404);
+    assert.deepEqual((await api(viewer, "GET", list)).body.items, []);
+    assert.equal((await api(viewer, "POST", restore)).status, 404);
+    assert.equal((await api(outsider, "GET", list)).status, 403);
+    assert.equal((await api(owner, "POST", restore)).body.error.code, "TRASH_NOT_READY");
+    assert.equal((await api(host, "GET", list)).body.items[0].trashStatus, "ARCHIVING");
+    await trash.tick();
+    await trash.tick();
+    assert.equal((await api(owner, "GET", list)).body.items[0].trashStatus, "TRASHED");
+    assert.deepEqual((await api(host, "POST", restore)).body, { accepted: true });
+    await trash.tick();
+    await trash.tick();
+    assert.deepEqual((await api(owner, "GET", list)).body.items, []);
+    const restored = (await api(owner, "GET", `/files/${video.id}`)).body.file;
+    assert.equal(restored.status, "AVAILABLE");
+    assert.equal(restored.folderId, folder.id);
+    assert.equal(restored.name, video.name);
+    assert.deepEqual(calls, ["copy-to-gcs", "delete-s3", "copy-to-s3", "delete-gcs"]);
+  } finally {
+    trash.config = config;
+    trash.storage = storage;
   }
 });

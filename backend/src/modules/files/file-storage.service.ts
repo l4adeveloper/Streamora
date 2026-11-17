@@ -86,6 +86,10 @@ export class FileStorageService implements OnModuleDestroy {
       );
     return target.bucket;
   }
+  async s3(locationId?: string | null) {
+    const backend = await this.backend(locationId);
+    return { client: backend.client!, bucket: this.bucket(backend.target) };
+  }
   async download(
     objectKey: string,
     name: string,

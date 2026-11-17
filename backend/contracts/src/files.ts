@@ -31,7 +31,20 @@ export interface FileListQuery extends PaginationRequest {
   folderId?: string | null;
   sessionId?: string;
 }
-export type FileListResponse = CursorPage<LibraryFile> & { folders: string[] };
+export type FileListResponse = CursorPage<LibraryFile> & {
+  folders: string[];
+  canDeletePermanently?: boolean;
+};
+export interface TrashedFile extends LibraryFile {
+  deletedAt: string;
+  trashStatus: "ARCHIVING" | "TRASHED" | "RESTORING";
+  progressPercent: number;
+  retrying: boolean;
+}
+export type FileTrashListResponse = CursorPage<TrashedFile>;
+export interface FileTrashRequestResponse {
+  accepted: true;
+}
 export interface FileResponse {
   file: LibraryFile;
 }

@@ -156,6 +156,14 @@ pm2 save
 
 Xem [bàn giao và kiểm thử](backend/docs/t13-handoff.md). Khi chuyển từ Lambda cũ, tắt lịch/trigger T13 trước khi bật worker EC2; giữ nguyên dữ liệu.
 
+### Thùng rác cho video và tài liệu trên S3
+
+1. Tạo một bucket Google Cloud Storage riêng tư dành riêng cho thùng rác. Cấp quyền `roles/storage.objectUser` trên bucket này cho danh tính Google mà API sử dụng qua Application Default Credentials (ADC). Có thể dùng ADC Workload Identity Federation đã cấu hình cho video hoặc cấu hình `GOOGLE_APPLICATION_CREDENTIALS` trên máy chủ.
+2. Đặt `FILES_GCS_TRASH_BUCKET` và, nếu cần, `FILES_GCS_TRASH_PROJECT_ID` trong `backend/.env`. Vai trò AWS của API cần quyền đọc, ghi, xóa và hủy multipart upload đối với các object nguồn trên S3.
+3. Chạy `npm run db:migrate`, build lại ứng dụng và khởi động lại Streamora. Trong **Tài liệu chung**, chọn **Thùng rác** để theo dõi quá trình chuyển và khôi phục.
+
+Worker của API giữ các file trong thùng rác đến khi được khôi phục. Giữ bucket này không có quy tắc lifecycle tự động xóa object đang nằm trong thùng rác.
+
 ### Kiểm thử
 
 | Phạm vi                                         | Lệnh                                                                       |

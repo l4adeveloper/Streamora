@@ -4,6 +4,8 @@ import type {
   FileListQuery,
   FileListResponse,
   FileResponse,
+  FileTrashListResponse,
+  FileTrashRequestResponse,
   FolderListResponse,
   FolderResponse,
   VideoPlaybackResponse,
@@ -34,8 +36,18 @@ export function renameFile(fileId: string, name: string) {
     body: { name },
   });
 }
-export function deleteFile(fileId: string) {
-  return apiRequest<void>(`/files/${fileId}`, { method: "DELETE" });
+export function deleteFile(fileId: string, permanently = false) {
+  if (permanently)
+    return apiRequest<void>(`/files/${fileId}`, { method: "DELETE" });
+  return apiRequest<FileTrashRequestResponse>(`/files/${fileId}/trash`, { method: "POST" });
+}
+export function listTrash(groupId: string, cursor?: string) {
+  const params = new URLSearchParams({ limit: "20" });
+  if (cursor) params.set("cursor", cursor);
+  return apiRequest<FileTrashListResponse>(`/groups/${groupId}/files/trash?${params}`, { method: "GET" });
+}
+export function restoreFile(groupId: string, fileId: string) {
+  return apiRequest<FileTrashRequestResponse>(`/groups/${groupId}/files/trash/${fileId}/restore`, { method: "POST" });
 }
 export function getFileDownload(fileId: string) {
   return apiRequest<FileDownloadResponse>(`/files/${fileId}/download-url`, {
