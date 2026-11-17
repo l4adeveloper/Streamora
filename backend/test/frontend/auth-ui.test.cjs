@@ -138,6 +138,52 @@ test("home poster stays in one viewport and Start opens login before workspace",
     await page.waitForURL("**/workspace");
   });
 });
+test("guests are redirected from protected workspace links and can return after login", async () => {
+  const account = await seed();
+  await withPage(async (page) => {
+    const expectLogin = async (destination) => {
+      await page.waitForURL(
+        (url) =>
+          url.pathname === "/auth" &&
+          url.searchParams.get("next") === destination,
+      );
+      await waitForButton(page, "Đăng nhập");
+    };
+
+    for (const destination of [
+      "/files",
+      "/dashboard",
+      "/workspace?tab=members",
+      "/workspace?view=dashboard",
+      "/workspace?meetingId=demo",
+      "/workspace?groupId=demo",
+    ]) {
+      await open(page, destination);
+      await expectLogin(destination);
+    }
+
+    await open(page, "/workspace");
+    await page.getByRole("button", { name: "Mở danh sách cuộc họp" }).click();
+    await expectLogin("/workspace?view=dashboard");
+    await open(page, "/workspace");
+    await page
+      .locator(".channel-sidebar")
+      .getByRole("button", { name: "Thành viên", exact: true })
+      .click();
+    await expectLogin("/workspace?tab=members");
+
+    await open(page, "/workspace");
+    await page.getByRole("link", { name: "Bản ghi bài giảng" }).click();
+    await expectLogin("/files?type=recordings");
+    await fillLogin(page, account.email);
+    await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
+    await page.waitForURL("**/files?type=recordings");
+    await page.locator(".workspace-identity .session-identity")
+      .getByText("Nguyễn Minh Anh", { exact: true })
+      .waitFor();
+  });
+});
+
 test("login and register tabs swap forms on one auth URL without a document navigation", async () => {
   await withPage(async (page) => {
     await open(page, "/auth");

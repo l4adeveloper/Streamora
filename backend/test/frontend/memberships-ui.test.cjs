@@ -1035,7 +1035,15 @@ test("dark mode supports keyboard toggling, reloads, navigation, tab sync and na
   try {
     await page.goto(`${fixture.webOrigin}/`);
     await toggle(page).waitFor();
+    assert.equal(await toggle(page).getAttribute("aria-pressed"), "true");
+    assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
+    await toggle(page).focus();
+    await toggle(page).press("Space");
     assert.equal(await toggle(page).getAttribute("aria-pressed"), "false");
+    await page.reload();
+    await page
+      .locator('html[data-theme="light"] .theme-toggle[aria-pressed="false"]')
+      .waitFor();
     await toggle(page).focus();
     await toggle(page).press("Space");
     assert.equal(await toggle(page).getAttribute("aria-pressed"), "true");
@@ -1078,8 +1086,8 @@ test("dark mode supports keyboard toggling, reloads, navigation, tab sync and na
           .querySelector(".theme-toggle")
           ?.getAttribute("aria-pressed") === "true",
     );
-    await page.locator('.channel-sidebar a[href="/files"]').click();
-    await page.waitForURL(`${fixture.webOrigin}/files`);
+    await page.locator('.channel-sidebar a[href="/rooms/nhom-01"]').click();
+    await page.waitForURL(`${fixture.webOrigin}/rooms/nhom-01`);
     assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
 
     const otherPage = await context.newPage();
@@ -1101,7 +1109,10 @@ test("dark mode supports keyboard toggling, reloads, navigation, tab sync and na
       await page.locator("html").getAttribute("data-theme"),
       "light",
     );
-    await toggle(page).click();
+    await otherPage.evaluate(() => localStorage.removeItem("streamora-theme"));
+    await page.waitForFunction(
+      () => document.documentElement.dataset.theme === "dark",
+    );
     await page.locator('.channel-sidebar a[href="/community"]').click();
     await page.waitForURL(`${fixture.webOrigin}/community`);
     await page.screenshot({

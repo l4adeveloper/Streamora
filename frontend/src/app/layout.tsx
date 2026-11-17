@@ -3,7 +3,7 @@ import Script from "next/script";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { ToastProvider } from "@/components/common/toast-provider";
 import { InteractionFeedback } from "@/components/common/interaction-feedback";
-import { themeInitScript } from "@/lib/theme";
+import { DEFAULT_THEME, themeInitScript } from "@/lib/theme";
 import "./globals.css";
 import "@/components/common/common.css";
 import "@/components/workspace-layout.css";
@@ -18,7 +18,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="vi" suppressHydrationWarning>
+    <html lang="vi" data-theme={DEFAULT_THEME} suppressHydrationWarning>
       <head>
         <link
           rel="preload"
