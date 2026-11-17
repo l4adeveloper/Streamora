@@ -27,7 +27,7 @@ body:has(.entry-page) {
   color: var(--poster-ink);
   background: var(--poster-background);
 }
-:root[data-theme="dark"] .entry-page {
+:root:not([data-theme="light"]) .entry-page {
   --poster-background: #1c232b;
   --poster-ink: #eceee9;
   --poster-blue: #91b4ff;
