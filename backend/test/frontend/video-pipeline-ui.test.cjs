@@ -618,6 +618,7 @@ test(
       let corsEnabled = true;
       let failPrimary = false;
       let failReplica = false;
+      let liveFixture = false;
       publicServer = createServer(async (request, response) => {
         try {
           let key = decodeURIComponent(
@@ -653,8 +654,19 @@ test(
                 ? "image/jpeg"
                 : "video/mp2t",
           );
+          const bytes = await readFile(
+            join(storage.local.options.directory, key),
+          );
           response.end(
-            await readFile(join(storage.local.options.directory, key)),
+            liveFixture && key.endsWith(".m3u8")
+              ? bytes
+                  .toString()
+                  .replace(/#EXT-X-ENDLIST\s*/g, "")
+                  .replace(
+                    /#EXT-X-PLAYLIST-TYPE:VOD/g,
+                    "#EXT-X-PLAYLIST-TYPE:EVENT",
+                  )
+              : bytes,
           );
         } catch {
           response.writeHead(404);
@@ -900,6 +912,35 @@ test(
         2,
         "automatic failover must not ping-pong indefinitely",
       );
+      // An active recording has no fileId yet. The page must still open the
+      // event playlist through LIVE_DVR, without attempting VOD progress writes.
+      failPrimary = failReplica = false;
+      liveFixture = true;
+      await fixture.prisma.classRecording.update({
+        where: { id: recording.id },
+        data: {
+          provider: "IVS",
+          status: "RECORDING",
+          fileId: null,
+          recordingPrefix: "ivs/browser-fixture",
+          storageLocationId: storage.locations.id,
+        },
+      });
+      await page.reload();
+      await page.waitForFunction(
+        () => document.querySelector(".video-preview video")?.readyState >= 2,
+      );
+      assert.ok(resolutions.some((request) => request.mode === "LIVE_DVR"));
+      await page.locator(".video-preview video").evaluate((v) => {
+        v.pause();
+        v.currentTime = 20;
+      });
+      await page.waitForFunction(() => {
+        const v = document.querySelector(".video-preview video");
+        return (
+          v?.readyState >= 2 && !v.seeking && Math.abs(v.currentTime - 20) < 0.5
+        );
+      });
     } finally {
       releaseMaster?.();
       await browser?.close();

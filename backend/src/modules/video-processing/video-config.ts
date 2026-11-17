@@ -15,6 +15,7 @@ export interface VideoConfig {
   cloudFrontKeyPairId: string;
   cloudFrontSigningSecretId: string;
   replication?: { bucket: string; projectId: string };
+  sourceRegionPreferences?: Record<string, "cloudfront" | "gcs">;
   gcsDelivery?: {
     bucket: string;
     projectId: string;
@@ -41,6 +42,25 @@ export function readVideoConfig(
   )
     bad("VIDEO_REPLICATION_ENABLED");
   const replicate = env.VIDEO_REPLICATION_ENABLED === "true";
+  let sourceRegionPreferences: VideoConfig["sourceRegionPreferences"] = {};
+  try {
+    sourceRegionPreferences = JSON.parse(
+      env.VIDEO_SOURCE_REGION_PREFERENCES ?? "{}",
+    );
+    if (
+      !sourceRegionPreferences ||
+      Array.isArray(sourceRegionPreferences) ||
+      typeof sourceRegionPreferences !== "object" ||
+      Object.entries(sourceRegionPreferences).some(
+        ([key, value]) =>
+          !/^[A-Z][A-Z0-9_-]{1,31}$/.test(key) ||
+          !["cloudfront", "gcs"].includes(value),
+      )
+    )
+      bad("VIDEO_SOURCE_REGION_PREFERENCES");
+  } catch {
+    bad("VIDEO_SOURCE_REGION_PREFERENCES");
+  }
   const gcsProject = env.VIDEO_GCS_PROJECT_ID ?? env.GOOGLE_CLOUD_PROJECT;
   if (
     (replicate || env.VIDEO_GCS_CDN_DOMAIN) &&
@@ -83,6 +103,7 @@ export function readVideoConfig(
     bad("VIDEO_OPTIONAL_QUALITIES");
   const config: VideoConfig = {
     mode: mode as VideoConfig["mode"],
+    sourceRegionPreferences,
     workerEnabled:
       env.VIDEO_WORKER_ENABLED === "true" ||
       (env.VIDEO_WORKER_ENABLED === undefined && env.VIDEO_MODE === "aws"),

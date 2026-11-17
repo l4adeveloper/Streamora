@@ -180,7 +180,10 @@ export class RecordingPlaybackService {
           }))
         : [],
       playbackPath:
-        row.fileId && row.file?.status === "AVAILABLE"
+        (row.fileId && row.file?.status === "AVAILABLE") ||
+        (row.provider === "IVS" &&
+          row.recordingPrefix &&
+          ["RECORDING", "SAVING"].includes(row.status))
           ? `/api/v1/recordings/${recordingId}/playback`
           : null,
       thumbnailResolverPath: `/api/v1/recordings/${recordingId}/thumbnail`,

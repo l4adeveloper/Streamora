@@ -26,10 +26,12 @@ export function VideoPreview({
   fileId,
   name,
   recordingId,
+  playbackMode = "VOD",
 }: {
   fileId: string;
   name: string;
   recordingId?: string;
+  playbackMode?: "VOD" | "LIVE_DVR";
 }) {
   const [manifest, setManifest] = useState<VideoPlaybackResponse>();
   const [sourceId, setSourceId] = useState("");
@@ -59,7 +61,10 @@ export function VideoPreview({
   const transcriptId = useId();
   const [captionsOn, setCaptionsOn] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
-  const { transcript, requestFailed, retry } = useRecordingTranscript(fileId);
+  const { transcript, requestFailed, retry } = useRecordingTranscript(
+    fileId,
+    playbackMode === "VOD",
+  );
   const cues = transcript?.status === "READY" ? transcript.cues : undefined;
   const hasCaptions = !!cues?.length;
   const engine = useRef<Hls | null>(null);
@@ -103,6 +108,7 @@ export function VideoPreview({
               bookmark.current.time,
               networkSource.current || undefined,
               failedNetworkSource,
+              playbackMode,
             )
           : await getVideoPlayback(fileId);
         if (request !== sequence.current) return;
@@ -154,7 +160,7 @@ export function VideoPreview({
         }
       }
     },
-    [fileId, recordingId, remember],
+    [fileId, recordingId, remember, playbackMode],
   );
   useEffect(() => {
     denied.current = false;
@@ -163,7 +169,7 @@ export function VideoPreview({
     failedSources.current.clear();
     let cancelled = false;
     void (async () => {
-      if (recordingId) {
+      if (recordingId && playbackMode === "VOD") {
         try {
           const progress = await getRecordingProgress(recordingId);
           if (cancelled) return;
@@ -178,10 +184,10 @@ export function VideoPreview({
       cancelled = true;
       sequence.current++;
     };
-  }, [refresh, recordingId]);
+  }, [refresh, recordingId, playbackMode]);
   useEffect(() => {
     const element = video.current;
-    if (!recordingId || !element) return;
+    if (!recordingId || !element || playbackMode === "LIVE_DVR") return;
     let lastSaved = 0;
     const save = (force = false) => {
       if (
@@ -209,7 +215,7 @@ export function VideoPreview({
       element.removeEventListener("ended", flush);
       flush();
     };
-  }, [recordingId, manifest?.fileId]);
+  }, [recordingId, manifest?.fileId, playbackMode]);
   const source = manifest?.sources.find((item) => item.id === sourceId);
   useEffect(() => {
     const element = video.current;
@@ -337,7 +343,7 @@ export function VideoPreview({
               xhrSetup: (xhr, url) => {
                 xhr.withCredentials =
                   !source.public &&
-                  !["Key-Pair-Id", "KeyName"].some((key) =>
+                  !["Key-Pair-Id", "KeyName", "X-Amz-Signature"].some((key) =>
                     new URL(url, window.location.href).searchParams.has(key),
                   );
               },
@@ -346,7 +352,7 @@ export function VideoPreview({
                   ...init,
                   credentials:
                     source.public ||
-                    ["Key-Pair-Id", "KeyName"].some((key) =>
+                    ["Key-Pair-Id", "KeyName", "X-Amz-Signature"].some((key) =>
                       new URL(
                         context.url,
                         window.location.href,
@@ -678,7 +684,9 @@ export function VideoPreview({
                 playsInline
                 crossOrigin={
                   source?.public ||
-                  (recordingId && networkSource.current !== "original")
+                  (recordingId &&
+                    (playbackMode === "LIVE_DVR" ||
+                      networkSource.current !== "original"))
                     ? "anonymous"
                     : "use-credentials"
                 }

@@ -65,6 +65,7 @@ export class RecordingPlaybackController {
       failedSourceId?: unknown;
       preferredSourceId?: unknown;
       positionSeconds?: unknown;
+      viewerRegion?: unknown;
     },
     @Res({ passthrough: true }) response: Response,
   ) {

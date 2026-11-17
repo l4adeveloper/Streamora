@@ -98,7 +98,8 @@ Each playlist request rechecks membership, publication and replica readiness.
 Segments use individual 15-minute CDN signed URLs. Previously issued segment
 URLs remain valid until expiry; revocation prevents new grants/playlists.
 `GET /recordings/:id/thumbnail` returns a signed thumbnail from an available
-source. `LIVE_DVR` currently returns 409 rather than selecting unfinished VOD.
+source. `LIVE_DVR` now resolves IVS HLS independently of published VOD and
+returns a safe `readyThroughSeconds` watermark, as described below.
 
 The backend loads the GCS signing key as plain base64url text from AWS Secrets
 Manager in the configured AWS region. On 2026-11-17 the secret
@@ -123,15 +124,72 @@ manual quality, playback rate, volume and paused state, and stopping automatic
 switching when both paths fail. These are local browser fixtures, not a deployed
 CloudFront-to-Cloud-CDN failure demonstration.
 
+## Additional implementation on 2026-11-17 (local verification)
+
+`StorageReplicationWorker` discovers available S3 raw files and IVS recordings
+with registered source locations. Migration `20261117000100_storage_replicas`
+adds durable work state, database leases, heartbeat, restart recovery and
+exponential backoff (eight consecutive failed claims). Successful refreshes
+reset the attempt counter. RAW and LIVE_DVR have independent work lanes, so a
+large raw upload does not block DVR refreshes. Both use the existing
+`VIDEO_REPLICATION_ENABLED` flag.
+
+Raw files, including empty files, are streamed and size/checksum verified under
+`replicas/raw/<fileId>/object`. This adds backup replication; the raw download
+endpoint still uses its original source. Local filesystem files are excluded.
+The deployment identity needs GetObject on every registered S3 source bucket.
+
+LIVE_DVR media uses `replicas/live/<recordingId>/...`. Already verified segments
+with matching source ETag, size and version are reused. Changed media is rejected
+instead of overwriting bytes used by an earlier snapshot. The entire playlist
+tree is committed atomically in SQL after media copies finish. A failed refresh
+preserves the last safe snapshot and watermark. ENDLIST on all media playlists
+completes the replica. Prefix changes, timeline regression, playlist rewrites
+and deleted/failed recordings fail closed.
+
+Supported input is a complete append-only event timeline starting at media
+sequence zero with one multivariant master. Sliding windows, encrypted HLS and
+partial/low-latency HLS are rejected rather than reporting incorrect DVR times.
+Actual IVS output must still be checked during deployed acceptance.
+
+Live playlists recheck recording access on every request using scoped HttpOnly
+grants. GCS segments use signed Cloud CDN URLs; primary IVS segments use S3
+presigned URLs. Source health uses bounded HEAD probes. A requested position
+outside a replica's committed watermark excludes that source. The recording
+page can play LIVE_DVR before a file exists and switches to VOD after SAVED.
+
+Region preference is configured by the lead, for example:
+
+```dotenv
+VIDEO_SOURCE_REGION_PREFERENCES={"ASIA":"gcs","EUROPE":"cloudfront"}
+```
+
+The browser sends a coarse `viewerRegion` based on its timezone area (`ASIA`,
+`EUROPE`, `AMERICA`, `AFRICA`, `AUSTRALIA`, `PACIFIC`). API clients may supply
+another configured region code. This is a routing hint, not geolocation or an
+authorization signal. Unmapped VOD regions retain CloudFront priority;
+LIVE_DVR prefers primary S3 unless GCS is configured for that region. Renewal
+retains a healthy current source. Health, readiness and requested playback
+position always take priority over the region hint.
+
+ADMIN endpoints expose raw status at `GET /internal/assets/:fileId/replicas`
+(`storageReplicas`) and DVR status at
+`GET /internal/assets/:recordingId/replicas/live`. They omit snapshot contents,
+source locations and signing credentials.
+
+No new cloud resource is required by this code. The lead applies the migration
+before starting the updated API and verifies source IAM plus GET/HEAD CORS for
+the application origin on the IVS recording bucket. If an existing permission
+or CORS rule is missing, the user performs that cloud change with screenshot
+checks; the lead handles deployment.
+
 ## Still required before T18 acceptance
 
 - Install WIF configuration and signing secret in the deployment environment;
   verify the deployed worker discovers and completes a real published version.
-- Raw file upload replication (T15) and continuous LIVE_DVR segment replication
-  with a ready-through watermark (T12) are not implemented by this VOD worker.
-- Region-aware source preference is not implemented; current order is healthy
-  CloudFront first, with failover to healthy GCS. VOD resolver, private signing,
-  internal status and technical UI exist; deployed acceptance remains pending.
+- Verify real raw replication and active IVS segment replication, advancing
+  watermark, seeking and source failover after deployment.
+- Configure and verify region preference with deployed sources.
 - Coordinate retention and cleanup of old S3/GCS versions. The worker only
   discovers currently published versions; it does not delete replicas.
 - CloudFront and Cloud CDN end-to-end authorization and failure demonstration.
@@ -141,10 +199,19 @@ lead performs deployment. Do not require the user to deploy EC2.
 
 ## Checks
 
+Local verification on 2026-11-17: backend/frontend TypeScript and Prisma schema
+validation passed; 15 focused unit checks and four SQL integration checks passed.
+The Edge headless regression passed, including unfinished EVENT playlist playback
+without a recording fileId and seeking backward. Its first run failed an earlier
+VOD buffer reuse assertion; a standalone rerun passed the full regression. These
+are local fixtures, not proof of deployed IVS-to-GCS playback.
+
 ```bash
 npx tsc -p backend/tsconfig.json
 node --test backend/test/cloud-cdn-signed-url.test.cjs backend/test/recording-source-health.test.cjs
 node --test backend/test/video-replication.test.cjs
+node --test backend/test/storage-replication.test.cjs
+node --test --test-force-exit backend/test/integration/storage-replicas.test.cjs
 node --test --test-force-exit --test-concurrency=1 backend/test/integration/video-replicas.test.cjs backend/test/integration/recording-sources.test.cjs backend/test/integration/recording-playback.test.cjs
 npm run typecheck --workspace=@streamora/web
 node --test --test-force-exit backend/test/frontend/video-pipeline-ui.test.cjs

@@ -910,3 +910,26 @@ model VideoTranscript {
   @@index([transcriptStatus, transcriptNextAttemptAt], map: "video_transcripts_queue_idx")
   @@map("video_transcripts")
 }
+model StorageReplica {
+  id String @id @default(uuid()) @db.Uuid
+  kind String @db.VarChar(12)
+  assetId String @map("asset_id") @db.Uuid
+  destinationBucket String @map("destination_bucket") @db.VarChar(255)
+  source Json @db.JsonB
+  snapshot Json? @db.JsonB
+  status String @default("PENDING") @db.VarChar(16)
+  attempts Int @default(0)
+  nextRunAt DateTime @default(now()) @map("next_run_at") @db.Timestamptz(3)
+  leaseOwner String? @map("lease_owner") @db.Uuid
+  leaseUntil DateTime? @map("lease_until") @db.Timestamptz(3)
+  errorCode String? @map("error_code") @db.VarChar(64)
+  objectCount Int @default(0) @map("object_count")
+  lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(3)
+  readyThroughSeconds Float @default(0) @map("ready_through_seconds")
+  completed Boolean @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  @@unique([kind, assetId, destinationBucket])
+  @@index([nextRunAt, leaseUntil])
+  @@map("storage_replicas")
+}

@@ -6,18 +6,47 @@ export interface RecordingPlaybackResponse extends VideoPlaybackResponse {
   manifestUrl: string | null;
   authorization: { type: "SIGNED_URL"; expiresAt: string | null };
   fallbackAvailable: boolean;
+  readyThroughSeconds?: number;
+}
+// Timezone is a coarse routing hint; authorization never depends on it.
+function viewerRegion() {
+  try {
+    const area = Intl.DateTimeFormat()
+      .resolvedOptions()
+      .timeZone.split("/")[0]
+      .toUpperCase();
+    return [
+      "ASIA",
+      "EUROPE",
+      "AMERICA",
+      "AFRICA",
+      "AUSTRALIA",
+      "PACIFIC",
+    ].includes(area)
+      ? area
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 export function getRecordingPlayback(
   recordingId: string,
   positionSeconds: number,
   preferredSourceId?: string,
   failedSourceId?: string,
+  mode: "VOD" | "LIVE_DVR" = "VOD",
 ) {
   return apiRequest<RecordingPlaybackResponse>(
     `/recordings/${recordingId}/playback`,
     {
       method: "POST",
-      body: { mode: "VOD", positionSeconds, preferredSourceId, failedSourceId },
+      body: {
+        mode,
+        positionSeconds,
+        preferredSourceId,
+        failedSourceId,
+        viewerRegion: viewerRegion(),
+      },
     },
   );
 }

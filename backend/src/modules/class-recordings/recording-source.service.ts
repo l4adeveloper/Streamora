@@ -20,6 +20,17 @@ import {
 } from "../video-processing/video-policy";
 import { GcsReplicaStorage } from "../video-processing/gcs-replica-storage";
 import { rewriteSignedHlsPlaylist } from "../video-processing/signed-hls-playlist";
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import {
+  planLiveReplication,
+  type LiveSnapshot,
+} from "../video-processing/live-replication-plan";
+import { reference } from "../video-processing/video-finalizer";
 
 type SourceId = "cloudfront" | "gcs";
 type Candidate = { id: SourceId; sign: (key: string) => string };
@@ -27,8 +38,9 @@ type Grant = {
   userId: string;
   recordingId: string;
   jobId: string;
-  sourceId: SourceId;
+  sourceId: SourceId | "original";
   expires: number;
+  mode?: "LIVE_DVR";
 };
 
 @Injectable()
@@ -168,7 +180,11 @@ export class RecordingSourceService {
     return choices;
   }
 
-  private async healthy(candidate: Candidate, jobId: string, key: string) {
+  private async healthy(
+    candidate: { id: string; sign: (key: string) => string },
+    jobId: string,
+    key: string,
+  ) {
     const cacheKey = `${candidate.id}:${jobId}`;
     const previous = this.health.get(cacheKey);
     if (previous && previous.until > Date.now()) return previous.healthy;
@@ -226,7 +242,7 @@ export class RecordingSourceService {
         grant.recordingId !== recordingId ||
         grant.jobId !== jobId ||
         grant.sourceId !== sourceId ||
-        !["cloudfront", "gcs"].includes(sourceId) ||
+        !["cloudfront", "gcs", "original"].includes(sourceId) ||
         !/^[a-f0-9-]{36}$/.test(grant.userId) ||
         !Number.isSafeInteger(grant.expires) ||
         grant.expires <= Date.now() / 1000 ||
@@ -251,11 +267,15 @@ export class RecordingSourceService {
       failedSourceId?: unknown;
       preferredSourceId?: unknown;
       positionSeconds?: unknown;
+      viewerRegion?: unknown;
     },
   ) {
     if (
       !body ||
       !["VOD", "LIVE_DVR"].includes(body.mode as string) ||
+      (body.viewerRegion !== undefined &&
+        (typeof body.viewerRegion !== "string" ||
+          !/^[A-Z][A-Z0-9_-]{1,31}$/.test(body.viewerRegion))) ||
       (body.failedSourceId !== undefined &&
         !["cloudfront", "gcs", "original", "local"].includes(
           body.failedSourceId as string,
@@ -274,13 +294,9 @@ export class RecordingSourceService {
         "VALIDATION_ERROR",
         "Yêu cầu phát video không hợp lệ.",
       );
-    const { recording, published } = await this.published(userId, recordingId);
     if (body.mode === "LIVE_DVR")
-      throw new ApiError(
-        409,
-        "PLAYBACK_NOT_READY",
-        "Nguồn phát trực tiếp chưa sẵn sàng.",
-      );
+      return this.resolveLive(userId, recordingId, body);
+    const { recording, published } = await this.published(userId, recordingId);
     if (
       this.config.video?.mode !== "aws" ||
       (!this.config.video.cloudFrontKeyPairId &&
@@ -329,6 +345,11 @@ export class RecordingSourceService {
         ),
       )
     ).filter((choice): choice is Candidate => !!choice);
+    const regional =
+      this.config.video?.sourceRegionPreferences?.[body.viewerRegion as string];
+    available.sort(
+      (a, b) => Number(b.id === regional) - Number(a.id === regional),
+    );
     const selected = body.failedSourceId
       ? (available.find((choice) => choice.id !== body.failedSourceId) ??
         available[0])
@@ -402,6 +423,39 @@ export class RecordingSourceService {
     token: unknown,
   ) {
     const grant = this.verify(token, recordingId, jobId, sourceId);
+    if (grant.mode === "LIVE_DVR") {
+      if (jobId !== recordingId || !["original", "gcs"].includes(sourceId))
+        throw new ApiError(
+          403,
+          "VIDEO_GRANT_INVALID",
+          "Quyền phát video không hợp lệ.",
+        );
+      const live = await this.liveSnapshot(grant.userId, recordingId, sourceId);
+      const key =
+        live.snapshot.prefix +
+        "/" +
+        (Array.isArray(path) ? path.join("/") : path);
+      objectKey(key);
+      const text = Object.hasOwn(live.snapshot.playlists, key)
+        ? live.snapshot.playlists[key]
+        : undefined;
+      if (!text)
+        throw new ApiError(403, "FORBIDDEN", "Đường dẫn video không hợp lệ.");
+      const media = [
+        ...text.matchAll(/(?:URI="([^"]+)"|^([^#\r\n][^\r\n]*))/gm),
+      ]
+        .map((m) => reference(key, (m[1] ?? m[2]).trim(), live.snapshot.prefix))
+        .filter((k) => !k.endsWith(".m3u8"));
+      const sign = await this.liveSigner(live, sourceId, media);
+      const base = `/api/v1/recording-media/${recordingId}/${recordingId}/${sourceId}/`;
+      return rewriteSignedHlsPlaylist(
+        text,
+        key,
+        live.snapshot.prefix,
+        (child) => base + child.slice(live.snapshot.prefix.length + 1),
+        sign,
+      );
+    }
     const { recording, published } = await this.published(
       grant.userId,
       recordingId,
@@ -459,5 +513,277 @@ export class RecordingSourceService {
         "Không tải được danh sách phát video.",
       );
     }
+  }
+
+  private async liveSnapshot(
+    userId: string,
+    recordingId: string,
+    sourceId: string,
+  ) {
+    const recording = await this.recordings.recording(userId, recordingId);
+    if (
+      recording.provider !== "IVS" ||
+      !["RECORDING", "SAVING", "SAVED"].includes(recording.status) ||
+      !recording.recordingPrefix ||
+      !recording.storageLocationId
+    )
+      throw new ApiError(
+        409,
+        "PLAYBACK_NOT_READY",
+        "Nguồn tua lại chưa sẵn sàng.",
+      );
+    const prefix = recording.recordingPrefix;
+    if (sourceId === "gcs") {
+      const bucket = this.config.video?.gcsDelivery?.bucket;
+      if (!bucket)
+        throw new ApiError(
+          503,
+          "PLAYBACK_SOURCE_UNAVAILABLE",
+          "Nguồn sao chép chưa sẵn sàng.",
+        );
+      const row = await this.db.storageReplica.findUnique({
+        where: {
+          kind_assetId_destinationBucket: {
+            kind: "LIVE_DVR",
+            assetId: recordingId,
+            destinationBucket: bucket,
+          },
+        },
+      });
+      const source = row?.source as
+        { prefix?: string; storageLocationId?: string } | undefined;
+      const snapshot = row?.snapshot as unknown as LiveSnapshot & {
+        destinationPrefix: string;
+      };
+      if (
+        !row?.lastSyncedAt ||
+        !snapshot ||
+        row.objectCount <= 0 ||
+        row.readyThroughSeconds <= 0 ||
+        snapshot.prefix !== prefix ||
+        snapshot.destinationPrefix !== `replicas/live/${recordingId}` ||
+        source?.prefix !== prefix ||
+        source?.storageLocationId !== recording.storageLocationId
+      )
+        throw new ApiError(
+          503,
+          "PLAYBACK_SOURCE_UNAVAILABLE",
+          "Nguồn sao chép chưa sẵn sàng.",
+        );
+      return {
+        recording,
+        snapshot,
+        destinationPrefix: snapshot.destinationPrefix,
+      };
+    }
+    const listed = await this.storage.list(recording.storageLocationId, prefix);
+    const keys = [...listed].filter((k) => k.endsWith(".m3u8"));
+    if (keys.length > 64)
+      throw new ApiError(
+        503,
+        "PLAYBACK_SOURCE_UNAVAILABLE",
+        "Nguồn tua lại chưa sẵn sàng.",
+      );
+    const masters: string[] = [];
+    for (const key of keys)
+      if (
+        (await this.storage.text(recording.storageLocationId, key)).includes(
+          "#EXT-X-STREAM-INF:",
+        )
+      )
+        masters.push(key);
+    if (masters.length !== 1)
+      throw new ApiError(
+        409,
+        "PLAYBACK_NOT_READY",
+        "Nguồn tua lại chưa sẵn sàng.",
+      );
+    const snapshot = await planLiveReplication(prefix, masters[0], (key) =>
+      this.storage.text(recording.storageLocationId!, key),
+    );
+    if (snapshot.objects.some((key) => !listed.has(key)))
+      throw new ApiError(
+        409,
+        "PLAYBACK_NOT_READY",
+        "Nguồn tua lại chưa sẵn sàng.",
+      );
+    return { recording, snapshot, destinationPrefix: "" };
+  }
+
+  private async liveSigner(
+    live: Awaited<ReturnType<RecordingSourceService["liveSnapshot"]>>,
+    sourceId: string,
+    objects = live.snapshot.objects.slice(0, 1),
+    head = false,
+  ) {
+    if (sourceId === "gcs") {
+      const sign = await this.delivery.gcsSignedObjectFactory(
+        Math.floor(Date.now() / 1000) + 900,
+      );
+      return (key: string) =>
+        sign(
+          live.destinationPrefix +
+            "/" +
+            key.slice(live.snapshot.prefix.length + 1),
+        );
+    }
+    const target = await this.storage.locations.resolve(
+      live.recording.storageLocationId!,
+    );
+    if (target.driver !== "s3")
+      throw new ApiError(
+        503,
+        "PLAYBACK_SOURCE_UNAVAILABLE",
+        "Nguồn tua lại chưa sẵn sàng.",
+      );
+    const client = new S3Client({ region: target.region });
+    try {
+      const signed = new Map<string, string>();
+      // Bound concurrent credential/signing work for long event playlists.
+      for (let i = 0; i < objects.length; i += 50) {
+        await Promise.all(
+          objects.slice(i, i + 50).map(async (key) => {
+            signed.set(
+              key,
+              await getSignedUrl(
+                client,
+                head
+                  ? new HeadObjectCommand({ Bucket: target.bucket, Key: key })
+                  : new GetObjectCommand({ Bucket: target.bucket, Key: key }),
+                { expiresIn: 900 },
+              ),
+            );
+          }),
+        );
+      }
+      return (key: string) => {
+        const url = signed.get(key);
+        if (!url)
+          throw new ApiError(403, "FORBIDDEN", "Đường dẫn video không hợp lệ.");
+        return url;
+      };
+    } finally {
+      client.destroy();
+    }
+  }
+
+  private async resolveLive(
+    userId: string,
+    recordingId: string,
+    body: {
+      failedSourceId?: unknown;
+      preferredSourceId?: unknown;
+      positionSeconds?: unknown;
+      viewerRegion?: unknown;
+    },
+  ) {
+    // Authorize before probing either storage provider.
+    const recording = await this.recordings.recording(userId, recordingId);
+    if (
+      recording.provider !== "IVS" ||
+      !recording.recordingPrefix ||
+      !recording.storageLocationId ||
+      !["RECORDING", "SAVING", "SAVED"].includes(recording.status)
+    )
+      throw new ApiError(
+        409,
+        "PLAYBACK_NOT_READY",
+        "Nguồn tua lại chưa sẵn sàng.",
+      );
+    const available: {
+      id: string;
+      live: Awaited<ReturnType<RecordingSourceService["liveSnapshot"]>>;
+    }[] = [];
+    const results = await Promise.allSettled(
+      ["original", "gcs"].map(async (id) => {
+        const live = await this.liveSnapshot(userId, recordingId, id);
+        const sign = await this.liveSigner(live, id, undefined, true);
+        const healthy = await this.healthy(
+          { id, sign },
+          "live:" + recordingId,
+          live.snapshot.objects[0],
+        );
+        if (!healthy)
+          throw new ApiError(
+            503,
+            "PLAYBACK_SOURCE_UNAVAILABLE",
+            "Nguồn tua lại chưa sẵn sàng.",
+          );
+        return { id, live };
+      }),
+    );
+    for (const result of results)
+      if (
+        result.status === "fulfilled" &&
+        (typeof body.positionSeconds !== "number" ||
+          body.positionSeconds < result.value.live.snapshot.readyThroughSeconds)
+      )
+        available.push(result.value);
+    const regional =
+      this.config.video?.sourceRegionPreferences?.[body.viewerRegion as string];
+    const preferred =
+      body.preferredSourceId ?? (regional === "gcs" ? "gcs" : "original");
+    available.sort(
+      (a, b) => Number(b.id === preferred) - Number(a.id === preferred),
+    );
+    const selected = available.find(
+      (choice) => choice.id !== body.failedSourceId,
+    );
+    if (!selected)
+      throw new ApiError(
+        503,
+        "PLAYBACK_SOURCE_UNAVAILABLE",
+        "Chưa có nguồn tua lại khả dụng tại vị trí này.",
+      );
+    const expires = Math.floor(Date.now() / 1000) + 60;
+    const base = `/api/v1/recording-media/${recordingId}/${recordingId}/${selected.id}`;
+    const url =
+      base +
+      "/" +
+      selected.live.snapshot.masterKey.slice(
+        selected.live.snapshot.prefix.length + 1,
+      );
+    return {
+      fileId: selected.live.recording.fileId ?? recordingId,
+      sourceId: selected.id,
+      manifestUrl: url,
+      mode: "LIVE_DVR" as const,
+      readyThroughSeconds: selected.live.snapshot.readyThroughSeconds,
+      authorization: {
+        type: "SIGNED_URL" as const,
+        expiresAt: new Date((expires + 840) * 1000).toISOString(),
+      },
+      fallbackAvailable: available.some((choice) => choice.id !== selected.id),
+      processing: { status: "READY" as const, progressPercent: 100 },
+      sources: [
+        {
+          id: "adaptive",
+          label: "Tự động",
+          kind: "hls" as const,
+          mimeType: "application/vnd.apple.mpegurl",
+          height: null,
+          bitrate: null,
+          url,
+          expiresAt: new Date(expires * 1000).toISOString(),
+        },
+      ],
+      qualities: [],
+      thumbnail: undefined,
+      deliveryCookies: [
+        {
+          name: "recording_grant",
+          value: this.grant({
+            userId,
+            recordingId,
+            jobId: recordingId,
+            sourceId: selected.id as "gcs" | "original",
+            expires,
+            mode: "LIVE_DVR",
+          }),
+          path: base,
+          secure: this.config.auth.cookie.secure,
+        },
+      ],
+    };
   }
 }

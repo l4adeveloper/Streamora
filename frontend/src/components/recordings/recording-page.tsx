@@ -12,15 +12,22 @@ export function RecordingPage({ recordingId }: { recordingId: string }) {
   const [error, setError] = useState("");
   useEffect(() => {
     let cancelled = false;
-    void getRecording(recordingId)
-      .then((result) => {
-        if (!cancelled) setDetail(result);
-      })
-      .catch((cause) => {
-        if (!cancelled) setError(asApiError(cause).message);
-      });
+    const load = () =>
+      void getRecording(recordingId)
+        .then((result) => {
+          if (!cancelled) {
+            setDetail(result);
+            setError("");
+          }
+        })
+        .catch((cause) => {
+          if (!cancelled) setError(asApiError(cause).message);
+        });
+    load();
+    const timer = setInterval(load, 5000);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, [recordingId]);
   return (
@@ -35,10 +42,14 @@ export function RecordingPage({ recordingId }: { recordingId: string }) {
       {detail && (
         <>
           <h1>{detail.recording.title}</h1>
-          {detail.playbackPath && detail.recording.fileId ? (
+          {detail.playbackPath ? (
             <VideoPreview
-              fileId={detail.recording.fileId}
+              key={detail.recording.status === "SAVED" ? "vod" : "live"}
+              fileId={detail.recording.fileId ?? recordingId}
               recordingId={recordingId}
+              playbackMode={
+                detail.recording.status === "SAVED" ? "VOD" : "LIVE_DVR"
+              }
               name={detail.recording.title}
             />
           ) : (

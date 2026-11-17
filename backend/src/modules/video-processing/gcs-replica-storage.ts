@@ -38,14 +38,43 @@ export class GcsReplicaStorage {
     destinationBucket: string,
     version: string,
     signal: AbortSignal,
+    destinationKey = key,
+    reuse = false,
+    expectedSize?: number,
   ) {
     const response = await client.send(
       new GetObjectCommand({ Bucket: sourceBucket, Key: key }),
       { abortSignal: signal },
     );
-    if (!response.Body || !response.ContentLength)
+    if (!response.Body || response.ContentLength === undefined)
       throw new VideoError("SOURCE_NOT_READY");
-    const file = this.gcs.bucket(destinationBucket).file(key);
+    if (expectedSize !== undefined && response.ContentLength !== expectedSize) {
+      (response.Body as Readable).destroy();
+      throw new VideoError("SOURCE_VERSION_CHANGED");
+    }
+    const file = this.gcs.bucket(destinationBucket).file(destinationKey);
+    if (reuse && response.ETag) {
+      try {
+        const [metadata] = await file.getMetadata();
+        if (
+          metadata.metadata?.sourceVersion === version &&
+          metadata.metadata?.sourceEtag === response.ETag &&
+          Number(metadata.size) === response.ContentLength &&
+          metadata.md5Hash
+        ) {
+          (response.Body as Readable).destroy();
+          return;
+        }
+        // Live segments are immutable once a snapshot references them.
+        // Never overwrite bytes still used by a previously issued manifest.
+        throw new VideoError("SOURCE_VERSION_CHANGED");
+      } catch (error) {
+        if ((error as { code?: number }).code !== 404) {
+          (response.Body as Readable).destroy();
+          throw error;
+        }
+      }
+    }
     const hash = createHash("md5");
     let bytes = 0;
     const meter = new Transform({
@@ -64,7 +93,10 @@ export class GcsReplicaStorage {
         metadata: {
           contentType: response.ContentType ?? "application/octet-stream",
           cacheControl: "private, max-age=0",
-          metadata: { sourceVersion: version },
+          metadata: {
+            sourceVersion: version,
+            ...(response.ETag ? { sourceEtag: response.ETag } : {}),
+          },
         },
       }),
       { signal },
