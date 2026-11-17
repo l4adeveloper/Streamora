@@ -11,7 +11,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 
 export function SiteHeader() {
   const path = usePathname();
-  const { user } = useAuth();
+  const { user, phase } = useAuth();
   return (
     <header className="site-header">
       <Brand />
@@ -29,7 +29,7 @@ export function SiteHeader() {
           Nhóm học tập
         </Link>
         <Link
-          href="/workspace"
+          href={phase === "anonymous" ? "/auth" : "/workspace"}
           aria-current={path === "/workspace" ? "page" : undefined}
         >
           Không gian học tập

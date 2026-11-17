@@ -20,7 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { Avatar } from "./ui";
-import type { ChatMessage } from "./demo-data";
+import type { ChatMessage } from "./workspace-chat.types";
 import { useChatScroll } from "@/lib/memberships/use-chat-scroll";
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;

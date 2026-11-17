@@ -1,4 +1,5 @@
-import { Workspace } from "@/components/streamora";
+import { redirect } from "next/navigation";
+
 export default function Page() {
-  return <Workspace view="room" />;
+  redirect("/workspace");
 }

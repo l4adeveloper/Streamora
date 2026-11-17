@@ -36,7 +36,7 @@ export function SessionIdentity() {
               ? "Chưa thể kiểm tra phiên"
               : user
                 ? "Đã đăng nhập"
-                : "Bản trải nghiệm"}
+                : "Chưa đăng nhập"}
         </small>
       </div>
     </>

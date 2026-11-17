@@ -574,11 +574,9 @@ test("overview members can navigate to every workspace section and adding member
     );
 
     for (const [href, section] of [
-      ["/workspace", "Lớp học trực tiếp"],
       ["/community", "trò chuyện chung"],
       ["/files", "Tài liệu chung"],
       ["/files?type=recordings", "Bản ghi bài giảng"],
-      ["/rooms/nhom-01", "Phòng học nhóm"],
     ]) {
       await shell.locator(`.channel-sidebar a.channel[href="${href}"]`).click();
       await page.waitForURL(`${fixture.webOrigin}${href}`);
@@ -829,39 +827,38 @@ test("authenticated group chat sends through the backend and reloads durable his
 });
 
 test("chat history scrolls independently while composing and sending stays fixed on desktop and mobile", async () => {
-  const context = await browser.newContext({
-    reducedMotion: "reduce",
-    viewport: { width: 1366, height: 768 },
-  });
-  await context.route("https://fonts.googleapis.com/**", (route) =>
-    route.abort(),
+  const { owner, viewer, group } = await seed();
+  const { context, page } = await contextFor(owner);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.route(`**/groups/${group.id}/chat/messages?*`, (route) =>
+    route.fulfill({
+      json: {
+        nextCursor: null,
+        items: Array.from({ length: 20 }, (_, index) => {
+          const actor = index === 10 ? viewer : owner;
+          return {
+            id: randomUUID(),
+            groupId: group.id,
+            channel: "trò-chuyện-chung",
+            senderId: actor.id,
+            senderName: actor.fullName,
+            senderRole: actor === owner ? "OWNER" : "VIEWER",
+            createdAt: new Date(Date.now() - (20 - index) * 1000).toISOString(),
+            text: `Tin nhắn lịch sử ${index + 1}`,
+          };
+        }),
+      },
+    }),
   );
-  await context.addInitScript(() => {
-    localStorage.setItem(
-      "streamora-chat-v2:trò-chuyện-chung",
-      JSON.stringify(
-        Array.from({ length: 60 }, (_, index) => ({
-          senderId: index === 30 ? "other-member" : "test-member",
-          name: index === 30 ? "Thành viên khác" : "Thành viên thử nghiệm",
-          initials: index === 30 ? "TK" : "TV",
-          color: "blue",
-          time: "10:00",
-          createdAt: new Date(Date.now() - (60 - index) * 1000).toISOString(),
-          text: `Tin nhắn lịch sử ${index + 1}`,
-        })),
-      ),
-    );
-  });
-  const page = await context.newPage();
-  page.setDefaultTimeout(15000);
   try {
-    await page.goto(`${fixture.webOrigin}/community`);
+    await page.goto(`${fixture.webOrigin}/community?groupId=${group.id}`);
     const shell = page.locator(".app-shell:visible");
     const history = shell.locator(".community-chat .chat-history");
     const composer = shell.locator(".community-chat .chat-form");
-    await history.getByText("Tin nhắn lịch sử 60", { exact: true }).waitFor();
+    await history.getByText("Tin nhắn lịch sử 20", { exact: true }).waitFor();
     assert.equal(await history.locator(".message-meta").count(), 3);
-    assert.equal(await history.locator(".message.continuation").count(), 57);
+    assert.equal(await history.locator(".message.continuation").count(), 17);
     await page.waitForFunction(() => {
       const element = document.querySelector(".community-chat .chat-history");
       return element && element.scrollTop > 0;
@@ -964,66 +961,11 @@ test("chat history scrolls independently while composing and sending stays fixed
   }
 });
 
-test("native dropdown keyboard selection works and Escape closes the picker before its dialog", async () => {
-  const context = await browser.newContext({
-    reducedMotion: "reduce",
-    viewport: { width: 1366, height: 768 },
-  });
-  try {
-    const page = await context.newPage();
-    await page.goto(`${fixture.webOrigin}/workspace`);
-    const speed = page.getByRole("combobox", {
-      name: "Tốc độ phát",
-      exact: true,
-    });
-    const customizable = await page.evaluate(() =>
-      CSS.supports("appearance", "base-select"),
-    );
-    if (customizable) {
-      await speed.focus();
-      await page.keyboard.press("Space");
-      await page.locator("select:open").waitFor();
-      await page.keyboard.press("ArrowDown");
-      await page.keyboard.press("Enter");
-    } else {
-      await speed.selectOption("1.25");
-    }
-    assert.equal(await speed.inputValue(), "1.25");
-    await page.getByRole("button", { name: "Cài đặt", exact: true }).click();
-    const dialog = page.getByRole("dialog");
-    const fps = dialog.getByRole("combobox", {
-      name: "Tốc độ khung hình khi chia sẻ màn hình",
-      exact: true,
-    });
-    if (customizable) {
-      await fps.click();
-      await page.locator("select:open").waitFor();
-      await page.keyboard.press("Escape");
-      assert.equal(await dialog.isVisible(), true);
-      assert.equal(await page.locator("select:open").count(), 0);
-    }
-    await fps.selectOption("60");
-    await dialog
-      .getByRole("button", { name: "Lưu thiết lập", exact: true })
-      .click();
-    await page.getByRole("button", { name: "Cài đặt", exact: true }).click();
-    assert.equal(await fps.inputValue(), "60");
-    await page.keyboard.press("Escape");
-    await dialog.waitFor({ state: "hidden" });
-  } finally {
-    await context.close();
-  }
-});
-
 test("dark mode supports keyboard toggling, reloads, navigation, tab sync and narrow headers", async () => {
-  const context = await browser.newContext({
-    reducedMotion: "reduce",
-    viewport: { width: 1366, height: 768 },
-  });
-  await context.route("https://fonts.googleapis.com/**", (route) =>
-    route.abort(),
-  );
-  const page = await context.newPage();
+  const { owner } = await seed();
+  const { context, page } = await contextFor(owner);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1366, height: 768 });
   const hydrationErrors = [];
   page.on("console", (message) => {
     if (/hydration|hydrated|server rendered HTML/i.test(message.text())) {
@@ -1086,8 +1028,10 @@ test("dark mode supports keyboard toggling, reloads, navigation, tab sync and na
           .querySelector(".theme-toggle")
           ?.getAttribute("aria-pressed") === "true",
     );
-    await page.locator('.channel-sidebar a[href="/rooms/nhom-01"]').click();
-    await page.waitForURL(`${fixture.webOrigin}/rooms/nhom-01`);
+    await page.goto(`${fixture.webOrigin}/rooms/nhom-01`);
+    await page.waitForURL(`${fixture.webOrigin}/workspace`);
+    await toggle(page).waitFor();
+    assert.equal(await page.locator(".room-page").count(), 0);
     assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
 
     const otherPage = await context.newPage();
@@ -1143,13 +1087,16 @@ test("dark mode supports keyboard toggling, reloads, navigation, tab sync and na
     const homeToggle = await toggle(page).boundingBox();
     assert.ok(homeToggle && homeToggle.x + homeToggle.width <= 320);
     assert.equal(await toggle(page).getAttribute("aria-pressed"), "true");
-    await page.goto(`${fixture.webOrigin}/login`);
-    await page.locator(".site-header .theme-toggle").waitFor();
-    await toggle(page).click();
-    assert.equal(
-      await page.locator("html").getAttribute("data-theme"),
-      "light",
-    );
+    const anonymousContext = await browser.newContext({ viewport: { width: 320, height: 600 } });
+    try {
+      const login = await anonymousContext.newPage();
+      await login.goto(`${fixture.webOrigin}/login`);
+      await login.locator(".site-header .theme-toggle").waitFor();
+      await toggle(login).click();
+      assert.equal(await login.locator("html").getAttribute("data-theme"), "light");
+    } finally {
+      await anonymousContext.close();
+    }
     assert.deepEqual(hydrationErrors, []);
   } finally {
     await context.close();

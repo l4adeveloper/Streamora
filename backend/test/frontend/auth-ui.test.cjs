@@ -151,6 +151,9 @@ test("guests are redirected from protected workspace links and can return after 
     };
 
     for (const destination of [
+      "/workspace",
+      "/community",
+      "/community/hoi-dap",
       "/files",
       "/dashboard",
       "/workspace?tab=members",
@@ -162,18 +165,17 @@ test("guests are redirected from protected workspace links and can return after 
       await expectLogin(destination);
     }
 
-    await open(page, "/workspace");
-    await page.getByRole("button", { name: "Mở danh sách cuộc họp" }).click();
-    await expectLogin("/workspace?view=dashboard");
-    await open(page, "/workspace");
-    await page
-      .locator(".channel-sidebar")
-      .getByRole("button", { name: "Thành viên", exact: true })
-      .click();
-    await expectLogin("/workspace?tab=members");
+    await open(page, "/rooms/nhom-01");
+    await expectLogin("/workspace");
 
-    await open(page, "/workspace");
-    await page.getByRole("link", { name: "Bản ghi bài giảng" }).click();
+    await open(page, "/missing-workspace-test-page");
+    const workspaceLink = page.getByRole("link", { name: "Không gian học tập" });
+    await workspaceLink.and(page.locator('a[href="/auth"]')).waitFor();
+    await workspaceLink.click();
+    await page.waitForURL("**/auth");
+    assert.equal(await page.locator(".app-shell").count(), 0);
+
+    await open(page, "/files?type=recordings");
     await expectLogin("/files?type=recordings");
     await fillLogin(page, account.email);
     await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();

@@ -12,7 +12,7 @@ import {
 import type { CursorPage, GroupChatThread } from "@streamora/contracts";
 import { apiRequest } from "@/lib/api";
 import { useGroupChat } from "@/lib/memberships/use-group-chat";
-import type { ChatMessage } from "./demo-data";
+import type { ChatMessage } from "./workspace-chat.types";
 import { WorkspaceChat } from "./workspace-chat";
 import { ThreadRenameDialog } from "./thread-rename-dialog";
 
