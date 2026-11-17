@@ -48,6 +48,7 @@ import { FileActionsMenu } from "./file-actions-menu";
 import { LessonFolderPanel } from "./lesson-folder-panel";
 import { FolderTree } from "./folder-tree";
 import { VideoPreview } from "./video-preview";
+import { TrashPanel } from "./trash-panel";
 
 const sources = {
   DOCUMENT: "Tài liệu tải lên",
@@ -96,6 +97,8 @@ export function FilesPanel({
   const [loading, setLoading] = useState(true);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [canDeletePermanently, setCanDeletePermanently] = useState<boolean>();
   const [selected, setSelected] = useState<LibraryFile | null>(null);
   const [action, setAction] = useState<
     "detail" | "rename" | "delete" | "preview"
@@ -204,6 +207,7 @@ export function FilesPanel({
       });
       if (version !== sequence.current) return;
       setItems(response.items);
+      setCanDeletePermanently(response.canDeletePermanently === true);
       setCursor(response.nextCursor);
     } catch (cause) {
       if (version === sequence.current) {
@@ -268,6 +272,7 @@ export function FilesPanel({
   }, [action, selected?.id, previewRevision]);
   const canManage = (file: LibraryFile) =>
     file.createdBy === userId || permissions.canHost;
+  const offersTrash = canDeletePermanently === false;
   const canManageFolder = (folder: FolderItem) =>
     folder.createdBy === userId || permissions.canHost;
 
@@ -390,13 +395,15 @@ export function FilesPanel({
     setBusy(true);
     setActionError("");
     try {
-      if (action === "delete") await deleteFile(selected.id);
+      if (action === "delete") await deleteFile(selected.id, canDeletePermanently);
       else if (action === "rename") await renameFile(selected.id, name.trim());
       else return;
       if (!alive.current) return;
       notify(
         action === "delete"
-          ? "Đã xóa vĩnh viễn tài liệu."
+          ? canDeletePermanently
+            ? "Đã xóa vĩnh viễn tài liệu."
+            : "Đang chuyển tài liệu vào thùng rác."
           : "Đã đổi tên tài liệu.",
         { tone: "success" },
       );
@@ -430,7 +437,7 @@ export function FilesPanel({
   }
 
   return (
-    <div className="files-page">
+    <div className={`files-page${offersTrash && items.some(canManage) ? " has-trash-actions" : ""}`}>
       {lessonFolder && <LessonFolderPanel key={lessonFolder.id} folder={lessonFolder} canManage={permissions.canHost} onClose={() => setLessonFolder(null)} onChanged={() => { void load(); void loadFolders(); }} />}
       {currentFolder?.kind === "LESSON" && <section className="lesson-folder-banner">
         <div><b>Folder buổi học · {currentFolder.name}</b><p>Bản ghi và tóm tắt được lưu theo buổi học này.</p></div>
@@ -471,6 +478,15 @@ export function FilesPanel({
         ))}
       </nav>
       <div className="library-toolbar">
+        {offersTrash && (
+          <button
+            type="button"
+            className="button secondary compact"
+            onClick={() => setTrashOpen(true)}
+          >
+            <Trash2 size={16} /> Thùng rác
+          </button>
+        )}
         {permissions.canUpload && (
           <button
             type="button"
@@ -496,6 +512,17 @@ export function FilesPanel({
           <RefreshCw size={16} /> Làm mới
         </button>
       </div>
+      {trashOpen && (
+        <TrashPanel
+          key={groupId}
+          groupId={groupId}
+          onClose={() => {
+            setTrashOpen(false);
+            void load();
+            void loadFolders();
+          }}
+        />
+      )}
       <div className="file-controls">
         <div className="file-filters">
           {["Tất cả", "Tài liệu", "Bản ghi"].map((item) => (
@@ -739,6 +766,17 @@ export function FilesPanel({
                   >
                     <Download size={16} />
                   </button>
+                  {offersTrash && canManage(file) && (
+                    <button
+                      type="button"
+                      title="Chuyển vào thùng rác"
+                      aria-label={`Chuyển ${file.name} vào thùng rác`}
+                      disabled={busy || file.status !== "AVAILABLE"}
+                      onClick={() => void open(file, "delete")}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                   {canManage(file) && (
                     <FileActionsMenu
                       label={`Thao tác ${file.name}`}
@@ -788,21 +826,25 @@ export function FilesPanel({
                         >
                           <Pencil size={18} /> Đổi tên
                         </button>
-                        <div
-                          role="separator"
-                          className="library-menu-divider"
-                        />
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="menu-item-danger"
-                          title="Xóa tài liệu"
-                          aria-label={`Xóa ${file.name}`}
-                          disabled={busy}
-                          onClick={() => void open(file, "delete")}
-                        >
-                          <Trash2 size={18} /> Xóa tài liệu
-                        </button>
+                        {!offersTrash && (
+                          <>
+                            <div
+                              role="separator"
+                              className="library-menu-divider"
+                            />
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="menu-item-danger"
+                              title="Xóa tài liệu"
+                              aria-label={`Xóa ${file.name}`}
+                              disabled={busy}
+                              onClick={() => void open(file, "delete")}
+                            >
+                              <Trash2 size={18} /> Xóa tài liệu
+                            </button>
+                          </>
+                        )}
                       </>
                     </FileActionsMenu>
                   )}
@@ -908,7 +950,9 @@ export function FilesPanel({
                     {action === "rename"
                       ? "Đổi tên tài liệu"
                       : action === "delete"
-                        ? "Xóa vĩnh viễn tài liệu?"
+                        ? canDeletePermanently
+                          ? "Xóa vĩnh viễn tài liệu?"
+                          : "Chuyển tài liệu vào thùng rác?"
                         : "Chi tiết tài liệu"}
                   </h3>
                   <button
@@ -939,8 +983,9 @@ export function FilesPanel({
             )}
             {action === "delete" && (
               <p>
-                Tài liệu sẽ bị xóa vĩnh viễn và không thể khôi phục. Bạn có chắc
-                chắn muốn xóa tài liệu này không?
+                {canDeletePermanently
+                  ? "Tài liệu sẽ bị xóa vĩnh viễn và không thể khôi phục. Bạn có chắc chắn muốn xóa tài liệu này không?"
+                  : "Bạn có thể khôi phục tài liệu từ Thùng rác sau khi chuyển xong."}
               </p>
             )}
             {action === "detail" && (
@@ -1076,7 +1121,9 @@ export function FilesPanel({
                     {busy
                       ? "Đang xử lý…"
                       : action === "delete"
-                        ? "Xóa vĩnh viễn"
+                        ? canDeletePermanently
+                          ? "Xóa vĩnh viễn"
+                          : "Chuyển vào thùng rác"
                         : "Lưu tên"}
                   </button>
                 )}

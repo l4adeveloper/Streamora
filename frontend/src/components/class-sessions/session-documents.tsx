@@ -42,6 +42,7 @@ export function SessionDocuments({
 }) {
   const { notify } = useToast();
   const [files, setFiles] = useState<LibraryFile[]>([]);
+  const [canDeletePermanently, setCanDeletePermanently] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
@@ -56,6 +57,7 @@ export function SessionDocuments({
       const res = await listFiles(groupId, { sessionId, limit: 50 });
       if (alive.current) {
         setFiles(res.items);
+        setCanDeletePermanently(res.canDeletePermanently === true);
       }
     } catch (err) {
       if (alive.current) {
@@ -119,12 +121,17 @@ export function SessionDocuments({
   }
 
   async function handleDelete(file: LibraryFile) {
-    if (!confirm(`Bạn có chắc muốn xóa tài liệu "${file.name}"?`)) return;
+    const question = canDeletePermanently
+      ? `Bạn có chắc muốn xóa vĩnh viễn tài liệu "${file.name}"?`
+      : `Chuyển "${file.name}" vào Thùng rác của nhóm?`;
+    if (!confirm(question)) return;
     if (busy) return;
     setBusy(true);
     try {
-      await deleteFile(file.id);
-      notify(`Đã xóa tài liệu "${file.name}".`, { tone: "success" });
+      await deleteFile(file.id, canDeletePermanently);
+      notify(canDeletePermanently
+        ? `Đã xóa tài liệu "${file.name}".`
+        : `Đang chuyển "${file.name}" vào Thùng rác.`, { tone: "success" });
       void load();
     } catch (err) {
       notify(asApiError(err).message, { tone: "error" });

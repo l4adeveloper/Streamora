@@ -21,6 +21,7 @@ import { GroupAccessService } from "../memberships/group-access.service";
 import { ApiError } from "../../common/api-error";
 import { safeErrorCode } from "../../common/safe-error-code";
 import { FileStorageService } from "./file-storage.service";
+import { FileTrashService } from "./file-trash.service";
 import { PREVIEW_TYPES } from "./file-preview";
 import { VIDEO_TYPES, VideoPlaybackService } from "./video-playback.service";
 import type { FileListQueryDto } from "./files.dto";
@@ -79,6 +80,7 @@ export class FilesService {
     private readonly video: VideoPlaybackService,
     @Optional() private readonly cancellation?: FolderUploadCancellation,
     @Optional() private readonly processing?: VideoProcessingService,
+    @Optional() private readonly trash?: FileTrashService,
   ) {}
 
   async list(userId: string, groupId: string, query: FileListQueryDto) {
@@ -183,6 +185,7 @@ export class FilesService {
     return {
       items: page.map(present),
       folders,
+      canDeletePermanently: this.storage.locations?.target.driver === "local",
       nextCursor:
         rows.length > query.limit
           ? cursorFor(page[page.length - 1], groupId, query)
@@ -304,6 +307,7 @@ export class FilesService {
             "Thư mục chứa file đang được sử dụng.",
           );
         await cancelPending();
+        const permanent: DbFile[] = [];
         for (const file of rows) {
           await tx.$queryRaw`SELECT id FROM files WHERE id = ${file.id}::uuid FOR UPDATE`;
           // Recheck after locking against recording/pinning races.
@@ -313,15 +317,9 @@ export class FilesService {
             where: { id: file.id },
             data: { status: "DELETED", deletedAt: new Date() },
           });
-          await tx.fileObjectDeletion.create({
-            data: {
-              fileId: file.id,
-              objectKey: file.objectKey,
-              storageLocationId: file.storageLocationId,
-            },
-          });
+          if (!(await this.recordDeletion(tx, file))) permanent.push(file);
         }
-        return rows;
+        return permanent;
       },
       { timeout: 30000 },
     );
@@ -504,7 +502,28 @@ export class FilesService {
       };
     });
   }
-  async remove(userId: string, fileId: string) {
+  private async recordDeletion(
+    tx: Prisma.TransactionClient,
+    file: DbFile,
+    requireTrash = false,
+  ) {
+    if (this.trash) return this.trash.enqueue(tx, file, requireTrash);
+    if (requireTrash)
+      throw new ApiError(
+        503,
+        "TRASH_UNAVAILABLE",
+        "Thùng rác Google Cloud chưa được cấu hình.",
+      );
+    await tx.fileObjectDeletion.create({
+      data: {
+        fileId: file.id,
+        objectKey: file.objectKey,
+        storageLocationId: file.storageLocationId,
+      },
+    });
+    return false;
+  }
+  async remove(userId: string, fileId: string, requireTrash = false) {
     const deletion = await this.prisma.$transaction(async (tx) => {
       const file = await this.mutationAccess(tx, userId, fileId);
       // PENDING can still be written by T16/T11. Recording links are retained
@@ -523,18 +542,9 @@ export class FilesService {
         where: { id: fileId },
         data: { status: "DELETED", deletedAt: new Date() },
       });
-      await tx.fileObjectDeletion.create({
-        data: {
-          fileId,
-          objectKey: file.objectKey,
-          storageLocationId: file.storageLocationId,
-        },
-      });
-      return {
-        objectKey: file.objectKey,
-        storageLocationId: file.storageLocationId,
-      };
+      return (await this.recordDeletion(tx, file, requireTrash)) ? null : file;
     });
+    if (!deletion) return;
     // The durable deletion request is committed first; never hold DB locks for storage I/O.
     try {
       await this.processing?.cloudDeleted(fileId);

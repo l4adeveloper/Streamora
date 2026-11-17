@@ -447,7 +447,7 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
         updatedAt: { lt: new Date(Date.now() - 7 * 86400000) },
         ...(this.retentionCursor ? { id: { gt: this.retentionCursor } } : {}),
       },
-      include: { file: true },
+      include: { file: { include: { deletion: { select: { trashPhase: true } } } } },
       orderBy: { id: "asc" },
       take: 50,
     });
@@ -462,7 +462,8 @@ export class VideoWorker implements OnApplicationBootstrap, OnModuleDestroy {
       });
       const root = `groups/${job.file.groupId}/videos/${job.fileId}/${job.id}`;
       const prefixes =
-        asset?.publishedJobId === job.id && job.file.status !== "DELETED"
+        asset?.publishedJobId === job.id &&
+        (job.file.status !== "DELETED" || job.file.deletion?.trashPhase)
           ? Array.from(
               { length: Math.max(0, job.attemptNo - 1) },
               (_, i) => `${root}/${i + 1}`,

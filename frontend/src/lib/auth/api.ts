@@ -69,6 +69,9 @@ const messages: Record<string, string> = {
   FILE_NOT_READY: "Tài liệu đang được chuẩn bị. Vui lòng thử lại sau.",
   FILE_IN_USE:
     "Tài liệu đang được tải lên, xử lý hoặc liên kết với bản ghi nên chưa thể xóa.",
+  TRASH_UNAVAILABLE: "Thùng rác Google Cloud chưa được cấu hình. Tài liệu vẫn được giữ nguyên.",
+  TRASH_NOT_READY: "Tài liệu đang được chuyển vào thùng rác. Vui lòng thử lại sau.",
+  TRASH_REQUIRES_S3: "Chỉ tài liệu lưu trên S3 mới có thể chuyển vào thùng rác.",
   STORAGE_UNAVAILABLE: "Chưa thể kết nối kho tài liệu. Vui lòng thử lại sau.",
   UPLOAD_QUOTA_EXCEEDED:
     "Đã đạt giới hạn tải lên đồng thời. Hãy đợi hoặc hủy file đang tải rồi thử lại.",

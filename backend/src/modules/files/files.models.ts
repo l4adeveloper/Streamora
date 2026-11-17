@@ -27,6 +27,22 @@ export class FileListResponseDto {
   @ApiProperty({ type: [LibraryFileDto] }) items!: LibraryFileDto[];
   @ApiProperty({ type: [String] }) folders!: string[];
   @ApiProperty({ type: String, nullable: true }) nextCursor!: string | null;
+  @ApiPropertyOptional() canDeletePermanently?: boolean;
+}
+class TrashedFileDto extends LibraryFileDto {
+  @ApiProperty({ format: "date-time" }) deletedAt!: string;
+  @ApiProperty({ enum: ["ARCHIVING", "TRASHED", "RESTORING"] })
+  trashStatus!: string;
+  @ApiProperty({ type: "integer", minimum: 0, maximum: 100 })
+  progressPercent!: number;
+  @ApiProperty() retrying!: boolean;
+}
+export class FileTrashListResponseDto {
+  @ApiProperty({ type: [TrashedFileDto] }) items!: TrashedFileDto[];
+  @ApiProperty({ type: String, nullable: true }) nextCursor!: string | null;
+}
+export class FileTrashRequestResponseDto {
+  @ApiProperty() accepted!: boolean;
 }
 export class FileDownloadResponseDto {
   @ApiProperty() url!: string;

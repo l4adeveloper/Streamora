@@ -733,11 +733,28 @@ model FileObjectDeletion {
   attempts Int @default(0)
   nextAttemptAt DateTime @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
   completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  trashBucket String? @map("trash_bucket") @db.VarChar(222)
+  trashKey String? @map("trash_key") @db.VarChar(128)
+  trashGeneration String? @map("trash_generation") @db.VarChar(32)
+  sourceEtag String? @map("source_etag") @db.VarChar(128)
+  trashPhase FileTrashPhase? @map("trash_phase")
+  trashProgressPercent Int @default(0) @map("trash_progress_percent")
+  leaseOwner String? @map("lease_owner") @db.Uuid
   storageLocationId String? @map("storage_location_id") @db.Char(64)
   storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
   file LibraryFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
   @@index([completedAt, nextAttemptAt])
+  @@index([trashPhase, nextAttemptAt])
   @@map("file_object_deletions")
+}
+
+enum FileTrashPhase {
+  ARCHIVING
+  ARCHIVED
+  TRASHED
+  RESTORING
+  RESTORED
+  @@map("file_trash_phase")
 }
 
 // T05: media resources and issuance are separate from T04 admission.

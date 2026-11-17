@@ -7,13 +7,60 @@
 .library-toolbar + .file-controls {
   margin-top: 16px;
 }
+.library-dialog.library-trash {
+  width: min(620px, calc(100% - 24px));
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.library-trash-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.library-trash-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.library-trash-file b,
+.library-trash-file small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.library-trash-file small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+.library-trash-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3ch;
+  align-items: center;
+  gap: 12px;
+  max-width: 280px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.library-trash-progress progress {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent, #8b80f9);
+}
 .library-file-row {
   cursor: default;
+}
+.files-page.has-trash-actions {
+  --library-actions-width: 156px;
 }
 .files-page .file-table-heading,
 .file-row.library-file-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.4fr) 104px 116px 120px;
+  grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.4fr) 104px 116px var(--library-actions-width, 120px);
   align-items: center;
   column-gap: 24px;
   padding-inline: 16px;
@@ -206,7 +253,7 @@
 @media (min-width: 701px) and (max-width: 1100px) {
   .files-page .file-table-heading,
   .file-row.library-file-row {
-    grid-template-columns: minmax(140px, 1fr) minmax(100px, 0.4fr) 88px 100px 120px;
+    grid-template-columns: minmax(140px, 1fr) minmax(100px, 0.4fr) 88px 100px var(--library-actions-width, 120px);
     column-gap: 16px;
   }
 }
@@ -473,7 +520,7 @@
 @media (max-width: 700px) {
   .files-page .file-table-heading,
   .file-row.library-file-row {
-    grid-template-columns: minmax(0, 1fr) 120px;
+    grid-template-columns: minmax(0, 1fr) var(--library-actions-width, 120px);
     column-gap: 12px;
     padding-inline: 12px;
   }
