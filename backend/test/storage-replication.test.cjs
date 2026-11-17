@@ -304,6 +304,8 @@ test("raw worker uses isolated object keys, expected size, and refuses deleted s
     await worker.replicate(row, randomUUID());
     assert.equal(copies, 1);
     assert.equal(terminal.status, "FAILED");
+    assert.equal(terminal.errorCode, "REPLICA_SOURCE_INVALID");
+    assert.equal(terminal.completed, true);
   } finally {
     GcsReplicaStorage.prototype.copy = original;
   }

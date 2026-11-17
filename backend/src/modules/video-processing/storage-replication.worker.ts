@@ -52,6 +52,32 @@ export class StorageReplicationWorker
   async discover() {
     const bucket = this.config.video?.replication?.bucket;
     if (!bucket) return;
+    // Retire stale work even when its retry budget was exhausted before this
+    // deployment. Never take a lease from a worker that is still copying.
+    await this.db.$executeRaw`
+      UPDATE storage_replicas r
+      SET status = 'FAILED', completed = true, error_code = 'REPLICA_SOURCE_INVALID',
+          lease_owner = NULL, lease_until = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE r.destination_bucket = ${bucket} AND r.completed = false
+        AND (r.lease_until IS NULL OR r.lease_until < CURRENT_TIMESTAMP)
+        AND (
+          (r.kind = 'RAW' AND NOT EXISTS (
+            SELECT 1 FROM files f WHERE f.id = r.asset_id
+              AND f.status = 'AVAILABLE' AND f.deleted_at IS NULL
+              AND f.storage_location_id = r.source->>'storageLocationId'
+              AND f.object_key = r.source->>'key' AND f.size::text = r.source->>'size'
+          )) OR
+          (r.kind = 'LIVE_DVR' AND NOT EXISTS (
+            SELECT 1 FROM class_recordings c WHERE c.id = r.asset_id
+              AND c.status IN ('RECORDING','SAVING','SAVED')
+              AND c.storage_location_id = r.source->>'storageLocationId'
+              AND c.recording_prefix = r.source->>'prefix'
+              AND (c.file_id IS NULL OR EXISTS (
+                SELECT 1 FROM files f WHERE f.id = c.file_id
+                  AND f.status = 'AVAILABLE' AND f.deleted_at IS NULL
+              ))
+          ))
+        )`;
     // Anti-join before LIMIT prevents already-discovered files starving new work.
     const files = await this.db.$queryRaw<{ id: string }[]>`
       SELECT f.id FROM files f JOIN storage_locations l ON l.id = f.storage_location_id
@@ -86,6 +112,10 @@ export class StorageReplicationWorker
       SELECT c.id FROM class_recordings c WHERE c.provider = 'IVS'
       AND c.status IN ('RECORDING','SAVING','SAVED') AND c.recording_prefix IS NOT NULL
       AND c.storage_location_id IS NOT NULL
+      AND (c.file_id IS NULL OR EXISTS (
+        SELECT 1 FROM files f WHERE f.id = c.file_id
+          AND f.status = 'AVAILABLE' AND f.deleted_at IS NULL
+      ))
       AND NOT EXISTS (SELECT 1 FROM storage_replicas r WHERE r.kind = 'LIVE_DVR'
         AND r.asset_id = c.id AND r.destination_bucket = ${bucket}) LIMIT 20`;
     for (const row of await this.db.classRecording.findMany({
@@ -229,10 +259,11 @@ export class StorageReplicationWorker
       const assertLease = async () => {
         if (
           abort.signal.aborted ||
-          !(await this.db.storageReplica.count({ where: owned() })) ||
-          !(await this.valid(row, source))
+          !(await this.db.storageReplica.count({ where: owned() }))
         )
           throw new VideoError("LEASE_LOST");
+        if (!(await this.valid(row, source)))
+          throw new VideoError("REPLICA_SOURCE_INVALID");
       };
       await assertLease();
       const target = await this.storage.locations.resolve(
@@ -342,11 +373,13 @@ export class StorageReplicationWorker
       });
     } catch (error) {
       const code = error instanceof VideoError ? error.code : "COPY_FAILED";
+      const invalidSource = code === "REPLICA_SOURCE_INVALID";
       await this.db.storageReplica.updateMany({
         where: { id: row.id, leaseOwner: owner },
         data: {
           // Keep a previously committed snapshot readable during a failed refresh.
-          status: row.lastSyncedAt ? "READY" : "FAILED",
+          status: !invalidSource && row.lastSyncedAt ? "READY" : "FAILED",
+          ...(invalidSource ? { completed: true } : {}),
           errorCode: code,
           nextRunAt: new Date(
             Date.now() + Math.min(3600000, 5000 * 2 ** row.attempts),

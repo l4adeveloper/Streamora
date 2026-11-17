@@ -183,6 +183,17 @@ the application origin on the IVS recording bucket. If an existing permission
 or CORS rule is missing, the user performs that cloud change with screenshot
 checks; the lead handles deployment.
 
+Deployment follow-up on 2026-11-17: the server passed WIF list/write/read/delete
+checks and reported 29 RAW plus three LIVE_DVR replicas READY. Ten legacy DVR
+rows failed because their SAVED recordings referenced DELETED files. Discovery
+now excludes those recordings and retires unleased invalid work (including
+exhausted retries) with `completed=true`, status FAILED and
+`REPLICA_SOURCE_INVALID`. Source invalidation during a copy uses that same
+terminal error; actual lease loss remains `LEASE_LOST`. This change needs no
+migration and does not delete stored media or modify completed READY replicas.
+The fix passed TypeScript, eight focused unit tests and the SQL regression that
+covers deleted recordings, exhausted work and protection of active leases.
+
 ## Still required before T18 acceptance
 
 - Install WIF configuration and signing secret in the deployment environment;
