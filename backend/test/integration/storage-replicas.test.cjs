@@ -201,6 +201,91 @@ test(
         ).body.replicas[0].readyThroughSeconds,
         4,
       );
+      // A SAVED recording can outlive its deleted library file. Discovery must
+      // exclude it and retire legacy retry rows, including exhausted attempts.
+      await db.libraryFile.update({
+        where: { id: file.id },
+        data: { status: "DELETED", deletedAt: new Date() },
+      });
+      const removedRecording = await db.classRecording.create({
+        data: {
+          id: randomUUID(),
+          sessionId: session.id,
+          recorderId: owner.id,
+          provider: "IVS",
+          status: "SAVED",
+          fileId: file.id,
+          storageLocationId: location,
+          recordingPrefix: "ivs/removed",
+        },
+      });
+      await a.discover();
+      assert.equal(
+        await db.storageReplica.count({
+          where: { assetId: removedRecording.id },
+        }),
+        0,
+      );
+      const stale = await db.storageReplica.create({
+        data: {
+          kind: "LIVE_DVR",
+          assetId: removedRecording.id,
+          destinationBucket: "test-replica",
+          source: { storageLocationId: location, prefix: "ivs/removed" },
+          status: "FAILED",
+          attempts: 8,
+          errorCode: "LEASE_LOST",
+        },
+      });
+      const failedRecording = await db.classRecording.create({
+        data: {
+          id: randomUUID(),
+          sessionId: session.id,
+          recorderId: owner.id,
+          provider: "IVS",
+          status: "FAILED",
+          storageLocationId: location,
+          recordingPrefix: "ivs/failed",
+        },
+      });
+      const leased = await db.storageReplica.create({
+        data: {
+          kind: "LIVE_DVR",
+          assetId: failedRecording.id,
+          destinationBucket: "test-replica",
+          source: { storageLocationId: location, prefix: "ivs/failed" },
+          status: "COPYING",
+          leaseOwner: randomUUID(),
+          leaseUntil: new Date(Date.now() + 60000),
+        },
+      });
+      await a.discover();
+      const retired = await db.storageReplica.findUnique({
+        where: { id: stale.id },
+      });
+      assert.equal(retired.completed, true);
+      assert.equal(retired.status, "FAILED");
+      assert.equal(retired.errorCode, "REPLICA_SOURCE_INVALID");
+      assert.equal(retired.attempts, 8);
+      assert.equal(
+        (await db.storageReplica.findUnique({ where: { id: leased.id } }))
+          .completed,
+        false,
+      );
+      await db.storageReplica.update({
+        where: { id: leased.id },
+        data: { leaseUntil: new Date(Date.now() - 1000) },
+      });
+      await a.tick();
+      assert.equal(
+        (await db.storageReplica.findUnique({ where: { id: leased.id } }))
+          .completed,
+        true,
+      );
+      assert.equal(
+        (await db.storageReplica.findUnique({ where: { id: live.id } })).status,
+        "READY",
+      );
     } finally {
       GcsReplicaStorage.prototype.copy = oldCopy;
       await f.cleanup();
