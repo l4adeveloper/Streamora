@@ -63,6 +63,11 @@ import {
   type SessionRoomHandle,
   type MeetingRoomState,
 } from "./class-sessions/session-room";
+import {
+  MeetingsDashboardSidebar,
+  MeetingsDashboardContent,
+  type DashboardMeeting,
+} from "./class-sessions/meetings-dashboard";
 import type { ClassSession } from "@streamora/contracts";
 import { useWorkspaceMeetings } from "@/lib/class-sessions/use-workspace-meetings";
 import { getClassSession, listClassSessions } from "@/lib/class-sessions/api";
@@ -125,10 +130,36 @@ export function Workspace({
     ? chatNavigation?.messageId
     : routeMessageId;
   const targetThreadId = navigation ? chatNavigation?.threadId : routeThreadId;
+  const [dashboardMode, setDashboardMode] = useState(baseView === "dashboard");
+  const [dashboardMeetings, setDashboardMeetings] = useState<DashboardMeeting[]>([]);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardFilter, setDashboardFilter] = useState<
+    "ALL" | "LIVE" | "SCHEDULED" | "ENDED"
+  >("ALL");
+  const [dashboardSearch, setDashboardSearch] = useState("");
+  const [dashboardSelectedId, setDashboardSelectedId] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    const url = new URL(location.href);
+    if (
+      url.searchParams.get("view") === "dashboard" ||
+      url.pathname === "/dashboard" ||
+      baseView === "dashboard"
+    ) {
+      setDashboardMode(true);
+    }
+  }, [baseView]);
+
   useEffect(() => {
     setNavigation(null);
     const restore = () => {
       const url = new URL(location.href);
+      const isDashboard =
+        url.searchParams.get("view") === "dashboard" ||
+        url.pathname === "/dashboard";
+      setDashboardMode(isDashboard);
       const match = url.pathname.match(/^\/community(?:\/([^/]+))?\/?$/);
       setNavigation(
         match
@@ -266,6 +297,107 @@ export function Workspace({
       if (!currentIds.has(id)) notifiedLiveIds.current.delete(id);
     });
   }, [rooms.items, workspaceGroup.groupId, user?.id]);
+
+  const loadDashboardMeetings = useCallback(async () => {
+    setDashboardLoading(true);
+    try {
+      const groupPromises = workspaceGroup.groups.map(async (g) => {
+        try {
+          const res = await listClassSessions(g.id);
+          return res.items.map((item) => ({
+            ...item,
+            groupName: g.name,
+          }));
+        } catch {
+          return [];
+        }
+      });
+
+      const standAlonePromise = (async () => {
+        try {
+          const res = await listClassSessions(null);
+          return res.items.map((item) => ({
+            ...item,
+            groupName: "Streamora Meet",
+          }));
+        } catch {
+          return [];
+        }
+      })();
+
+      const results = await Promise.all([...groupPromises, standAlonePromise]);
+      const map = new Map<string, DashboardMeeting>();
+      for (const list of results) {
+        for (const item of list) {
+          map.set(item.id, item);
+        }
+      }
+      const combined = Array.from(map.values());
+      combined.sort((a, b) => {
+        const order: Record<string, number> = {
+          LIVE: 0,
+          SCHEDULED: 1,
+          ENDED: 2,
+          CANCELLED: 3,
+        };
+        const statusDiff = (order[a.status] ?? 99) - (order[b.status] ?? 99);
+        if (statusDiff !== 0) return statusDiff;
+        if (a.status === "LIVE") {
+          const aTime = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+          const bTime = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+          return bTime - aTime;
+        }
+        if (a.status === "SCHEDULED") {
+          const aTime = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
+          const bTime = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
+          return aTime - bTime;
+        }
+        const aEnd = a.endedAt
+          ? new Date(a.endedAt).getTime()
+          : new Date(a.createdAt).getTime();
+        const bEnd = b.endedAt
+          ? new Date(b.endedAt).getTime()
+          : new Date(b.createdAt).getTime();
+        return bEnd - aEnd;
+      });
+
+      setDashboardMeetings(combined);
+
+      const liveSet = new Set<string>();
+      for (const m of combined) {
+        if (m.status === "LIVE" && m.groupId) {
+          liveSet.add(m.groupId);
+        }
+      }
+      if (liveSet.size > 0) {
+        setLiveGroupIds((prev) => {
+          const union = new Set(prev);
+          for (const id of liveSet) union.add(id);
+          return union;
+        });
+      }
+    } catch {
+      // ignore
+    } finally {
+      setDashboardLoading(false);
+    }
+  }, [workspaceGroup.groups]);
+
+  useEffect(() => {
+    if (dashboardMode) {
+      void loadDashboardMeetings();
+      const interval = setInterval(loadDashboardMeetings, 10000);
+      window.addEventListener("streamora:meetings-changed", loadDashboardMeetings);
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener(
+          "streamora:meetings-changed",
+          loadDashboardMeetings,
+        );
+      };
+    }
+  }, [dashboardMode, loadDashboardMeetings]);
+
   const roomRef = useRef<SessionRoomHandle>(null);
   const [roomState, setRoomState] = useState<MeetingRoomState | null>(null);
   const reportRoomState = useCallback((state: MeetingRoomState) => {
@@ -275,15 +407,17 @@ export function Workspace({
   workspaceScope.current = `${user?.id ?? ""}:${workspaceGroup.groupId ?? ""}`;
   const switching = useRef(false);
   const [roomSwitching, setRoomSwitching] = useState(false);
-  const view: View = activeMeetingId
-    ? meetingMinimized
-      ? "chat"
-      : "meetings"
-    : (navigation?.view ??
-      (baseView === "meetings" ||
-      (baseView === "live" && !!workspaceGroup.groupId)
+  const view: View = dashboardMode
+    ? "dashboard"
+    : activeMeetingId
+      ? meetingMinimized
         ? "chat"
-        : baseView));
+        : "meetings"
+      : (navigation?.view ??
+        (baseView === "meetings" ||
+        (baseView === "live" && !!workspaceGroup.groupId)
+          ? "chat"
+          : baseView));
   const changeWorkspace = useCallback(
     async (apply: () => void) => {
       if (switching.current) return;
@@ -317,9 +451,11 @@ export function Workspace({
     });
   }
   function returnToMeeting() {
+    setDashboardMode(false);
     setMeetingMinimized(false);
     const url = new URL(location.href);
     url.pathname = "/workspace";
+    url.searchParams.delete("view");
     history.pushState(null, "", url);
   }
   const updateRoom = useCallback(
@@ -345,6 +481,7 @@ export function Workspace({
       session.id === activeMeetingId &&
       session.groupId === workspaceGroup.groupId
     ) {
+      setDashboardMode(false);
       returnToMeeting();
       return;
     }
@@ -355,6 +492,7 @@ export function Workspace({
       return;
     }
     void changeWorkspace(() => {
+      setDashboardMode(false);
       setMeetingSelection({ id: session.id, groupId: session.groupId! });
       setMeetingMinimized(false);
       setRoomInfo(session);
@@ -366,6 +504,7 @@ export function Workspace({
       const url = new URL(location.href);
       url.searchParams.set("meetingId", session.id);
       url.searchParams.set("groupId", session.groupId!);
+      url.searchParams.delete("view");
       url.searchParams.delete("create");
       url.searchParams.delete("tab");
       history.pushState(null, "", url);
@@ -376,6 +515,10 @@ export function Workspace({
     setPendingRoomSwitch(null);
     if (!session) return;
     void changeWorkspace(() => {
+      if (session.groupId && session.groupId !== workspaceGroup.groupId) {
+        workspaceGroup.selectGroup(session.groupId);
+      }
+      setDashboardMode(false);
       setMeetingSelection({ id: session.id, groupId: session.groupId! });
       setMeetingMinimized(false);
       setRoomInfo(session);
@@ -387,11 +530,75 @@ export function Workspace({
       const url = new URL(location.href);
       url.searchParams.set("meetingId", session.id);
       url.searchParams.set("groupId", session.groupId!);
+      url.searchParams.delete("view");
       url.searchParams.delete("create");
       url.searchParams.delete("tab");
       history.pushState(null, "", url);
     });
   }
+
+  function openDashboardMode() {
+    if (activeMeetingId) {
+      setMeetingMinimized(true);
+    }
+    setDashboardMode(true);
+    setMembersView(false);
+    setMobileNav(false);
+    const url = new URL(location.href);
+    url.searchParams.set("view", "dashboard");
+    history.pushState(null, "", url);
+  }
+
+  const handleJoinDashboardMeeting = useCallback(
+    async (session: DashboardMeeting) => {
+      if (!session.groupId) {
+        router.push(`/meet/${session.joinCode}`);
+        return;
+      }
+
+      setDashboardMode(false);
+      setMembersView(false);
+      setMobileNav(false);
+
+      if (session.groupId !== workspaceGroup.groupId) {
+        workspaceGroup.selectGroup(session.groupId);
+      }
+
+      if (activeMeetingId === session.id) {
+        setMeetingMinimized(false);
+        returnToMeeting();
+        return;
+      }
+
+      if (activeMeetingId) {
+        setPendingRoomSwitch(session);
+        return;
+      }
+
+      void changeWorkspace(() => {
+        setMeetingSelection({ id: session.id, groupId: session.groupId! });
+        setMeetingMinimized(false);
+        setRoomInfo(session);
+        setModal(null);
+        setPanel(!matchMedia("(max-width: 900px)").matches);
+        setPanelTab("chat");
+        const url = new URL(location.href);
+        url.searchParams.set("groupId", session.groupId!);
+        url.searchParams.set("meetingId", session.id);
+        url.searchParams.delete("view");
+        url.searchParams.delete("create");
+        url.searchParams.delete("tab");
+        history.pushState(null, "", url);
+      });
+    },
+    [
+      activeMeetingId,
+      changeWorkspace,
+      returnToMeeting,
+      router,
+      workspaceGroup,
+    ],
+  );
   async function openMeetingById(id: string) {
     const expected = workspaceScope.current;
     try {
@@ -977,15 +1184,17 @@ export function Workspace({
             : view === "chat"
               ? channel
               : activeRoomName;
-  const currentSection = membersView
-    ? "Thành viên"
-    : view === "chat"
-      ? channel.replaceAll("-", " ")
-      : view === "files" && filter === "Bản ghi"
-        ? "Bản ghi bài giảng"
-        : view === "meet"
-          ? "Tạo cuộc họp"
-          : title;
+  const currentSection = dashboardMode
+    ? "Dashboard cuộc họp"
+    : membersView
+      ? "Thành viên"
+      : view === "chat"
+        ? channel.replaceAll("-", " ")
+        : view === "files" && filter === "Bản ghi"
+          ? "Bản ghi bài giảng"
+          : view === "meet"
+            ? "Tạo cuộc họp"
+            : title;
   function navigateWorkspace(event: React.MouseEvent<HTMLAnchorElement>) {
     if (
       event.button !== 0 ||
@@ -1087,7 +1296,26 @@ export function Workspace({
   return (
     <div className={`app-shell ${mobileNav ? "nav-open" : ""}`}>
       <aside className="community-rail" aria-label="Không gian và nhóm học tập">
-        <Brand small href="/groups" label="Streamora, nhóm học tập" />
+        <div className="brand-rail-item">
+          <button
+            type="button"
+            className={`brand brand-small brand-mark-btn ${dashboardMode ? "selected" : ""}`}
+            title="Dashboard cuộc họp (Tất cả cuộc họp)"
+            aria-label="Mở Dashboard cuộc họp"
+            aria-current={dashboardMode ? "true" : undefined}
+            onClick={() => {
+              if (dashboardMode) {
+                void loadDashboardMeetings();
+              } else {
+                openDashboardMode();
+              }
+            }}
+          >
+            <span className="brand-mark">
+              <Waves size={25} strokeWidth={2} />
+            </span>
+          </button>
+        </div>
         <div className="rail-divider" />
         <nav className="workspace-groups" aria-label="Nhóm học tập của bạn">
           {workspaceGroup.loading && (
@@ -1102,18 +1330,23 @@ export function Workspace({
           )}
           {workspaceGroup.groups.map((item) => {
             const hasLive = liveGroupIds.has(item.id);
+            const isSelected = !dashboardMode && item.id === workspaceGroup.groupId;
             return (
               <button
                 key={item.id}
                 type="button"
-                className={`community-icon ${item.id === workspaceGroup.groupId ? "selected" : ""}`}
+                className={`community-icon ${isSelected ? "selected" : ""}`}
                 title={item.name}
                 aria-label={`Mở nhóm ${item.name}`}
                 disabled={roomSwitching}
                 aria-current={
-                  item.id === workspaceGroup.groupId ? "true" : undefined
+                  isSelected ? "true" : undefined
                 }
                 onClick={() => {
+                  setDashboardMode(false);
+                  const url = new URL(location.href);
+                  url.searchParams.delete("view");
+                  history.pushState(null, "", url);
                   selectWorkspaceGroup(item.id);
                   if (matchMedia("(max-width: 650px)").matches)
                     setMobileNav(true);
@@ -1176,7 +1409,31 @@ export function Workspace({
           </IconButton>
         </div>
       </aside>
-      <aside className="channel-sidebar">
+      {dashboardMode ? (
+        <MeetingsDashboardSidebar
+          meetings={dashboardMeetings}
+          selectedId={dashboardSelectedId}
+          filter={dashboardFilter}
+          onFilterChange={setDashboardFilter}
+          search={dashboardSearch}
+          onSearchChange={setDashboardSearch}
+          onSelectMeeting={(id) => {
+            setDashboardSelectedId(id);
+          }}
+          onJoinMeeting={(session) => {
+            void handleJoinDashboardMeeting(session);
+          }}
+          onCreateMeet={() => {
+            setDashboardMode(false);
+            setMeetingSelection(null);
+            void changeWorkspace(() => {
+              router.push("/community?view=meet");
+            });
+          }}
+          loading={dashboardLoading}
+        />
+      ) : (
+        <aside className="channel-sidebar">
         <button
           className="community-title"
           onClick={() => setModal("community-settings")}
@@ -1417,6 +1674,7 @@ export function Workspace({
           </div>
         </div>
       </aside>
+      )}
       <div className="sidebar-user workspace-identity">
         <Link
           className="workspace-account"
@@ -1458,11 +1716,23 @@ export function Workspace({
             >
               <Menu size={20} />
             </button>
-            <span title={group}>{group}</span>
-            <ChevronRight size={14} />
-            <h1 aria-current="page" title={currentSection}>
-              {currentSection}
-            </h1>
+            {dashboardMode ? (
+              <>
+                <span title="Streamora">Streamora</span>
+                <ChevronRight size={14} />
+                <h1 aria-current="page" title="Dashboard cuộc họp">
+                  Dashboard cuộc họp
+                </h1>
+              </>
+            ) : (
+              <>
+                <span title={group}>{group}</span>
+                <ChevronRight size={14} />
+                <h1 aria-current="page" title={currentSection}>
+                  {currentSection}
+                </h1>
+              </>
+            )}
           </nav>
           <div className="topbar-actions">
             <ThemeToggle />
@@ -1477,7 +1747,21 @@ export function Workspace({
               <i />
             </IconButton>
             <div className="vertical-divider" />
-            {membersView && (
+            {dashboardMode ? (
+              <button
+                type="button"
+                className="button primary compact"
+                onClick={() => {
+                  setDashboardMode(false);
+                  void changeWorkspace(() => {
+                    router.push("/community?view=meet");
+                  });
+                }}
+              >
+                <Plus size={16} />
+                <span>Cuộc họp mới</span>
+              </button>
+            ) : membersView ? (
               <button
                 className="button secondary workspace-back"
                 aria-label="Quay lại không gian"
@@ -1492,26 +1776,25 @@ export function Workspace({
                 <ArrowLeft size={18} />
                 <span>Quay lại không gian</span>
               </button>
-            )}
-            {!membersView && (
-              <button
-                className="button secondary workspace-invite"
-                aria-label="Mời tham gia"
-                title="Mời tham gia"
-                onClick={() => setModal("invite")}
-              >
-                <Link2 size={18} />
-                <span>Mời tham gia</span>
-              </button>
-            )}
-            {!membersView && (
-              <IconButton
-                label={panel ? "Đóng bảng bên" : "Mở trò chuyện và thành viên"}
-                active={panel}
-                onClick={() => setPanelPreference(!panel)}
-              >
-                <Users size={18} />
-              </IconButton>
+            ) : (
+              <>
+                <button
+                  className="button secondary workspace-invite"
+                  aria-label="Mời tham gia"
+                  title="Mời tham gia"
+                  onClick={() => setModal("invite")}
+                >
+                  <Link2 size={18} />
+                  <span>Mời tham gia</span>
+                </button>
+                <IconButton
+                  label={panel ? "Đóng bảng bên" : "Mở trò chuyện và thành viên"}
+                  active={panel}
+                  onClick={() => setPanelPreference(!panel)}
+                >
+                  <Users size={18} />
+                </IconButton>
+              </>
             )}
           </div>
         </header>
@@ -1524,9 +1807,31 @@ export function Workspace({
               onLeave={returnToChat}
             />
           )}
-          <main
-            className={`main-content view-${view} ${membersView ? "membership-main" : ""}`}
-          >
+          {dashboardMode ? (
+            <main className="main-content view-dashboard">
+              <MeetingsDashboardContent
+                meetings={dashboardMeetings}
+                selectedId={dashboardSelectedId}
+                onJoinMeeting={(session) => {
+                  void handleJoinDashboardMeeting(session);
+                }}
+                onCreateMeet={() => {
+                  setDashboardMode(false);
+                  setMeetingSelection(null);
+                  void changeWorkspace(() => {
+                    router.push("/community?view=meet");
+                  });
+                }}
+                onRefresh={() => {
+                  void loadDashboardMeetings();
+                }}
+                loading={dashboardLoading}
+              />
+            </main>
+          ) : (
+            <main
+              className={`main-content view-${view} ${membersView ? "membership-main" : ""}`}
+            >
             {membersView ? (
               !user ? (
                 <div className="membership-empty">
@@ -2093,7 +2398,8 @@ export function Workspace({
               </>
             )}
           </main>
-          {panel && !membersView && (
+          )}
+          {panel && !membersView && !dashboardMode && (
             <aside className="right-panel">
               {view !== "chat" && (
                 <div className="panel-tabs">
