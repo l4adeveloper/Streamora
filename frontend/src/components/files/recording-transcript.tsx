@@ -8,12 +8,13 @@ import type {
 import { getRecordingTranscript } from "@/lib/files/api";
 import { timestamp } from "./video-player-controls";
 
-export function useRecordingTranscript(fileId: string) {
+export function useRecordingTranscript(fileId: string, enabled = true) {
   const [transcript, setTranscript] = useState<RecordingTranscriptResponse>();
   const [requestFailed, setRequestFailed] = useState(false);
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     async function load() {
@@ -33,7 +34,7 @@ export function useRecordingTranscript(fileId: string) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [fileId, revision]);
+  }, [fileId, revision, enabled]);
   return {
     transcript,
     requestFailed,

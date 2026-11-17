@@ -7,9 +7,11 @@ import type { ReactNode } from "react";
 import { Brand } from "@/components/ui";
 import { AccountLink } from "./account-link";
 import { ThemeToggle } from "./theme-toggle";
+import { useAuth } from "@/components/auth/auth-provider";
 
 export function SiteHeader() {
   const path = usePathname();
+  const { user } = useAuth();
   return (
     <header className="site-header">
       <Brand />
@@ -33,6 +35,14 @@ export function SiteHeader() {
           Không gian học tập
         </Link>
         <AccountLink />
+        {user?.globalRole === "ADMIN" && (
+          <Link
+            href="/admin/video-replicas"
+            aria-current={path === "/admin/video-replicas" ? "page" : undefined}
+          >
+            Vận hành video
+          </Link>
+        )}
         <ThemeToggle />
       </nav>
     </header>

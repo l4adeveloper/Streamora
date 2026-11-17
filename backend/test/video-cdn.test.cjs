@@ -7,7 +7,7 @@ const {
   VideoDelivery,
 } = require("../dist/modules/video-processing/video-delivery");
 const config = {
-  video: { outputBucket: "output-bucket", region: "ap-northeast-1" },
+  video: { mode: "aws", outputBucket: "output-bucket", region: "ap-northeast-1" },
 };
 test("CloudFront serves public output without cookies and rejects unmapped storage", async () => {
   const video = { ...config.video, mediaDomain: "media.example.com" };

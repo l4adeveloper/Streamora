@@ -52,6 +52,7 @@ model User {
   createdPolls         ClassPoll[]
   pollVotes            ClassPollVote[]
   classRecordings      ClassRecording[]
+  recordingPlaybackProgress RecordingPlaybackProgress[]
 
   uploads UploadSession[]
   @@map("users")
@@ -563,6 +564,7 @@ model LibraryFile {
   classRecording ClassRecording?
   videoAsset VideoAsset?
   videoJobs VideoJob[]
+  videoReplicas VideoReplica[]
 
   videoTranscript VideoTranscript?
   summaryOutput LessonSummary? @relation("SummaryOutput")
@@ -636,10 +638,35 @@ model VideoJob {
   file LibraryFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
   currentAssets VideoAsset[] @relation("VideoCurrent")
   publishedAssets VideoAsset[] @relation("VideoPublished")
+  replicas VideoReplica[]
   @@unique([id, fileId])
   @@unique([fileId, retryActor, retryKeyHash])
   @@index([state, nextRunAt, leaseUntil])
   @@map("video_jobs")
+}
+
+// One replica per immutable published encode version and destination bucket.
+model VideoReplica {
+  id String @id @default(uuid()) @db.Uuid
+  fileId String @map("file_id") @db.Uuid
+  jobId String @map("job_id") @db.Uuid
+  destinationBucket String @map("destination_bucket") @db.VarChar(255)
+  status String @default("PENDING") @db.VarChar(16)
+  output Json @db.JsonB
+  attempts Int @default(0)
+  nextRunAt DateTime @default(now()) @map("next_run_at") @db.Timestamptz(3)
+  leaseOwner String? @map("lease_owner") @db.Uuid
+  leaseUntil DateTime? @map("lease_until") @db.Timestamptz(3)
+  errorCode String? @map("error_code") @db.VarChar(64)
+  objectCount Int @default(0) @map("object_count")
+  lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  file LibraryFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  job VideoJob @relation(fields: [jobId, fileId], references: [id, fileId], onDelete: Restrict)
+  @@unique([jobId, destinationBucket])
+  @@index([status, nextRunAt, leaseUntil])
+  @@map("video_replicas")
 }
 
 model UploadSession {
@@ -856,8 +883,21 @@ model ClassRecording {
   session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
   recorder User @relation(fields: [recorderId], references: [id], onDelete: Restrict)
   file LibraryFile? @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  playbackProgress RecordingPlaybackProgress[]
   @@index([sessionId, startedAt(sort: Desc)])
   @@map("class_recordings")
+}
+
+model RecordingPlaybackProgress {
+  recordingId String @map("recording_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  positionSeconds Float @map("position_seconds")
+  clientUpdatedAt DateTime @map("client_updated_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  recording ClassRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([recordingId, userId])
+  @@map("recording_playback_progress")
 }
 
 model VideoTranscript {
@@ -869,4 +909,27 @@ model VideoTranscript {
   transcriptCues Json? @map("transcript_cues")
   @@index([transcriptStatus, transcriptNextAttemptAt], map: "video_transcripts_queue_idx")
   @@map("video_transcripts")
+}
+model StorageReplica {
+  id String @id @default(uuid()) @db.Uuid
+  kind String @db.VarChar(12)
+  assetId String @map("asset_id") @db.Uuid
+  destinationBucket String @map("destination_bucket") @db.VarChar(255)
+  source Json @db.JsonB
+  snapshot Json? @db.JsonB
+  status String @default("PENDING") @db.VarChar(16)
+  attempts Int @default(0)
+  nextRunAt DateTime @default(now()) @map("next_run_at") @db.Timestamptz(3)
+  leaseOwner String? @map("lease_owner") @db.Uuid
+  leaseUntil DateTime? @map("lease_until") @db.Timestamptz(3)
+  errorCode String? @map("error_code") @db.VarChar(64)
+  objectCount Int @default(0) @map("object_count")
+  lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(3)
+  readyThroughSeconds Float @default(0) @map("ready_through_seconds")
+  completed Boolean @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  @@unique([kind, assetId, destinationBucket])
+  @@index([nextRunAt, leaseUntil])
+  @@map("storage_replicas")
 }

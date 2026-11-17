@@ -12,11 +12,19 @@ import {
   type VideoCdnProvider,
 } from "./video-cdn";
 import { CloudFrontVideoCdn } from "./cloudfront-video-cdn";
+import {
+  GetSecretValueCommand,
+  SecretsManagerClient,
+} from "@aws-sdk/client-secrets-manager";
+import { signCloudFrontUrl } from "./cloudfront-signed-url";
+import { signCloudCdnUrl } from "./cloud-cdn-signed-url";
 export type { DeliveryCookie, MediaGrant } from "./video-cdn";
 
 @Injectable()
 export class VideoDelivery {
   private readonly providers: VideoCdnProvider[];
+  private signingKey?: Promise<string>;
+  private gcsSigningKey?: Promise<string>;
   constructor(
     @Inject(APP_CONFIG) readonly config: EnvironmentConfig,
     @Optional() private readonly locations?: StorageLocationsService,
@@ -30,6 +38,112 @@ export class VideoDelivery {
       .update("video-grant.v1:" + payload)
       .digest("base64url");
   }
+  private async privateKey() {
+    if (!this.signingKey) {
+      this.signingKey = (async () => {
+        const video = this.config.video;
+        if (!video?.cloudFrontSigningSecretId)
+          throw new ApiError(
+            503,
+            "VIDEO_DELIVERY_UNAVAILABLE",
+            "Chưa cấu hình khóa ký CDN.",
+          );
+        const client = new SecretsManagerClient({ region: video.region });
+        try {
+          const secret = await client.send(
+            new GetSecretValueCommand({
+              SecretId: video.cloudFrontSigningSecretId,
+            }),
+          );
+          if (!secret.SecretString?.includes("BEGIN PRIVATE KEY"))
+            throw new Error("INVALID_SIGNING_KEY");
+          return secret.SecretString;
+        } finally {
+          client.destroy();
+        }
+      })().catch((error) => {
+        this.signingKey = undefined;
+        throw error;
+      });
+    }
+    return this.signingKey;
+  }
+  async signedObjectUrl(
+    key: string,
+    expires = Math.floor(Date.now() / 1000) + 900,
+  ) {
+    return (await this.signedObjectFactory(expires))(key);
+  }
+  async signedObjectFactory(expires: number) {
+    const video = this.config.video;
+    if (!video?.mediaDomain || !video.cloudFrontKeyPairId)
+      throw new ApiError(
+        503,
+        "VIDEO_DELIVERY_UNAVAILABLE",
+        "Chưa cấu hình CDN private.",
+      );
+    const signingKey = await this.privateKey();
+    return (key: string) => {
+      objectKey(key);
+      return signCloudFrontUrl(
+        `https://${video.mediaDomain}/${key}`,
+        video.cloudFrontKeyPairId,
+        signingKey,
+        expires,
+      );
+    };
+  }
+  async gcsSignedObjectFactory(expires: number) {
+    const gcs = this.config.video?.gcsDelivery;
+    if (!gcs)
+      throw new ApiError(
+        503,
+        "VIDEO_DELIVERY_UNAVAILABLE",
+        "Chưa cấu hình CDN dự phòng.",
+      );
+    if (!this.gcsSigningKey) {
+      this.gcsSigningKey = (async () => {
+        const client = new SecretsManagerClient({
+          region: this.config.video!.region,
+        });
+        try {
+          const result = await client.send(
+            new GetSecretValueCommand({ SecretId: gcs.signingSecretId }),
+          );
+          if (!result.SecretString) throw new Error("INVALID_SIGNING_KEY");
+          const key = result.SecretString.trim();
+          // Validate before caching so a malformed secret can be corrected
+          // without retaining an unusable value for the process lifetime.
+          signCloudCdnUrl(
+            `https://${gcs.domain}/key-validation`,
+            gcs.keyName,
+            key,
+            Math.floor(Date.now() / 1000) + 60,
+          );
+          return key;
+        } finally {
+          client.destroy();
+        }
+      })().catch(() => {
+        this.gcsSigningKey = undefined;
+        throw new ApiError(
+          503,
+          "VIDEO_DELIVERY_UNAVAILABLE",
+          "Không đọc được khóa CDN dự phòng.",
+        );
+      });
+    }
+    const key = await this.gcsSigningKey;
+    return (object: string) => {
+      objectKey(object);
+      return signCloudCdnUrl(
+        `https://${gcs.domain}/${object}`,
+        gcs.keyName,
+        key,
+        expires,
+      );
+    };
+  }
   async grant(
     fileId: string,
     jobId: string,
@@ -40,9 +154,7 @@ export class VideoDelivery {
     objectKey(output.prefix);
     objectKey(output.masterKey);
     const target = await this.locations?.resolve(output.storageLocationId);
-    if (
-      this.config.video?.mode !== "aws" || target?.driver === "local"
-    ) {
+    if (this.config.video?.mode !== "aws" || target?.driver === "local") {
       const path = `/api/v1/video-media/${fileId}/${jobId}`;
       const payload = Buffer.from(
         JSON.stringify({
@@ -81,6 +193,54 @@ export class VideoDelivery {
       bucket: this.config.video?.outputBucket ?? "",
       region: this.config.video?.region ?? "",
     };
+    if (
+      this.config.video?.cloudFrontKeyPairId &&
+      source.driver === "s3" &&
+      source.bucket === this.config.video.outputBucket &&
+      source.region === this.config.video.region
+    ) {
+      // Playlists are served through the authenticated API and rewritten there;
+      // media objects and thumbnails get individual CloudFront signatures.
+      const signingKey = await this.privateKey();
+      const path = `/api/v1/video-media/${fileId}/${jobId}`;
+      const payload = Buffer.from(
+        JSON.stringify({
+          fileId,
+          jobId,
+          location: output.storageLocationId,
+          prefix: output.prefix,
+          expires,
+        }),
+      ).toString("base64url");
+      const playlistUrl = (key: string) =>
+        `${path}/${key.slice(output.prefix.length + 1)}`;
+      const assetUrl = (key: string) => {
+        objectKey(key);
+        if (!key.startsWith(output.prefix + "/"))
+          throw new Error("VIDEO_OUTPUT_INVALID");
+        return key.endsWith(".m3u8")
+          ? playlistUrl(key)
+          : signCloudFrontUrl(
+              `https://${this.config.video!.mediaDomain}/${key}`,
+              this.config.video!.cloudFrontKeyPairId,
+              signingKey,
+              expires + 840,
+            );
+      };
+      return {
+        url: playlistUrl(output.masterKey),
+        expiresAt,
+        assetUrl,
+        cookies: [
+          {
+            name: "video_grant",
+            value: payload + "." + this.sign(payload),
+            path,
+            secure: this.config.auth.cookie.secure,
+          },
+        ],
+      };
+    }
     const provider = this.providers.find((candidate) =>
       candidate.supports(source),
     );

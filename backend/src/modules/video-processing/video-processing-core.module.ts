@@ -10,10 +10,14 @@ import { VideoDelivery } from "./video-delivery";
 import { VideoWorker } from "./video-worker";
 import { DatabaseVideoCatalog } from "./database-video-catalog";
 import { MediaConvertEncoder } from "./mediaconvert-encoder";
+import { VideoReplicationWorker } from "./video-replication.worker";
+import { StorageReplicationWorker } from "./storage-replication.worker";
 
 // The API process hosts the worker in both local and AWS deployments.
 @Module({
   providers: [
+    VideoReplicationWorker,
+    StorageReplicationWorker,
     GroupAccessService,
     FileStorageService,
     StorageLocationsService,
