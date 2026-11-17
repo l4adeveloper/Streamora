@@ -1053,7 +1053,7 @@ test("dark mode supports keyboard toggling, reloads, navigation, tab sync and na
       await page.locator("html").getAttribute("data-theme"),
       "light",
     );
-    await otherPage.evaluate(() => localStorage.removeItem("streamora-theme"));
+    await otherPage.evaluate(() => localStorage.removeItem("streamora-theme-v2"));
     await page.waitForFunction(
       () => document.documentElement.dataset.theme === "dark",
     );

@@ -1,4 +1,5 @@
-export const THEME_STORAGE_KEY = "streamora-theme";
+// Reset preferences from the release that defaulted to light mode.
+export const THEME_STORAGE_KEY = "streamora-theme-v2";
 export const DEFAULT_THEME = "dark";
 
 // Apply the saved palette before hydration; storage can be unavailable.

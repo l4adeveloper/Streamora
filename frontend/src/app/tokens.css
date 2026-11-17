@@ -78,7 +78,7 @@
 }
 
 /* Tonal dark surfaces use the same semantic roles as the light palette. */
-:root[data-theme="dark"] {
+:root:not([data-theme="light"]) {
   color-scheme: dark;
   --bg: #1b1b1f;
   --panel: #202124;
