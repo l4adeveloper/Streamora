@@ -740,6 +740,7 @@ export function ClassMediaRoom({
     <>
       {recordingPanel}
       {media.error && <InlineNotice tone="error">{media.error}</InlineNotice>}
+      {media.screenNotice && <InlineNotice>{media.screenNotice}</InlineNotice>}
       {media.publishLocked && (
         <InlineNotice>
           Mic, camera và chia sẻ màn hình đang bị khóa. Bạn vẫn có thể nghe và

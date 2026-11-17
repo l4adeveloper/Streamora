@@ -131,6 +131,7 @@ export function useClassMedia(
   const [screenParticipantId, setScreenParticipantId] = useState<string | null>(
     null,
   );
+  const [screenNotice, setScreenNotice] = useState("");
   const screenShare = useRef<ScreenShare | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const stage = useRef<Stage | null>(null);
@@ -188,6 +189,7 @@ export function useClassMedia(
     setScreenPending(false);
     setScreenPreview(null);
     setScreenParticipantId(null);
+    setScreenNotice("");
   }, [root]);
 
   const stop = useCallback(
@@ -727,14 +729,19 @@ export function useClassMedia(
     setError("");
     try {
       // Ask for tab/system audio too, so viewers and recordings hear the
-      // shared video. Browsers that cannot capture audio return video only.
+      // shared video. Chrome only grants audio for a tab, or for the entire
+      // screen on Windows/ChromeOS; a window share is always video only.
+      // Open the picker on tabs and hide this meeting tab to avoid echo.
       const options: DisplayMediaStreamOptions & {
         systemAudio?: "include" | "exclude";
+        selfBrowserSurface?: "include" | "exclude";
+        surfaceSwitching?: "include" | "exclude";
       } = {
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
           frameRate: { ideal: 30 },
+          displaySurface: "browser",
         },
         audio: {
           echoCancellation: false,
@@ -742,6 +749,8 @@ export function useClassMedia(
           autoGainControl: false,
         },
         systemAudio: "include",
+        selfBrowserSurface: "exclude",
+        surfaceSwitching: "include",
       };
       const capture = await navigator.mediaDevices.getDisplayMedia(options);
       if (signal.aborted) {
@@ -749,6 +758,11 @@ export function useClassMedia(
         return;
       }
       share.capture = capture;
+      setScreenNotice(
+        capture.getAudioTracks().length
+          ? ""
+          : "Màn hình đang chia sẻ không có âm thanh. Muốn người khác nghe được tiếng, hãy chia sẻ một Tab và bật “Share tab audio” (hoặc Toàn màn hình trên Windows và bật chia sẻ âm thanh hệ thống). Chia sẻ Cửa sổ không hỗ trợ âm thanh.",
+      );
       const track = capture.getVideoTracks()[0];
       if (!track || track.readyState !== "live")
         throw new Error("No display track");
@@ -994,6 +1008,8 @@ export function useClassMedia(
     screenPreview,
     screenPending,
     screenParticipantId,
+    /** Set while sharing a surface the browser gave no audio for. */
+    screenNotice,
     toggleScreenShare,
     /** Ends this tab's screen share, e.g. when a recording keeps someone else's. */
     endScreenShare: (notice?: string) => {

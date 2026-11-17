@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1380" viewBox="0 0 1680 1380" role="img" aria-labelledby="title desc"><title id="title">Kiến trúc Streamora</title><desc id="desc">Frontend Next.js, backend NestJS và các luồng PostgreSQL, DynamoDB, Amazon IVS, S3, Azure Speech và Azure OpenAI.</desc><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/></marker></defs><style>text{font-family:'Segoe UI',Arial,sans-serif;fill:#172554}.title{font-size:34px;font-weight:700}.sub{font-size:17px;fill:#64748b}.section{font-size:15px;font-weight:700;letter-spacing:1.5px}.head{font-size:21px;font-weight:650}.body{font-size:17px;fill:#334155}.tag{font-size:15px;fill:#475569}.edge{fill:none;stroke:#64748b;stroke-width:2;marker-end:url(#arrow)}</style><rect width="1680" height="1380" fill="#f8fafc"/>
+<text x="48" y="58" class="title">STREAMORA / KIẾN TRÚC HỆ THỐNG</text>
+<text x="48" y="88" class="sub">Đối chiếu source 545b575 · 16/11/2026 · Dịch vụ cloud hoạt động khi được cấu hình; chưa kiểm kê hạ tầng live.</text>
+<text x="48" y="130" class="section">01  GIAO DIỆN &amp; KẾT NỐI</text>
+<rect x="48" y="151" width="490" height="155" rx="15" fill="#eff6ff" stroke="#93c5fd"/>
+<text x="68" y="185" class="head">NEXT.JS + REACT / 3000</text>
+<text x="68" y="215" class="body">Workspace · Group · Thư viện · Account</text>
+<text x="68" y="241" class="body">Standalone Meet + Workspace Meeting</text>
+<text x="68" y="267" class="body">Dùng chung SessionRoom và IVS SDK</text>
+<rect x="595" y="151" width="490" height="155" rx="15" fill="#eff6ff" stroke="#93c5fd"/>
+<text x="615" y="185" class="head">TRÌNH DUYỆT</text>
+<text x="615" y="215" class="body">REST: thao tác và quyền truy cập</text>
+<text x="615" y="241" class="body">Socket.IO: chat, trạng thái, thông báo</text>
+<text x="615" y="267" class="body">IVS SDK: mic, camera, màn hình</text>
+<rect x="1142" y="151" width="490" height="155" rx="15" fill="#f0fdfa" stroke="#5eead4"/>
+<text x="1162" y="185" class="head">MEDIA &amp; REALTIME</text>
+<text x="1162" y="215" class="body">IVS: video/audio đi trực tiếp từ browser</text>
+<text x="1162" y="241" class="body">Socket.IO local hoặc Azure Web PubSub</text>
+<text x="1162" y="267" class="body">Upload part trực tiếp bằng URL đã ký</text>
+<path class="edge" d="M538 226 H595" />
+<path class="edge" d="M1085 226 H1142" />
+<path class="edge" d="M840 306 V371" />
+<rect x="846" y="327" width="310.8" height="24" rx="5" fill="#f8fafc"/>
+<text x="852" y="345" class="tag">HTTPS /api/v1 + Socket.IO /classroom</text>
+<text x="48" y="350" class="section">02  BACKEND  /  MỘT ỨNG DỤNG NESTJS</text>
+<rect x="48" y="371" width="1584" height="350" rx="18" fill="#eef2ff" stroke="#a5b4fc"/>
+<text x="72" y="406" class="head">API :4000 · Access token / refresh cookie · Origin · Membership / Role / Admission · Prisma</text>
+<rect x="72" y="430" width="365" height="125" rx="15" fill="#fff" stroke="#cbd5e1"/>
+<text x="92" y="464" class="head">TÀI KHOẢN &amp; NHÓM</text>
+<text x="92" y="494" class="body">Auth · Users · Groups</text>
+<text x="92" y="520" class="body">Memberships · ChatStore</text>
+<rect x="457" y="430" width="365" height="125" rx="15" fill="#fff" stroke="#cbd5e1"/>
+<text x="477" y="464" class="head">CUỘC HỌP</text>
+<text x="477" y="494" class="body">Sessions · Presence · IVS</text>
+<text x="477" y="520" class="body">Moderation · Polls · Recording</text>
+<rect x="842" y="430" width="365" height="125" rx="15" fill="#fff" stroke="#cbd5e1"/>
+<text x="862" y="464" class="head">THƯ VIỆN</text>
+<text x="862" y="494" class="body">Files · Folders · Uploads</text>
+<text x="862" y="520" class="body">VideoProcessing · StorageLocation</text>
+<rect x="1227" y="430" width="381" height="125" rx="15" fill="#fff" stroke="#cbd5e1"/>
+<text x="1247" y="464" class="head">BUỔI HỌC &amp; AI</text>
+<text x="1247" y="494" class="body">Folder gắn với session</text>
+<text x="1247" y="520" class="body">LessonSummary · Azure OpenAI</text>
+<rect x="72" y="579" width="1536" height="116" rx="15" fill="#e0e7ff" stroke="#a5b4fc"/>
+<text x="92" y="613" class="head">WORKERS NỀN CHẠY TRONG API</text>
+<text x="92" y="643" class="body">CloudRecordingWorker  |  RecordingTranscriptWorker  |  VideoWorker  |  LessonFoldersService</text>
+<text x="92" y="669" class="body">Claim / lease / retry trong database · Cleanup / presence / auto-close · IVS events consumer theo cấu hình</text>
+<path class="edge" d="M254 555 V579" />
+<path class="edge" d="M639 555 V579" />
+<path class="edge" d="M1024 555 V579" />
+<path class="edge" d="M1418 555 V579" />
+<text x="48" y="771" class="section">03  LƯU TRỮ &amp; DỊCH VỤ NGOÀI</text>
+<path class="edge" d="M400 721 V804" />
+<path class="edge" d="M640 721 V804" />
+<path class="edge" d="M1040 721 V804" />
+<path class="edge" d="M1435 721 V804" />
+<rect x="48" y="804" width="375" height="225" rx="15" fill="#fff" stroke="#a5b4fc"/>
+<text x="68" y="838" class="head">POSTGRESQL</text>
+<text x="68" y="868" class="body">User / Group / Membership</text>
+<text x="68" y="894" class="body">Session / Participation / Recording</text>
+<text x="68" y="920" class="body">Folder / File metadata / Transcript</text>
+<text x="68" y="946" class="body">Summary queue / video handoff</text>
+<text x="68" y="972" class="body">Prisma + transaction + migration</text>
+<rect x="451" y="804" width="375" height="225" rx="15" fill="#fffbeb" stroke="#fcd34d"/>
+<text x="471" y="838" class="head">AWS / DỮ LIỆU</text>
+<text x="471" y="868" class="body">DynamoDB: chat Workspace</text>
+<text x="471" y="894" class="body">DynamoDB: video jobs ở AWS mode</text>
+<text x="471" y="920" class="body">S3: tài liệu, HLS, MP4, Markdown</text>
+<text x="471" y="946" class="body">Secrets Manager: Azure Socket.IO</text>
+<text x="471" y="972" class="body">Local adapter: file trên ổ đĩa</text>
+<rect x="854" y="804" width="375" height="225" rx="15" fill="#fffbeb" stroke="#fcd34d"/>
+<text x="874" y="838" class="head">AWS / MEDIA</text>
+<text x="874" y="868" class="body">IVS Stage + Composition</text>
+<text x="874" y="894" class="body">Composition → S3 HLS recording</text>
+<text x="874" y="920" class="body">MediaConvert → các chất lượng</text>
+<text x="874" y="946" class="body">CloudFront → video playback</text>
+<text x="874" y="972" class="body">SQS: đường sự kiện IVS tùy chọn</text>
+<rect x="1257" y="804" width="375" height="225" rx="15" fill="#ecfeff" stroke="#67e8f9"/>
+<text x="1277" y="838" class="head">AZURE</text>
+<text x="1277" y="868" class="body">Web PubSub: transport Socket.IO</text>
+<text x="1277" y="894" class="body">Speech: audio → transcript</text>
+<text x="1277" y="920" class="body">OpenAI: transcript + tài liệu</text>
+<text x="1277" y="946" class="body">→ nội dung tóm tắt có cấu trúc</text>
+<text x="1277" y="972" class="body">Secrets chỉ thuộc backend</text>
+<text x="48" y="1081" class="section">04  LUỒNG TỪ CUỘC HỌP ĐẾN TRI THỨC</text>
+<rect x="48" y="1105" width="296" height="106" rx="15" fill="#fff" stroke="#cbd5e1"/>
+<text x="68" y="1139" class="head">IVS ghi HLS</text>
+<text x="68" y="1169" class="body">S3 trong lúc họp</text>
+<path class="edge" d="M344 1158 H370" />
+<rect x="370" y="1105" width="296" height="106" rx="15" fill="#fff" stroke="#cbd5e1"/>
+<text x="390" y="1139" class="head">Xuất MP4</text>
+<text x="390" y="1169" class="body">Worker + đĩa tạm</text>
+<path class="edge" d="M666 1158 H692" />
+<rect x="692" y="1105" width="296" height="106" rx="15" fill="#fff" stroke="#cbd5e1"/>
+<text x="712" y="1139" class="head">Tạo phụ đề</text>
+<text x="712" y="1169" class="body">Azure Speech</text>
+<path class="edge" d="M988 1158 H1014" />
+<rect x="1014" y="1105" width="296" height="106" rx="15" fill="#fff" stroke="#cbd5e1"/>
+<text x="1034" y="1139" class="head">Tóm tắt AI</text>
+<text x="1034" y="1169" class="body">Queue PostgreSQL</text>
+<path class="edge" d="M1310 1158 H1336" />
+<rect x="1336" y="1105" width="296" height="106" rx="15" fill="#ecfdf5" stroke="#6ee7b7"/>
+<text x="1356" y="1139" class="head">Folder buổi học</text>
+<text x="1356" y="1169" class="body">Bản ghi + file .md</text>
+<text x="48" y="1255" class="body">Dữ liệu bền: PostgreSQL / DynamoDB / S3.  Chat trong cuộc họp vẫn nằm trong RAM của tiến trình API.</text>
+<text x="48" y="1285" class="body">Tóm tắt chỉ chạy sau khi buổi học kết thúc, bản ghi đã lưu và transcript sẵn sàng; host bấm tạo yêu cầu.</text>
+<text x="48" y="1332" class="sub">Chi tiết module, ERD, quyền truy cập, upload và sequence AI: architecture-current.md</text>
+</svg>
